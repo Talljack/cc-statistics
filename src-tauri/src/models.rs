@@ -22,6 +22,7 @@ pub struct ModelTokens {
     pub output: u64,
     pub cache_read: u64,
     pub cache_creation: u64,
+    pub cost_usd: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -46,6 +47,32 @@ pub struct Statistics {
     pub tokens: TokenUsage,
     pub code_changes: CodeChanges,
     pub dev_time: DevTime,
+    pub tool_usage: HashMap<String, u32>,
+    pub skill_usage: HashMap<String, u32>,
+    pub mcp_usage: HashMap<String, u32>,
+    pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInfo {
+    pub session_id: String,
+    pub project_name: String,
+    pub timestamp: String,
+    pub duration_ms: u64,
+    pub duration_formatted: String,
+    pub total_tokens: u64,
+    pub instructions: u32,
+    pub model: String,
+    pub git_branch: String,
+    pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstructionInfo {
+    pub timestamp: String,
+    pub project_name: String,
+    pub session_id: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -71,84 +98,3 @@ impl Default for TimeFilter {
     }
 }
 
-// JSONL record types
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum JsonlRecord {
-    #[serde(rename = "assistant")]
-    Assistant(AssistantRecord),
-    #[serde(rename = "user")]
-    User(UserRecord),
-    #[serde(rename = "system")]
-    System(SystemRecord),
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AssistantRecord {
-    pub message: AssistantMessage,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AssistantMessage {
-    pub model: Option<String>,
-    pub usage: Option<Usage>,
-    pub content: Option<Vec<ContentBlock>>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Usage {
-    #[serde(rename = "input_tokens")]
-    pub input: Option<u64>,
-    #[serde(rename = "output_tokens")]
-    pub output: Option<u64>,
-    #[serde(rename = "cache_read_input_tokens")]
-    pub cache_read: Option<u64>,
-    #[serde(rename = "cache_creation_input_tokens")]
-    pub cache_creation: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ContentBlock {
-    #[serde(rename = "type")]
-    pub block_type: Option<String>,
-    pub name: Option<String>,
-    pub input: Option<ToolInput>,
-    #[serde(rename = "tool_use")]
-    pub tool_use: Option<ToolUse>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ToolUse {
-    pub name: Option<String>,
-    pub input: Option<ToolInput>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ToolInput {
-    #[serde(rename = "file_path")]
-    pub file_path: Option<String>,
-    pub content: Option<String>,
-    #[serde(rename = "old_string")]
-    pub old_string: Option<String>,
-    #[serde(rename = "new_string")]
-    pub new_string: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UserRecord {
-    pub message: Option<UserMessage>,
-    pub timestamp: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UserMessage {
-    pub content: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SystemRecord {
-    pub subtype: Option<String>,
-    #[serde(rename = "durationMs")]
-    pub duration_ms: Option<u64>,
-    pub timestamp: Option<String>,
-}

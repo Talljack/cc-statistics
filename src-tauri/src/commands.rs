@@ -1,24 +1,10 @@
 use crate::models::*;
-use crate::parser::{parse_session_file, ProjectStats};
-use chrono::{DateTime, Duration, Utc};
+use crate::parser::{extract_instructions, format_duration, parse_session_file, ProjectStats};
+use chrono::{DateTime, Duration, Local, TimeZone};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::sync::Mutex;
-
-#[allow(unused_imports)]
-use tauri::State;
-
-pub struct AppState {
-    pub cache: Mutex<CacheData>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct CacheData {
-    pub projects: HashMap<String, ProjectStats>,
-    pub last_updated: Option<String>,
-}
 
 fn get_claude_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -104,13 +90,14 @@ fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> bool {
         Err(_) => return false,
     };
 
-    let now = Utc::now();
-    let datetime: DateTime<Utc> = modified.into();
+    let now = Local::now();
+    let datetime: DateTime<Local> = modified.into();
 
     match time_filter {
         TimeFilter::Today => {
             let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-            datetime.with_timezone(&Utc) >= today_start.and_utc()
+            let today_start_local = Local.from_local_datetime(&today_start).unwrap();
+            datetime >= today_start_local
         }
         TimeFilter::Week => {
             let week_ago = now - Duration::days(7);
@@ -122,18 +109,6 @@ fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> bool {
         }
         TimeFilter::All => true,
     }
-}
-
-fn has_usage(stats: &ProjectStats) -> bool {
-    stats.sessions > 0
-        || stats.instructions > 0
-        || stats.duration_ms > 0
-        || stats.tokens.input > 0
-        || stats.tokens.output > 0
-        || stats.tokens.cache_read > 0
-        || stats.tokens.cache_creation > 0
-        || stats.code_changes.total.additions > 0
-        || stats.code_changes.total.deletions > 0
 }
 
 /// Quick check: does this project directory have any non-empty JSONL files with actual records?
@@ -285,42 +260,148 @@ fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter) -> Re
 }
 
 #[tauri::command]
-pub fn get_cache_status(state: State<AppState>) -> Result<String, String> {
-    let cache = state
-        .cache
-        .lock()
-        .map_err(|_| "Failed to acquire app state".to_string())?;
+pub fn get_sessions(
+    project: Option<String>,
+    time_filter: String,
+) -> Result<Vec<SessionInfo>, String> {
+    let filter = match time_filter.as_str() {
+        "today" => TimeFilter::Today,
+        "week" => TimeFilter::Week,
+        "month" => TimeFilter::Month,
+        _ => TimeFilter::All,
+    };
 
-    Ok(cache
-        .last_updated
-        .clone()
-        .unwrap_or_else(|| "Never".to_string()))
-}
-
-#[tauri::command]
-pub fn refresh_data(state: State<AppState>) -> Result<String, String> {
     let name_map = build_project_name_map()?;
-    let mut refreshed_projects = HashMap::new();
+    let mut sessions: Vec<SessionInfo> = Vec::new();
 
-    for (name, dirs) in &name_map {
-        let mut total_stats = ProjectStats::default();
-        for dir in dirs {
-            let stats = collect_project_stats(dir, &TimeFilter::All)?;
-            total_stats.merge(stats);
+    let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(ref project_name) = project {
+        match name_map.get(project_name) {
+            Some(dirs) => vec![(project_name.clone(), dirs)],
+            None => return Ok(vec![]),
         }
+    } else {
+        name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
+    };
 
-        if has_usage(&total_stats) {
-            refreshed_projects.insert(name.clone(), total_stats);
+    for (project_name, dirs) in target_dirs {
+        for dir in dirs {
+            let entries = match fs::read_dir(dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                if !filter_by_time(&filter, &path) {
+                    continue;
+                }
+
+                let session_stats = match parse_session_file(&path, &filter) {
+                    Ok(s) if s.has_activity => s,
+                    _ => continue,
+                };
+
+                let total_tokens = session_stats.tokens.input
+                    + session_stats.tokens.output
+                    + session_stats.tokens.cache_read
+                    + session_stats.tokens.cache_creation;
+
+                sessions.push(SessionInfo {
+                    session_id: session_stats
+                        .session_id
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    project_name: project_name.clone(),
+                    timestamp: session_stats
+                        .first_timestamp
+                        .unwrap_or_else(|| "".to_string()),
+                    duration_ms: session_stats.duration_ms,
+                    duration_formatted: format_duration(session_stats.duration_ms),
+                    total_tokens,
+                    instructions: session_stats.instructions,
+                    model: session_stats
+                        .primary_model
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    git_branch: session_stats
+                        .git_branch
+                        .unwrap_or_else(|| "".to_string()),
+                    cost_usd: session_stats.cost_usd,
+                });
+            }
         }
     }
 
-    let refreshed_at = Utc::now().to_rfc3339();
-    let mut cache = state
-        .cache
-        .lock()
-        .map_err(|_| "Failed to acquire app state".to_string())?;
-    cache.projects = refreshed_projects;
-    cache.last_updated = Some(refreshed_at.clone());
+    // Sort by timestamp descending
+    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    Ok(sessions)
+}
 
-    Ok(refreshed_at)
+#[tauri::command]
+pub fn get_instructions(
+    project: Option<String>,
+    time_filter: String,
+) -> Result<Vec<InstructionInfo>, String> {
+    let filter = match time_filter.as_str() {
+        "today" => TimeFilter::Today,
+        "week" => TimeFilter::Week,
+        "month" => TimeFilter::Month,
+        _ => TimeFilter::All,
+    };
+
+    let name_map = build_project_name_map()?;
+    let mut instructions: Vec<InstructionInfo> = Vec::new();
+
+    let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(ref project_name) = project {
+        match name_map.get(project_name) {
+            Some(dirs) => vec![(project_name.clone(), dirs)],
+            None => return Ok(vec![]),
+        }
+    } else {
+        name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
+    };
+
+    for (project_name, dirs) in target_dirs {
+        for dir in dirs {
+            let entries = match fs::read_dir(dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                if !filter_by_time(&filter, &path) {
+                    continue;
+                }
+
+                let session_id = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                let items = match extract_instructions(&path, &filter) {
+                    Ok(items) => items,
+                    Err(_) => continue,
+                };
+
+                for (timestamp, content) in items {
+                    instructions.push(InstructionInfo {
+                        timestamp,
+                        project_name: project_name.clone(),
+                        session_id: session_id.clone(),
+                        content,
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort by timestamp descending
+    instructions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    Ok(instructions)
 }

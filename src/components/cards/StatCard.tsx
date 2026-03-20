@@ -4,12 +4,14 @@ interface StatCardProps {
   icon: React.ReactNode;
   color: string;
   trend?: number;
+  onClick?: () => void;
 }
 
-export function StatCard({ title, value, icon, color, trend }: StatCardProps) {
+export function StatCard({ title, value, icon, color, trend, onClick }: StatCardProps) {
   return (
     <div
-      className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a] relative overflow-hidden group hover:border-[#333] transition-colors"
+      className={`bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a] relative overflow-hidden group hover:border-[#333] transition-colors${onClick ? ' cursor-pointer' : ''}`}
+      onClick={onClick}
     >
       <div
         className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl"

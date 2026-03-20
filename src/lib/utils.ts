@@ -48,3 +48,19 @@ export function formatDuration(ms: number): string {
 export function formatPercentage(value: number): string {
   return `${value.toFixed(1)}%`;
 }
+
+export function formatCost(usd: number): string {
+  if (usd >= 1000) {
+    return `$${(usd / 1000).toFixed(1)}K`;
+  }
+  if (usd >= 1) {
+    return `$${usd.toFixed(2)}`;
+  }
+  if (usd >= 0.01) {
+    return `$${usd.toFixed(3)}`;
+  }
+  if (usd > 0) {
+    return `<$0.01`;
+  }
+  return '$0.00';
+}

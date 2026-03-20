@@ -11,6 +11,7 @@ export interface ModelTokens {
   output: number;
   cache_read: number;
   cache_creation: number;
+  cost_usd: number;
 }
 
 export interface ExtensionChanges {
@@ -39,6 +40,30 @@ export interface Statistics {
   tokens: TokenUsage;
   code_changes: CodeChanges;
   dev_time: DevTime;
+  tool_usage: Record<string, number>;
+  skill_usage: Record<string, number>;
+  mcp_usage: Record<string, number>;
+  cost_usd: number;
+}
+
+export interface SessionInfo {
+  session_id: string;
+  project_name: string;
+  timestamp: string;
+  duration_ms: number;
+  duration_formatted: string;
+  total_tokens: number;
+  instructions: number;
+  model: string;
+  git_branch: string;
+  cost_usd: number;
+}
+
+export interface InstructionInfo {
+  timestamp: string;
+  project_name: string;
+  session_id: string;
+  content: string;
 }
 
 export interface ProjectInfo {

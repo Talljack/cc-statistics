@@ -1,12 +1,12 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Statistics, ProjectInfo } from '../types/statistics';
+import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo } from '../types/statistics';
 
 export function useProjects() {
   return useQuery<ProjectInfo[]>({
     queryKey: ['projects'],
     queryFn: () => invoke<ProjectInfo[]>('get_projects'),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -17,20 +17,28 @@ export function useStatistics(project: string | null, timeFilter: string) {
       project,
       timeFilter,
     }),
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 60 * 1000,
   });
 }
 
-export function useCacheStatus() {
-  return useQuery<string>({
-    queryKey: ['cache-status'],
-    queryFn: () => invoke<string>('get_cache_status'),
-    staleTime: 5 * 60 * 1000,
+export function useSessions(project: string | null, timeFilter: string) {
+  return useQuery<SessionInfo[]>({
+    queryKey: ['sessions', project, timeFilter],
+    queryFn: () => invoke<SessionInfo[]>('get_sessions', {
+      project,
+      timeFilter,
+    }),
+    staleTime: 60 * 1000,
   });
 }
 
-export function useRefreshData() {
-  return useMutation({
-    mutationFn: () => invoke<string>('refresh_data'),
+export function useInstructions(project: string | null, timeFilter: string) {
+  return useQuery<InstructionInfo[]>({
+    queryKey: ['instructions', project, timeFilter],
+    queryFn: () => invoke<InstructionInfo[]>('get_instructions', {
+      project,
+      timeFilter,
+    }),
+    staleTime: 60 * 1000,
   });
 }

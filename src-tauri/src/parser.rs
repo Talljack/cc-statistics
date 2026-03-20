@@ -1,7 +1,7 @@
 use crate::models::*;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Local, TimeZone};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -11,6 +11,11 @@ pub fn parse_session_file(path: &Path, time_filter: &TimeFilter) -> Result<Sessi
     let reader = BufReader::new(file);
 
     let mut stats = SessionStats::default();
+
+    // Extract session_id from filename (UUID.jsonl)
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        stats.session_id = Some(stem.to_string());
+    }
 
     for line in reader.lines() {
         let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
@@ -22,6 +27,23 @@ pub fn parse_session_file(path: &Path, time_filter: &TimeFilter) -> Result<Sessi
             Ok(value) => value,
             Err(_) => continue,
         };
+
+        // Extract metadata from early records
+        if stats.cwd.is_none() {
+            if let Some(cwd) = value.get("cwd").and_then(|v| v.as_str()) {
+                stats.cwd = Some(cwd.to_string());
+            }
+        }
+        if stats.version.is_none() {
+            if let Some(version) = value.get("version").and_then(|v| v.as_str()) {
+                stats.version = Some(version.to_string());
+            }
+        }
+        if stats.first_timestamp.is_none() {
+            if let Some(ts) = value.get("timestamp").and_then(|v| v.as_str()) {
+                stats.first_timestamp = Some(ts.to_string());
+            }
+        }
 
         if !matches_time_filter(&value, time_filter) {
             continue;
@@ -79,7 +101,71 @@ fn parse_assistant_record(value: &Value, stats: &mut SessionStats) {
         model_tokens.output += output;
         model_tokens.cache_read += cache_read;
         model_tokens.cache_creation += cache_creation;
+
+        // Calculate cost for this API call
+        let cost = calculate_cost(model, input, output, cache_read, cache_creation);
+        model_tokens.cost_usd += cost;
+        stats.cost_usd += cost;
+
+        // Track primary model (first model seen)
+        if stats.primary_model.is_none() {
+            stats.primary_model = Some(model.to_string());
+        }
     }
+
+    // Extract tool/skill/MCP usage from content blocks
+    if let Some(content) = message.get("content").and_then(|v| v.as_array()) {
+        for block in content {
+            if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+                continue;
+            }
+            let name = match block.get("name").and_then(|v| v.as_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            // All tool_use → tool_usage
+            *stats.tool_usage.entry(name.to_string()).or_insert(0) += 1;
+
+            // Skill calls
+            if name == "Skill" {
+                if let Some(skill_name) = block
+                    .get("input")
+                    .and_then(|v| v.get("skill"))
+                    .and_then(|v| v.as_str())
+                {
+                    *stats.skill_usage.entry(skill_name.to_string()).or_insert(0) += 1;
+                }
+            }
+
+            // MCP calls
+            if name.starts_with("mcp__") {
+                *stats.mcp_usage.entry(name.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+}
+
+/// Calculate cost in USD based on model pricing
+/// Prices are per million tokens
+fn calculate_cost(model: &str, input: u64, output: u64, cache_read: u64, cache_creation: u64) -> f64 {
+    // (input_per_m, output_per_m, cache_read_per_m, cache_creation_per_m)
+    let (input_rate, output_rate, cache_read_rate, cache_creation_rate) = match model {
+        // Claude Opus 4 / 4.5 / 4.6
+        m if m.contains("opus") => (15.0, 75.0, 1.875, 18.75),
+        // Claude Sonnet 4 / 4.5 / 4.6
+        m if m.contains("sonnet") => (3.0, 15.0, 0.30, 3.75),
+        // Claude Haiku 3.5 / 4.5
+        m if m.contains("haiku") => (0.80, 4.0, 0.08, 1.0),
+        // Unknown models — use Sonnet pricing as default
+        _ => (3.0, 15.0, 0.30, 3.75),
+    };
+
+    let m = 1_000_000.0;
+    (input as f64 / m) * input_rate
+        + (output as f64 / m) * output_rate
+        + (cache_read as f64 / m) * cache_read_rate
+        + (cache_creation as f64 / m) * cache_creation_rate
 }
 
 #[derive(Debug, Default, Clone)]
@@ -91,6 +177,21 @@ pub struct SessionStats {
     pub code_changes: CodeChanges,
     /// Tracks unique file paths per extension for file count
     pub changed_files: HashSet<String>,
+    /// Tool usage counts
+    pub tool_usage: HashMap<String, u32>,
+    /// Skill usage counts
+    pub skill_usage: HashMap<String, u32>,
+    /// MCP tool usage counts
+    pub mcp_usage: HashMap<String, u32>,
+    /// Estimated cost in USD
+    pub cost_usd: f64,
+    /// Session metadata
+    pub session_id: Option<String>,
+    pub first_timestamp: Option<String>,
+    pub cwd: Option<String>,
+    pub git_branch: Option<String>,
+    pub version: Option<String>,
+    pub primary_model: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -100,6 +201,10 @@ pub struct ProjectStats {
     pub duration_ms: u64,
     pub tokens: TokenUsage,
     pub code_changes: CodeChanges,
+    pub tool_usage: HashMap<String, u32>,
+    pub skill_usage: HashMap<String, u32>,
+    pub mcp_usage: HashMap<String, u32>,
+    pub cost_usd: f64,
 }
 
 impl ProjectStats {
@@ -108,6 +213,7 @@ impl ProjectStats {
         self.sessions += 1;
         self.instructions += other.instructions;
         self.duration_ms += other.duration_ms;
+        self.cost_usd += other.cost_usd;
         self.tokens.input += other.tokens.input;
         self.tokens.output += other.tokens.output;
         self.tokens.cache_read += other.tokens.cache_read;
@@ -120,6 +226,7 @@ impl ProjectStats {
             model_tokens.output += other_tokens.output;
             model_tokens.cache_read += other_tokens.cache_read;
             model_tokens.cache_creation += other_tokens.cache_creation;
+            model_tokens.cost_usd += other_tokens.cost_usd;
         }
 
         // Merge code changes
@@ -132,6 +239,17 @@ impl ProjectStats {
             ext_changes.additions += changes.additions;
             ext_changes.deletions += changes.deletions;
             ext_changes.files += changes.files;
+        }
+
+        // Merge tool/skill/mcp usage
+        for (name, count) in other.tool_usage {
+            *self.tool_usage.entry(name).or_insert(0) += count;
+        }
+        for (name, count) in other.skill_usage {
+            *self.skill_usage.entry(name).or_insert(0) += count;
+        }
+        for (name, count) in other.mcp_usage {
+            *self.mcp_usage.entry(name).or_insert(0) += count;
         }
     }
 
@@ -140,6 +258,7 @@ impl ProjectStats {
         self.sessions += other.sessions;
         self.instructions += other.instructions;
         self.duration_ms += other.duration_ms;
+        self.cost_usd += other.cost_usd;
         self.tokens.input += other.tokens.input;
         self.tokens.output += other.tokens.output;
         self.tokens.cache_read += other.tokens.cache_read;
@@ -152,6 +271,7 @@ impl ProjectStats {
             model_tokens.output += other_tokens.output;
             model_tokens.cache_read += other_tokens.cache_read;
             model_tokens.cache_creation += other_tokens.cache_creation;
+            model_tokens.cost_usd += other_tokens.cost_usd;
         }
 
         // Merge code changes
@@ -164,6 +284,17 @@ impl ProjectStats {
             ext_changes.additions += changes.additions;
             ext_changes.deletions += changes.deletions;
             ext_changes.files += changes.files;
+        }
+
+        // Merge tool/skill/mcp usage
+        for (name, count) in other.tool_usage {
+            *self.tool_usage.entry(name).or_insert(0) += count;
+        }
+        for (name, count) in other.skill_usage {
+            *self.skill_usage.entry(name).or_insert(0) += count;
+        }
+        for (name, count) in other.mcp_usage {
+            *self.mcp_usage.entry(name).or_insert(0) += count;
         }
     }
 
@@ -189,11 +320,15 @@ impl ProjectStats {
                 user_time_ms: 0,
                 ai_ratio,
             },
+            tool_usage: self.tool_usage.clone(),
+            skill_usage: self.skill_usage.clone(),
+            mcp_usage: self.mcp_usage.clone(),
+            cost_usd: self.cost_usd,
         }
     }
 }
 
-fn format_duration(ms: u64) -> String {
+pub fn format_duration(ms: u64) -> String {
     let seconds = ms / 1000;
     let minutes = seconds / 60;
     let hours = minutes / 60;
@@ -248,6 +383,17 @@ fn parse_user_record(value: &Value, stats: &mut SessionStats) {
 }
 
 fn parse_system_record(value: &Value, stats: &mut SessionStats) {
+    // Extract git branch from system init records
+    if stats.git_branch.is_none() {
+        if let Some(branch) = value
+            .pointer("/gitBranch")
+            .or_else(|| value.pointer("/git_branch"))
+            .and_then(|v| v.as_str())
+        {
+            stats.git_branch = Some(branch.to_string());
+        }
+    }
+
     if value.get("subtype").and_then(|value| value.as_str()) != Some("turn_duration") {
         return;
     }
@@ -268,15 +414,16 @@ fn matches_time_filter(value: &Value, time_filter: &TimeFilter) -> bool {
     };
 
     let record_time = match DateTime::parse_from_rfc3339(timestamp) {
-        Ok(record_time) => record_time.with_timezone(&Utc),
+        Ok(record_time) => record_time.with_timezone(&Local),
         Err(_) => return true,
     };
 
-    let now = Utc::now();
+    let now = Local::now();
     match time_filter {
         TimeFilter::Today => {
-            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
-            record_time >= today_start
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+            let today_start_local = Local.from_local_datetime(&today_start).unwrap();
+            record_time >= today_start_local
         }
         TimeFilter::Week => record_time >= now - Duration::days(7),
         TimeFilter::Month => record_time >= now - Duration::days(30),
@@ -319,47 +466,48 @@ fn extract_tool_result_code_changes(tool_use_result: &Value) -> Option<(String, 
     let extension = file_extension(file_path);
     let result_type = tool_use_result
         .get("type")
-        .and_then(|value| value.as_str())
-        .unwrap_or("update");
+        .and_then(|value| value.as_str());
 
-    match result_type {
-        "create" | "text" => {
-            let additions = tool_use_result
-                .get("content")
-                .and_then(|value| value.as_str())
-                .map(count_lines)
-                .or_else(|| {
-                    tool_use_result
-                        .get("file")
-                        .and_then(|f| f.get("totalLines"))
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n as u32)
-                })
-                .unwrap_or(0);
-            Some((file_path_owned, extension, additions, 0))
+    // Explicit "create" => count content lines as additions
+    if result_type == Some("create") {
+        let additions = tool_use_result
+            .get("content")
+            .and_then(|value| value.as_str())
+            .map(count_lines)
+            .unwrap_or(0);
+        if additions > 0 {
+            return Some((file_path_owned, extension, additions, 0));
         }
-        "update" => {
-            let (additions, deletions) = if let Some(patches) =
-                tool_use_result.get("structuredPatch").and_then(|value| value.as_array())
-            {
-                count_structured_patch_changes(patches)
-            } else {
-                let old_text = tool_use_result
-                    .get("oldString")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| tool_use_result.get("originalFile").and_then(|value| value.as_str()))
-                    .unwrap_or("");
-                let new_text = tool_use_result
-                    .get("newString")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| tool_use_result.get("content").and_then(|value| value.as_str()))
-                    .unwrap_or("");
-                count_replacement_changes(old_text, new_text)
-            };
-            Some((file_path_owned, extension, additions, deletions))
-        }
-        _ => None,
     }
+
+    // Check structuredPatch (works for any type including missing/text/update)
+    if let Some(patches) =
+        tool_use_result.get("structuredPatch").and_then(|value| value.as_array())
+    {
+        let (additions, deletions) = count_structured_patch_changes(patches);
+        if additions > 0 || deletions > 0 {
+            return Some((file_path_owned, extension, additions, deletions));
+        }
+    }
+
+    // Fallback: oldString/newString replacement
+    let old_text = tool_use_result
+        .get("oldString")
+        .and_then(|value| value.as_str())
+        .or_else(|| tool_use_result.get("originalFile").and_then(|value| value.as_str()));
+    let new_text = tool_use_result
+        .get("newString")
+        .and_then(|value| value.as_str());
+
+    if old_text.is_some() || new_text.is_some() {
+        let (additions, deletions) =
+            count_replacement_changes(old_text.unwrap_or(""), new_text.unwrap_or(""));
+        if additions > 0 || deletions > 0 {
+            return Some((file_path_owned, extension, additions, deletions));
+        }
+    }
+
+    None
 }
 
 fn count_structured_patch_changes(patches: &[Value]) -> (u32, u32) {
@@ -413,4 +561,84 @@ fn file_extension(file_path: &str) -> String {
         .and_then(|value| value.to_str())
         .unwrap_or("unknown")
         .to_ascii_lowercase()
+}
+
+/// Extract user instructions from a session file
+pub fn extract_instructions(path: &Path, time_filter: &TimeFilter) -> Result<Vec<(String, String)>, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut results: Vec<(String, String)> = Vec::new(); // (timestamp, content)
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if value.get("type").and_then(|v| v.as_str()) != Some("user") {
+            continue;
+        }
+
+        // Skip tool results
+        if value.get("toolUseResult").is_some() {
+            continue;
+        }
+
+        if !matches_time_filter(&value, time_filter) {
+            continue;
+        }
+
+        if !is_user_instruction(&value) {
+            continue;
+        }
+
+        let timestamp = value
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let content = extract_user_content(&value);
+        if !content.is_empty() {
+            // Truncate to 200 chars for preview
+            let preview = if content.len() > 200 {
+                format!("{}...", &content[..content.char_indices().nth(200).map(|(i, _)| i).unwrap_or(content.len())])
+            } else {
+                content
+            };
+            results.push((timestamp, preview));
+        }
+    }
+
+    Ok(results)
+}
+
+fn extract_user_content(value: &Value) -> String {
+    let content = match value.pointer("/message/content") {
+        Some(content) => content,
+        None => return String::new(),
+    };
+
+    match content {
+        Value::String(text) => text.trim().to_string(),
+        Value::Array(items) => {
+            items
+                .iter()
+                .filter_map(|item| {
+                    if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+                        item.get("text").and_then(|v| v.as_str()).map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        _ => String::new(),
+    }
 }

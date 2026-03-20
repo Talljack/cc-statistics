@@ -1,8 +1,10 @@
 import { useFilterStore } from '../../stores/filterStore';
+import { useAppStore } from '../../stores/appStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useProjects } from '../../hooks/useStatistics';
 import { cn } from '../../lib/utils';
 import type { TimeFilter } from '../../types/statistics';
-import { ChevronDown, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ChevronDown, RefreshCw, Settings } from 'lucide-react';
 
 const timeFilters: { label: string; value: TimeFilter }[] = [
   { label: 'Today', value: 'today' },
@@ -19,6 +21,27 @@ interface HeaderProps {
 export function Header({ onRefresh, isRefreshing }: HeaderProps) {
   const { selectedProject, timeFilter, setProject, setTimeFilter } = useFilterStore();
   const { data: projects } = useProjects();
+  const { currentView, setView } = useAppStore();
+  const { language } = useSettingsStore();
+
+  const settingsTitle = language === 'en' ? 'Settings' : language === 'ja' ? '設定' : '设置';
+
+  if (currentView === 'settings') {
+    return (
+      <header className="bg-[#1a1a1a] border-b border-[#2a2a2a] px-6 py-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setView('dashboard')}
+            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            title="Back to Dashboard"
+          >
+            <ArrowLeft className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
+          </button>
+          <h1 className="text-lg font-semibold">{settingsTitle}</h1>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="bg-[#1a1a1a] border-b border-[#2a2a2a] px-6 py-4">
@@ -76,6 +99,15 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
             title="Refresh"
           >
             <RefreshCw className={cn('w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors', isRefreshing && 'animate-spin text-[#3b82f6]')} />
+          </button>
+
+          {/* Settings Button */}
+          <button
+            onClick={() => setView('settings')}
+            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            title="Settings"
+          >
+            <Settings className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
           </button>
         </div>
       </div>
