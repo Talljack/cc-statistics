@@ -3,6 +3,7 @@ use crate::parser::{parse_session_file, ProjectStats};
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -37,14 +38,59 @@ fn get_projects_dir() -> Result<PathBuf, String> {
     Ok(projects_dir)
 }
 
-fn parse_project_name(path: &str) -> String {
-    // Convert path like "/Users/yugangcao/apps/my-apps/echo-type"
-    // to "-Users-yugangcao-apps-my-apps-echo-type"
-    if path.starts_with('-') {
-        path.to_string()
-    } else {
-        path.replace('/', "-")
+fn find_project_display_name(project_dir: &PathBuf) -> String {
+    let internal_name = project_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown");
+
+    let entries = match fs::read_dir(project_dir) {
+        Ok(entries) => entries,
+        Err(_) => return internal_name.trim_start_matches('-').to_string(),
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+            continue;
+        }
+
+        let file = match fs::File::open(&path) {
+            Ok(file) => file,
+            Err(_) => continue,
+        };
+
+        let reader = BufReader::new(file);
+        for line in reader.lines().take(20).flatten() {
+            let value: serde_json::Value = match serde_json::from_str(&line) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            let cwd = match value.get("cwd").and_then(|cwd| cwd.as_str()) {
+                Some(cwd) => PathBuf::from(cwd),
+                None => continue,
+            };
+
+            let root = cwd
+                .ancestors()
+                .find(|ancestor| {
+                    ancestor.join(".git").exists()
+                        || ancestor.join("package.json").exists()
+                        || ancestor.join("Cargo.toml").exists()
+                        || ancestor.join("pnpm-lock.yaml").exists()
+                })
+                .unwrap_or(cwd.as_path());
+
+            if let Some(name) = root.file_name().and_then(|name| name.to_str()) {
+                if !name.is_empty() {
+                    return name.to_string();
+                }
+            }
+        }
     }
+
+    internal_name.trim_start_matches('-').to_string()
 }
 
 fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> bool {
@@ -78,33 +124,83 @@ fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> bool {
     }
 }
 
-#[tauri::command]
-pub fn get_projects() -> Result<Vec<ProjectInfo>, String> {
-    let projects_dir = get_projects_dir()?;
-    let mut projects = Vec::new();
+fn has_usage(stats: &ProjectStats) -> bool {
+    stats.sessions > 0
+        || stats.instructions > 0
+        || stats.duration_ms > 0
+        || stats.tokens.input > 0
+        || stats.tokens.output > 0
+        || stats.tokens.cache_read > 0
+        || stats.tokens.cache_creation > 0
+        || stats.code_changes.total.additions > 0
+        || stats.code_changes.total.deletions > 0
+}
 
-    for entry in fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects dir: {}", e))? {
+/// Quick check: does this project directory have any non-empty JSONL files with actual records?
+fn has_any_activity(project_dir: &PathBuf) -> bool {
+    let entries = match fs::read_dir(project_dir) {
+        Ok(entries) => entries,
+        Err(_) => return false,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+            continue;
+        }
+        // A file with > 100 bytes almost certainly has real records
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > 100 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Build a map of display_name -> Vec<PathBuf> for all project directories
+fn build_project_name_map() -> Result<HashMap<String, Vec<PathBuf>>, String> {
+    let projects_dir = get_projects_dir()?;
+    let mut map: HashMap<String, Vec<PathBuf>> = HashMap::new();
+
+    for entry in
+        fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects dir: {}", e))?
+    {
         let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
         let path = entry.path();
 
         if path.is_dir() {
-            let _name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-            let path_str = path.to_string_lossy().to_string();
-
-            projects.push(ProjectInfo {
-                name: parse_project_name(&path_str),
-                path: path_str,
-            });
+            let display_name = find_project_display_name(&path);
+            // Skip hidden/dot-prefixed project names
+            if display_name.starts_with('.') {
+                continue;
+            }
+            map.entry(display_name).or_default().push(path);
         }
     }
 
-    // Sort by name
-    projects.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(map)
+}
 
+#[tauri::command]
+pub fn get_projects() -> Result<Vec<ProjectInfo>, String> {
+    let name_map = build_project_name_map()?;
+    let mut projects = Vec::new();
+
+    for (name, dirs) in &name_map {
+        // Quick check: at least one directory has non-empty JSONL files
+        let active = dirs.iter().any(|dir| has_any_activity(dir));
+        if !active {
+            continue;
+        }
+
+        projects.push(ProjectInfo {
+            name: name.clone(),
+            path: name.clone(),
+        });
+    }
+
+    projects.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(projects)
 }
 
@@ -120,36 +216,35 @@ pub fn get_statistics(
         _ => TimeFilter::All,
     };
 
-    let projects_dir = get_projects_dir()?;
     let mut all_stats = ProjectStats::default();
 
-    // If specific project is selected
-    if let Some(project_name) = project {
-        let project_path = if project_name.starts_with('-') {
-            project_name.replace('-', "/")
-        } else {
-            project_name.clone()
-        };
+    let name_map = build_project_name_map()?;
 
-        let full_path = projects_dir.join(&project_path);
-        if full_path.exists() && full_path.is_dir() {
-            let project_stats = collect_project_stats(&full_path, &filter)?;
-            return Ok(project_stats.to_statistics());
-        } else {
-            return Err(format!("Project not found: {}", project_name));
+    // If specific project is selected (by display name)
+    if let Some(project_name) = project {
+        let dirs = name_map
+            .get(&project_name)
+            .ok_or_else(|| format!("Project not found: {}", project_name))?;
+
+        for dir in dirs {
+            match collect_project_stats(dir, &filter) {
+                Ok(stats) => all_stats.merge(stats),
+                Err(e) => {
+                    eprintln!("Error collecting stats for {:?}: {}", dir, e);
+                }
+            }
         }
+
+        return Ok(all_stats.to_statistics());
     }
 
     // Collect all projects
-    for entry in fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects dir: {}", e))? {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            match collect_project_stats(&path, &filter) {
+    for dirs in name_map.values() {
+        for dir in dirs {
+            match collect_project_stats(dir, &filter) {
                 Ok(stats) => all_stats.merge(stats),
                 Err(e) => {
-                    eprintln!("Error collecting stats for {:?}: {}", path, e);
+                    eprintln!("Error collecting stats for {:?}: {}", dir, e);
                 }
             }
         }
@@ -175,8 +270,9 @@ fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter) -> Re
         // Only process jsonl files
         if let Some(ext) = path.extension() {
             if ext == "jsonl" {
-                match parse_session_file(&path) {
-                    Ok(session_stats) => stats.merge_session(session_stats),
+                match parse_session_file(&path, time_filter) {
+                    Ok(session_stats) if session_stats.has_activity => stats.merge_session(session_stats),
+                    Ok(_) => {}
                     Err(e) => {
                         eprintln!("Error parsing {:?}: {}", path, e);
                     }
@@ -185,28 +281,46 @@ fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter) -> Re
         }
     }
 
-    stats.sessions = 1; // Each jsonl file represents one session
-
     Ok(stats)
 }
 
 #[tauri::command]
-pub fn get_cache_status() -> Result<String, String> {
-    let claude_dir = get_claude_dir()?;
-    let cache_file = claude_dir.join("stats-cache.json");
+pub fn get_cache_status(state: State<AppState>) -> Result<String, String> {
+    let cache = state
+        .cache
+        .lock()
+        .map_err(|_| "Failed to acquire app state".to_string())?;
 
-    if cache_file.exists() {
-        let metadata = fs::metadata(&cache_file).map_err(|e| format!("Failed to read cache: {}", e))?;
-        let modified: DateTime<Utc> = metadata.modified().map_err(|e| format!("Failed to get mtime: {}", e))?.into();
-        Ok(modified.to_rfc3339())
-    } else {
-        Ok("No cache".to_string())
-    }
+    Ok(cache
+        .last_updated
+        .clone()
+        .unwrap_or_else(|| "Never".to_string()))
 }
 
 #[tauri::command]
-pub fn refresh_data() -> Result<String, String> {
-    // This would trigger a re-scan of all data
-    // In practice, the cache is automatically invalidated when checking file modification times
-    Ok("Data refreshed".to_string())
+pub fn refresh_data(state: State<AppState>) -> Result<String, String> {
+    let name_map = build_project_name_map()?;
+    let mut refreshed_projects = HashMap::new();
+
+    for (name, dirs) in &name_map {
+        let mut total_stats = ProjectStats::default();
+        for dir in dirs {
+            let stats = collect_project_stats(dir, &TimeFilter::All)?;
+            total_stats.merge(stats);
+        }
+
+        if has_usage(&total_stats) {
+            refreshed_projects.insert(name.clone(), total_stats);
+        }
+    }
+
+    let refreshed_at = Utc::now().to_rfc3339();
+    let mut cache = state
+        .cache
+        .lock()
+        .map_err(|_| "Failed to acquire app state".to_string())?;
+    cache.projects = refreshed_projects;
+    cache.last_updated = Some(refreshed_at.clone());
+
+    Ok(refreshed_at)
 }

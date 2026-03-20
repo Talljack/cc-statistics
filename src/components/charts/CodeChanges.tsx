@@ -8,7 +8,6 @@ export function CodeChanges({ codeChanges }: CodeChangesProps) {
   const { total, by_extension } = codeChanges;
   const extensions = Object.entries(by_extension);
 
-  // Sort by total changes (additions + deletions) descending
   const sortedExtensions = extensions
     .map(([ext, changes]) => ({
       extension: ext,
@@ -16,60 +15,77 @@ export function CodeChanges({ codeChanges }: CodeChangesProps) {
       ...changes,
     }))
     .sort((a, b) => b.total - a.total)
-    .slice(0, 10); // Top 10
+    .slice(0, 10);
+
+  const maxChanges = sortedExtensions.length > 0
+    ? Math.max(...sortedExtensions.map(e => e.total))
+    : 0;
 
   return (
     <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
       <h3 className="text-lg font-semibold mb-4">Code Changes</h3>
 
       {/* Summary */}
-      <div className="flex items-center gap-6 mb-6">
-        <div className="flex items-center gap-2">
-          <span className="text-[#22c55e] font-semibold text-xl">+{total.additions.toLocaleString()}</span>
-          <span className="text-[#a0a0a0]">added</span>
+      <div className="grid grid-cols-4 gap-3 mb-5">
+        <div className="p-3 rounded-lg bg-[#3b82f6]/5 border border-[#3b82f6]/10 text-center">
+          <div className="text-xl font-bold text-[#3b82f6]">{total.files.toLocaleString()}</div>
+          <div className="text-xs text-[#a0a0a0] mt-0.5">Files</div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[#ef4444] font-semibold text-xl">-{total.deletions.toLocaleString()}</span>
-          <span className="text-[#a0a0a0]">deleted</span>
+        <div className="p-3 rounded-lg bg-[#22c55e]/5 border border-[#22c55e]/10 text-center">
+          <div className="text-xl font-bold text-[#22c55e]">+{total.additions.toLocaleString()}</div>
+          <div className="text-xs text-[#a0a0a0] mt-0.5">Added</div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-xl">
+        <div className="p-3 rounded-lg bg-[#ef4444]/5 border border-[#ef4444]/10 text-center">
+          <div className="text-xl font-bold text-[#ef4444]">-{total.deletions.toLocaleString()}</div>
+          <div className="text-xs text-[#a0a0a0] mt-0.5">Deleted</div>
+        </div>
+        <div className="p-3 rounded-lg bg-[#222] text-center">
+          <div className="text-xl font-bold">
             {(total.additions - total.deletions).toLocaleString()}
-          </span>
-          <span className="text-[#a0a0a0]">net</span>
+          </div>
+          <div className="text-xs text-[#a0a0a0] mt-0.5">Net</div>
         </div>
       </div>
 
-      {/* Extensions Table */}
+      {/* Extensions with bars */}
       {sortedExtensions.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="text-[#a0a0a0] text-sm border-b border-[#2a2a2a]">
-                <th className="text-left py-2 pr-4">Extension</th>
-                <th className="text-right py-2 pr-4">Added</th>
-                <th className="text-right py-2">Deleted</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedExtensions.map((ext) => (
-                <tr key={ext.extension} className="border-b border-[#2a2a2a]/50">
-                  <td className="py-2 pr-4">
-                    <span className="font-mono text-sm">.{ext.extension}</span>
-                  </td>
-                  <td className="text-right py-2 pr-4">
+        <div className="space-y-2.5">
+          {sortedExtensions.map((ext) => {
+            const addPct = maxChanges > 0 ? (ext.additions / maxChanges) * 100 : 0;
+            const delPct = maxChanges > 0 ? (ext.deletions / maxChanges) * 100 : 0;
+
+            return (
+              <div key={ext.extension}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm text-[#ccc]">.{ext.extension}</span>
+                    <span className="text-xs text-[#666]">{ext.files} file{ext.files !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
                     <span className="text-[#22c55e]">+{ext.additions.toLocaleString()}</span>
-                  </td>
-                  <td className="text-right py-2">
                     <span className="text-[#ef4444]">-{ext.deletions.toLocaleString()}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+                <div className="flex gap-0.5 h-1.5">
+                  {ext.additions > 0 && (
+                    <div
+                      className="h-full bg-[#22c55e] rounded-full"
+                      style={{ width: `${addPct}%`, minWidth: '2px' }}
+                    />
+                  )}
+                  {ext.deletions > 0 && (
+                    <div
+                      className="h-full bg-[#ef4444] rounded-full"
+                      style={{ width: `${delPct}%`, minWidth: '2px' }}
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
-        <div className="h-[150px] flex items-center justify-center text-[#a0a0a0]">
+        <div className="h-[120px] flex items-center justify-center text-[#a0a0a0]">
           No code changes recorded
         </div>
       )}

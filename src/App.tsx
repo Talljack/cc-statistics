@@ -1,6 +1,6 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { useFilterStore } from './stores/filterStore';
-import { useStatistics } from './hooks/useStatistics';
+import { useCacheStatus, useRefreshData, useStatistics } from './hooks/useStatistics';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
 import { StatCard } from './components/cards/StatCard';
@@ -14,10 +14,25 @@ const queryClient = new QueryClient();
 
 function Dashboard() {
   const { selectedProject, timeFilter } = useFilterStore();
+  const queryClient = useQueryClient();
   const { data: stats, isLoading, refetch, isRefetching } = useStatistics(
     selectedProject,
     timeFilter
   );
+  const { data: lastUpdated } = useCacheStatus();
+  const refreshMutation = useRefreshData();
+
+  const isRefreshing = isRefetching || refreshMutation.isPending;
+
+  const handleRefresh = async () => {
+    await refreshMutation.mutateAsync();
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['projects'] }),
+      queryClient.invalidateQueries({ queryKey: ['statistics'] }),
+      queryClient.invalidateQueries({ queryKey: ['cache-status'] }),
+    ]);
+    await refetch();
+  };
 
   if (isLoading) {
     return (
@@ -43,11 +58,11 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
-      <Header />
+      <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
 
       <main className="flex-1 p-6 overflow-auto">
         {/* Stats Cards */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 2xl:grid-cols-4">
           <StatCard
             title="Sessions"
             value={formatNumber(stats.sessions)}
@@ -75,7 +90,7 @@ function Dashboard() {
         </div>
 
         {/* Charts Row */}
-        <div className="grid grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 gap-6 mb-6 xl:grid-cols-2">
           <DevTimeChart devTime={stats.dev_time} />
           <CodeChanges codeChanges={stats.code_changes} />
         </div>
@@ -85,8 +100,9 @@ function Dashboard() {
       </main>
 
       <Footer
-        onRefresh={() => refetch()}
-        isRefreshing={isRefetching}
+        lastUpdated={lastUpdated}
+        onRefresh={handleRefresh}
+        isRefreshing={isRefreshing}
       />
     </div>
   );

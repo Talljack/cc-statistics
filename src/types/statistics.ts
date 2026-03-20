@@ -16,6 +16,7 @@ export interface ModelTokens {
 export interface ExtensionChanges {
   additions: number;
   deletions: number;
+  files: number;
 }
 
 export interface CodeChanges {

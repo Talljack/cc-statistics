@@ -34,6 +34,7 @@ pub struct CodeChanges {
 pub struct ExtensionChanges {
     pub additions: u32,
     pub deletions: u32,
+    pub files: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -110,6 +111,8 @@ pub struct Usage {
 pub struct ContentBlock {
     #[serde(rename = "type")]
     pub block_type: Option<String>,
+    pub name: Option<String>,
+    pub input: Option<ToolInput>,
     #[serde(rename = "tool_use")]
     pub tool_use: Option<ToolUse>,
 }
@@ -133,7 +136,13 @@ pub struct ToolInput {
 
 #[derive(Debug, Deserialize)]
 pub struct UserRecord {
+    pub message: Option<UserMessage>,
     pub timestamp: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UserMessage {
+    pub content: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]

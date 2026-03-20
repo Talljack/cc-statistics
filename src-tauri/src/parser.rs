@@ -1,9 +1,12 @@
 use crate::models::*;
+use chrono::{DateTime, Duration, Utc};
+use serde_json::Value;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-pub fn parse_session_file(path: &Path) -> Result<SessionStats, String> {
+pub fn parse_session_file(path: &Path, time_filter: &TimeFilter) -> Result<SessionStats, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
 
@@ -15,123 +18,79 @@ pub fn parse_session_file(path: &Path) -> Result<SessionStats, String> {
             continue;
         }
 
-        match serde_json::from_str::<JsonlRecord>(&line) {
-            Ok(record) => match record {
-                JsonlRecord::Assistant(assistant) => {
-                    // Extract token usage
-                    if let Some(usage) = assistant.message.usage {
-                        let input = usage.input.unwrap_or(0);
-                        let output = usage.output.unwrap_or(0);
-                        let cache_read = usage.cache_read.unwrap_or(0);
-                        let cache_creation = usage.cache_creation.unwrap_or(0);
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
 
-                        stats.tokens.input += input;
-                        stats.tokens.output += output;
-                        stats.tokens.cache_read += cache_read;
-                        stats.tokens.cache_creation += cache_creation;
+        if !matches_time_filter(&value, time_filter) {
+            continue;
+        }
 
-                        // Track by model
-                        if let Some(model) = assistant.message.model {
-                            let model_tokens = stats.tokens.by_model.entry(model).or_default();
-                            model_tokens.input += input;
-                            model_tokens.output += output;
-                            model_tokens.cache_read += cache_read;
-                            model_tokens.cache_creation += cache_creation;
-                        }
-                    }
+        stats.has_activity = true;
 
-                    // Extract code changes from tool_use
-                    if let Some(contents) = assistant.message.content {
-                        for content in contents {
-                            if let Some(tool_use) = content.tool_use {
-                                if let Some(name) = tool_use.name {
-                                    if name == "Edit" || name == "Write" {
-                                        if let Some(input) = tool_use.input {
-                                            let (additions, deletions) =
-                                                calculate_code_changes(&name, &input);
-                                            stats.code_changes.total.additions += additions;
-                                            stats.code_changes.total.deletions += deletions;
-
-                                            // Track by extension
-                                            let ext = if let Some(path) = input.file_path {
-                                                Path::new(&path)
-                                                    .extension()
-                                                    .and_then(|s| s.to_str())
-                                                    .unwrap_or("unknown")
-                                                    .to_string()
-                                            } else {
-                                                "unknown".to_string()
-                                            };
-
-                                            let ext_changes = stats
-                                                .code_changes
-                                                .by_extension
-                                                .entry(ext)
-                                                .or_default();
-                                            ext_changes.additions += additions;
-                                            ext_changes.deletions += deletions;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                JsonlRecord::User(_) => {
-                    stats.instructions += 1;
-                }
-                JsonlRecord::System(system) => {
-                    if system.subtype.as_deref() == Some("turn_duration") {
-                        if let Some(duration) = system.duration_ms {
-                            stats.duration_ms += duration;
-                        }
-                    }
-                }
-            },
-            Err(_) => {
-                // Skip malformed lines
-            }
+        match value.get("type").and_then(|value| value.as_str()) {
+            Some("assistant") => parse_assistant_record(&value, &mut stats),
+            Some("user") => parse_user_record(&value, &mut stats),
+            Some("system") => parse_system_record(&value, &mut stats),
+            _ => {}
         }
     }
 
     Ok(stats)
 }
 
-fn calculate_code_changes(tool_name: &str, input: &ToolInput) -> (u32, u32) {
-    match tool_name {
-        "Write" => {
-            if let Some(content) = &input.content {
-                let lines = content.lines().count() as u32;
-                (lines, 0)
-            } else {
-                (0, 0)
-            }
-        }
-        "Edit" => {
-            let old_lines = input.old_string.as_ref().map(|s| s.lines().count()).unwrap_or(0) as u32;
-            let new_lines = input.new_string.as_ref().map(|s| s.lines().count()).unwrap_or(0) as u32;
-            let additions = if new_lines > old_lines {
-                new_lines - old_lines
-            } else {
-                0
-            };
-            let deletions = if old_lines > new_lines {
-                old_lines - new_lines
-            } else {
-                0
-            };
-            (additions, deletions)
-        }
-        _ => (0, 0),
+fn parse_assistant_record(value: &Value, stats: &mut SessionStats) {
+    let message = match value.get("message") {
+        Some(message) => message,
+        None => return,
+    };
+
+    let usage = match message.get("usage") {
+        Some(usage) => usage,
+        None => return,
+    };
+
+    let input = usage
+        .get("input_tokens")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let output = usage
+        .get("output_tokens")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let cache_read = usage
+        .get("cache_read_input_tokens")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let cache_creation = usage
+        .get("cache_creation_input_tokens")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+
+    stats.tokens.input += input;
+    stats.tokens.output += output;
+    stats.tokens.cache_read += cache_read;
+    stats.tokens.cache_creation += cache_creation;
+
+    if let Some(model) = message.get("model").and_then(|value| value.as_str()) {
+        let model_tokens = stats.tokens.by_model.entry(model.to_string()).or_default();
+        model_tokens.input += input;
+        model_tokens.output += output;
+        model_tokens.cache_read += cache_read;
+        model_tokens.cache_creation += cache_creation;
     }
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct SessionStats {
+    pub has_activity: bool,
     pub instructions: u32,
     pub duration_ms: u64,
     pub tokens: TokenUsage,
     pub code_changes: CodeChanges,
+    /// Tracks unique file paths per extension for file count
+    pub changed_files: HashSet<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -166,17 +125,19 @@ impl ProjectStats {
         // Merge code changes
         self.code_changes.total.additions += other.code_changes.total.additions;
         self.code_changes.total.deletions += other.code_changes.total.deletions;
+        self.code_changes.total.files += other.code_changes.total.files;
 
         for (ext, changes) in other.code_changes.by_extension {
             let ext_changes = self.code_changes.by_extension.entry(ext).or_default();
             ext_changes.additions += changes.additions;
             ext_changes.deletions += changes.deletions;
+            ext_changes.files += changes.files;
         }
     }
 
     /// Merge another project stats into this one
     pub fn merge(&mut self, other: ProjectStats) {
-        self.sessions += 1;
+        self.sessions += other.sessions;
         self.instructions += other.instructions;
         self.duration_ms += other.duration_ms;
         self.tokens.input += other.tokens.input;
@@ -196,11 +157,13 @@ impl ProjectStats {
         // Merge code changes
         self.code_changes.total.additions += other.code_changes.total.additions;
         self.code_changes.total.deletions += other.code_changes.total.deletions;
+        self.code_changes.total.files += other.code_changes.total.files;
 
         for (ext, changes) in other.code_changes.by_extension {
             let ext_changes = self.code_changes.by_extension.entry(ext).or_default();
             ext_changes.additions += changes.additions;
             ext_changes.deletions += changes.deletions;
+            ext_changes.files += changes.files;
         }
     }
 
@@ -234,8 +197,12 @@ fn format_duration(ms: u64) -> String {
     let seconds = ms / 1000;
     let minutes = seconds / 60;
     let hours = minutes / 60;
+    let days = hours / 24;
 
-    if hours > 0 {
+    if days > 0 {
+        let remaining_hours = hours % 24;
+        format!("{}d {}h", days, remaining_hours)
+    } else if hours > 0 {
         let remaining_minutes = minutes % 60;
         format!("{}h {}m", hours, remaining_minutes)
     } else if minutes > 0 {
@@ -244,4 +211,206 @@ fn format_duration(ms: u64) -> String {
     } else {
         format!("{}s", seconds)
     }
+}
+
+fn parse_user_record(value: &Value, stats: &mut SessionStats) {
+    if let Some(tool_use_result) = value.get("toolUseResult") {
+        if let Some((file_path, extension, additions, deletions)) = extract_tool_result_code_changes(tool_use_result)
+        {
+            stats.code_changes.total.additions += additions;
+            stats.code_changes.total.deletions += deletions;
+
+            // Track unique file for this extension
+            if stats.changed_files.insert(file_path) {
+                stats.code_changes.total.files += 1;
+                let ext_changes = stats
+                    .code_changes
+                    .by_extension
+                    .entry(extension.clone())
+                    .or_default();
+                ext_changes.files += 1;
+            }
+
+            let ext_changes = stats
+                .code_changes
+                .by_extension
+                .entry(extension)
+                .or_default();
+            ext_changes.additions += additions;
+            ext_changes.deletions += deletions;
+        }
+        return;
+    }
+
+    if is_user_instruction(value) {
+        stats.instructions += 1;
+    }
+}
+
+fn parse_system_record(value: &Value, stats: &mut SessionStats) {
+    if value.get("subtype").and_then(|value| value.as_str()) != Some("turn_duration") {
+        return;
+    }
+
+    if let Some(duration) = value.get("durationMs").and_then(|value| value.as_u64()) {
+        stats.duration_ms += duration;
+    }
+}
+
+fn matches_time_filter(value: &Value, time_filter: &TimeFilter) -> bool {
+    if matches!(time_filter, TimeFilter::All) {
+        return true;
+    }
+
+    let timestamp = match value.get("timestamp").and_then(|value| value.as_str()) {
+        Some(timestamp) => timestamp,
+        None => return true,
+    };
+
+    let record_time = match DateTime::parse_from_rfc3339(timestamp) {
+        Ok(record_time) => record_time.with_timezone(&Utc),
+        Err(_) => return true,
+    };
+
+    let now = Utc::now();
+    match time_filter {
+        TimeFilter::Today => {
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+            record_time >= today_start
+        }
+        TimeFilter::Week => record_time >= now - Duration::days(7),
+        TimeFilter::Month => record_time >= now - Duration::days(30),
+        TimeFilter::All => true,
+    }
+}
+
+fn is_user_instruction(value: &Value) -> bool {
+    let content = match value.pointer("/message/content") {
+        Some(content) => content,
+        None => return false,
+    };
+
+    match content {
+        Value::String(text) => !text.trim().is_empty() && !text.starts_with("[Request interrupted"),
+        Value::Array(items) => items.iter().any(|item| {
+            item.get("type").and_then(|value| value.as_str()) == Some("text")
+                && item
+                    .get("text")
+                    .and_then(|value| value.as_str())
+                    .map(|text| !text.trim().is_empty() && !text.starts_with("[Request interrupted"))
+                    .unwrap_or(false)
+        }),
+        _ => false,
+    }
+}
+
+fn extract_tool_result_code_changes(tool_use_result: &Value) -> Option<(String, String, u32, u32)> {
+    let file_path = tool_use_result
+        .get("filePath")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            tool_use_result
+                .get("file")
+                .and_then(|value| value.get("filePath"))
+                .and_then(|value| value.as_str())
+        })?;
+
+    let file_path_owned = file_path.to_string();
+    let extension = file_extension(file_path);
+    let result_type = tool_use_result
+        .get("type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("update");
+
+    match result_type {
+        "create" | "text" => {
+            let additions = tool_use_result
+                .get("content")
+                .and_then(|value| value.as_str())
+                .map(count_lines)
+                .or_else(|| {
+                    tool_use_result
+                        .get("file")
+                        .and_then(|f| f.get("totalLines"))
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n as u32)
+                })
+                .unwrap_or(0);
+            Some((file_path_owned, extension, additions, 0))
+        }
+        "update" => {
+            let (additions, deletions) = if let Some(patches) =
+                tool_use_result.get("structuredPatch").and_then(|value| value.as_array())
+            {
+                count_structured_patch_changes(patches)
+            } else {
+                let old_text = tool_use_result
+                    .get("oldString")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| tool_use_result.get("originalFile").and_then(|value| value.as_str()))
+                    .unwrap_or("");
+                let new_text = tool_use_result
+                    .get("newString")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| tool_use_result.get("content").and_then(|value| value.as_str()))
+                    .unwrap_or("");
+                count_replacement_changes(old_text, new_text)
+            };
+            Some((file_path_owned, extension, additions, deletions))
+        }
+        _ => None,
+    }
+}
+
+fn count_structured_patch_changes(patches: &[Value]) -> (u32, u32) {
+    let mut additions = 0;
+    let mut deletions = 0;
+
+    for patch in patches {
+        let Some(lines) = patch.get("lines").and_then(|value| value.as_array()) else {
+            continue;
+        };
+
+        for line in lines {
+            let Some(line) = line.as_str() else {
+                continue;
+            };
+
+            if line.starts_with("+++") || line.starts_with("---") {
+                continue;
+            }
+            if line.starts_with('+') {
+                additions += 1;
+            } else if line.starts_with('-') {
+                deletions += 1;
+            }
+        }
+    }
+
+    (additions, deletions)
+}
+
+fn count_replacement_changes(old_text: &str, new_text: &str) -> (u32, u32) {
+    let old_lines = count_lines(old_text);
+    let new_lines = count_lines(new_text);
+
+    if old_text.is_empty() && !new_text.is_empty() {
+        return (new_lines, 0);
+    }
+
+    let additions = new_lines.saturating_sub(old_lines);
+    let deletions = old_lines.saturating_sub(new_lines);
+    (additions, deletions)
+}
+
+fn count_lines(content: &str) -> u32 {
+    content.lines().count() as u32
+}
+
+fn file_extension(file_path: &str) -> String {
+    Path::new(file_path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown")
+        .to_ascii_lowercase()
 }

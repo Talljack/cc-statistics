@@ -3,7 +3,6 @@ import { useProjects } from '../../hooks/useStatistics';
 import { cn } from '../../lib/utils';
 import type { TimeFilter } from '../../types/statistics';
 import { ChevronDown, RefreshCw } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
 
 const timeFilters: { label: string; value: TimeFilter }[] = [
   { label: 'Today', value: 'today' },
@@ -12,33 +11,34 @@ const timeFilters: { label: string; value: TimeFilter }[] = [
   { label: 'All', value: 'all' },
 ];
 
-export function Header() {
+interface HeaderProps {
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}
+
+export function Header({ onRefresh, isRefreshing }: HeaderProps) {
   const { selectedProject, timeFilter, setProject, setTimeFilter } = useFilterStore();
   const { data: projects } = useProjects();
-  const queryClient = useQueryClient();
-
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['statistics'] });
-    queryClient.invalidateQueries({ queryKey: ['projects'] });
-  };
 
   return (
     <header className="bg-[#1a1a1a] border-b border-[#2a2a2a] px-6 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-[#3b82f6] rounded-lg flex items-center justify-center">
+      <div className="flex flex-wrap items-center gap-4 xl:flex-nowrap xl:justify-between">
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="w-8 h-8 bg-gradient-to-br from-[#3b82f6] to-[#6366f1] rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
             <span className="text-white font-bold text-lg">C</span>
           </div>
-          <h1 className="text-xl font-semibold">CC Statistics</h1>
+          <h1 className="text-lg font-semibold whitespace-nowrap">
+            CC <span className="text-[#a0a0a0]">Statistics</span>
+          </h1>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-1 min-w-0 flex-wrap items-center justify-end gap-3">
           {/* Project Selector */}
-          <div className="relative">
+          <div className="relative flex-1 min-w-[240px] max-w-[640px]">
             <select
               value={selectedProject || ''}
               onChange={(e) => setProject(e.target.value || null)}
-              className="appearance-none bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:border-[#3b82f6] cursor-pointer"
+              className="w-full appearance-none bg-[#2a2a2a] border border-[#333] rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:border-[#3b82f6] cursor-pointer hover:border-[#444] transition-colors"
             >
               <option value="">All Projects</option>
               {projects?.map((project) => (
@@ -51,15 +51,15 @@ export function Header() {
           </div>
 
           {/* Time Filter Tabs */}
-          <div className="flex bg-[#2a2a2a] rounded-lg p-1">
+          <div className="flex shrink-0 bg-[#2a2a2a] rounded-lg p-1">
             {timeFilters.map((filter) => (
               <button
                 key={filter.value}
                 onClick={() => setTimeFilter(filter.value)}
                 className={cn(
-                  'px-4 py-1.5 rounded-md text-sm font-medium transition-colors',
+                  'px-4 py-1.5 rounded-md text-sm font-medium transition-all',
                   timeFilter === filter.value
-                    ? 'bg-[#3b82f6] text-white'
+                    ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
                     : 'text-[#a0a0a0] hover:text-white'
                 )}
               >
@@ -70,11 +70,12 @@ export function Header() {
 
           {/* Refresh Button */}
           <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors disabled:opacity-50"
             title="Refresh"
           >
-            <RefreshCw className="w-5 h-5 text-[#a0a0a0]" />
+            <RefreshCw className={cn('w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors', isRefreshing && 'animate-spin text-[#3b82f6]')} />
           </button>
         </div>
       </div>

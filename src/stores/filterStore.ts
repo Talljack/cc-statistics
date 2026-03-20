@@ -10,7 +10,7 @@ interface FilterStore {
 
 export const useFilterStore = create<FilterStore>((set) => ({
   selectedProject: null,
-  timeFilter: 'all',
+  timeFilter: 'today',
   setProject: (project) => set({ selectedProject: project }),
   setTimeFilter: (filter) => set({ timeFilter: filter }),
 }));
