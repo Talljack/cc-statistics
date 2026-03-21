@@ -17,7 +17,7 @@ import { ToolUsageChart } from '../components/charts/ToolUsageChart';
 import { SkillUsageChart } from '../components/charts/SkillUsageChart';
 import { McpUsageChart } from '../components/charts/McpUsageChart';
 import { formatTokens, formatNumber, formatCost, calculateCustomCost } from '../lib/utils';
-import { MessageSquare, FileText, Clock, Cpu, DollarSign } from 'lucide-react';
+import { MessageSquare, FileText, Clock, Cpu, DollarSign, Zap, Plug } from 'lucide-react';
 
 export function Dashboard() {
   const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
@@ -34,6 +34,8 @@ export function Dashboard() {
     showDurationCard,
     showTokensCard,
     showCostCard,
+    showSkillsCard,
+    showMcpCard,
     customPricingEnabled,
     customPricing,
   } = useSettingsStore();
@@ -220,6 +222,32 @@ export function Dashboard() {
         icon={<DollarSign className="w-5 h-5" />}
         color="#ef4444"
         onClick={() => navigate('/cost')}
+      />
+    );
+  }
+  const skillCount = Object.values(stats.skill_usage).reduce((s, c) => s + c, 0);
+  if (showSkillsCard && skillCount > 0) {
+    cards.push(
+      <StatCard
+        key="skills"
+        title="Skills"
+        value={formatNumber(skillCount)}
+        icon={<Zap className="w-5 h-5" />}
+        color="#22c55e"
+        onClick={() => navigate('/skills')}
+      />
+    );
+  }
+  const mcpCount = Object.values(stats.mcp_usage).reduce((s, c) => s + c, 0);
+  if (showMcpCard && mcpCount > 0) {
+    cards.push(
+      <StatCard
+        key="mcp"
+        title="MCP"
+        value={formatNumber(mcpCount)}
+        icon={<Plug className="w-5 h-5" />}
+        color="#06b6d4"
+        onClick={() => navigate('/mcp')}
       />
     );
   }

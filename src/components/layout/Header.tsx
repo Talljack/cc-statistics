@@ -1,16 +1,17 @@
-import { useMemo } from 'react';
 import { useFilterStore } from '../../stores/filterStore';
 import { useAppStore } from '../../stores/appStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useProjects, useAvailableProviders } from '../../hooks/useStatistics';
+import { useProjects } from '../../hooks/useStatistics';
 import { cn } from '../../lib/utils';
 import type { TimeFilter } from '../../types/statistics';
-import { ArrowLeft, ChevronDown, RefreshCw, Settings } from 'lucide-react';
+import { ArrowLeft, ChevronDown, RefreshCw, Settings, BarChart3, ArrowDownCircle } from 'lucide-react';
+import { useUpdateStore } from '../../stores/updateStore';
 
-const builtInTimeFilters: { label: string; value: TimeFilter }[] = [
+const timeFilters: { label: string; value: TimeFilter }[] = [
   { label: 'Today', value: 'today' },
   { label: 'Week', value: 'week' },
   { label: 'Month', value: 'month' },
+  { label: 'All', value: 'all' },
 ];
 
 interface HeaderProps {
@@ -19,19 +20,13 @@ interface HeaderProps {
 }
 
 export function Header({ onRefresh, isRefreshing }: HeaderProps) {
-  const { selectedProject, timeFilter, selectedProvider, setProject, setTimeFilter, setProvider } = useFilterStore();
+  const { selectedProject, timeFilter, setProject, setTimeFilter } = useFilterStore();
   const { data: projects } = useProjects();
-  const { data: availableProviders } = useAvailableProviders();
   const { currentView, setView } = useAppStore();
-  const { language, customTimeFilters } = useSettingsStore();
+  const { language } = useSettingsStore();
+  const { status: updateStatus, setDialogOpen } = useUpdateStore();
 
-  const timeFilters = useMemo(() => {
-    const custom = customTimeFilters.map((f: { label: string; days: number }) => ({
-      label: f.label,
-      value: `days_${f.days}` as TimeFilter,
-    }));
-    return [...builtInTimeFilters, ...custom, { label: 'All', value: 'all' as TimeFilter }];
-  }, [customTimeFilters]);
+  const updateLabel = language === 'en' ? 'Update' : language === 'ja' ? '更新' : '更新';
 
   const settingsTitle = language === 'en' ? 'Settings' : language === 'ja' ? '設定' : '设置';
 
@@ -82,25 +77,8 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-[#a0a0a0]" />
           </div>
 
-          {/* Provider Selector */}
-          <div className="relative min-w-[140px] max-w-[220px]">
-            <select
-              value={selectedProvider || ''}
-              onChange={(e) => setProvider(e.target.value || null)}
-              className="w-full appearance-none bg-[#2a2a2a] border border-[#333] rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:border-[#3b82f6] cursor-pointer hover:border-[#444] transition-colors"
-            >
-              <option value="">All Providers</option>
-              {availableProviders?.map((provider) => (
-                <option key={provider} value={provider}>
-                  {provider}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-[#a0a0a0]" />
-          </div>
-
           {/* Time Filter Tabs */}
-          <div className="flex shrink-0 bg-[#2a2a2a] rounded-lg p-1 overflow-x-auto">
+          <div className="flex shrink-0 bg-[#2a2a2a] rounded-lg p-1">
             {timeFilters.map((filter) => (
               <button
                 key={filter.value}
@@ -126,6 +104,26 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
           >
             <RefreshCw className={cn('w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors', isRefreshing && 'animate-refresh-spin text-[#3b82f6]')} />
           </button>
+
+          {/* Report Button */}
+          <button
+            onClick={() => { window.location.hash = '#/report'; }}
+            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            title="Report"
+          >
+            <BarChart3 className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
+          </button>
+
+          {/* Update Badge */}
+          {(updateStatus === 'available' || updateStatus === 'downloaded') && (
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#3b82f6]/15 border border-[#3b82f6]/30 text-[#60a5fa] text-sm font-medium hover:bg-[#3b82f6]/25 transition-colors"
+            >
+              <ArrowDownCircle className="w-4 h-4" />
+              {updateLabel}
+            </button>
+          )}
 
           {/* Settings Button */}
           <button

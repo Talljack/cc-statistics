@@ -20,13 +20,13 @@ fn model_to_provider(model: &str) -> Option<String> {
 
     // Known provider mappings
     if m.starts_with("claude") {
-        return Some("Claude".to_string());
+        return Some("Anthropic".to_string());
     }
-    if m.starts_with("gpt") || m.starts_with("o3") || m.starts_with("o4") || m.starts_with("o1") {
+    if m.starts_with("gpt") || m.starts_with("o3") || m.starts_with("o4") || m.starts_with("o1") || m.starts_with("chatgpt") {
         return Some("OpenAI".to_string());
     }
     if m.starts_with("gemini") {
-        return Some("Google".to_string());
+        return Some("Google Gemini".to_string());
     }
     if m.starts_with("deepseek") {
         return Some("DeepSeek".to_string());
@@ -36,6 +36,63 @@ fn model_to_provider(model: &str) -> Option<String> {
     }
     if m.starts_with("glm") {
         return Some("Zhipu".to_string());
+    }
+    if m.starts_with("mistral") || m.starts_with("codestral") || m.starts_with("pixtral") {
+        return Some("Mistral".to_string());
+    }
+    if m.starts_with("llama") || m.starts_with("meta-llama") {
+        return Some("Meta".to_string());
+    }
+    if m.starts_with("qwen") {
+        return Some("Qwen".to_string());
+    }
+    if m.starts_with("grok") {
+        return Some("xAI".to_string());
+    }
+    if m.starts_with("command") || m.starts_with("cohere") {
+        return Some("Cohere".to_string());
+    }
+    if m.starts_with("yi-") {
+        return Some("Yi".to_string());
+    }
+    if m.starts_with("baichuan") {
+        return Some("Baichuan".to_string());
+    }
+    if m.starts_with("doubao") || m.starts_with("bytedance") {
+        return Some("ByteDance".to_string());
+    }
+    if m.starts_with("sensechat") || m.starts_with("sensetime") {
+        return Some("SenseTime".to_string());
+    }
+    if m.starts_with("openrouter/") || m.starts_with("openrouter-") {
+        return Some("OpenRouter".to_string());
+    }
+    if m.starts_with("together/") || m.starts_with("together-") {
+        return Some("Together".to_string());
+    }
+    if m.starts_with("groq/") || m.starts_with("groq-") {
+        return Some("Groq".to_string());
+    }
+    if m.starts_with("perplexity") || m.starts_with("pplx") {
+        return Some("Perplexity".to_string());
+    }
+    if m.starts_with("minimax") {
+        return Some("MiniMax".to_string());
+    }
+    if m.starts_with("azure") {
+        return Some("Azure OpenAI".to_string());
+    }
+    if m.starts_with("github") || m.starts_with("copilot") {
+        return Some("GitHub Copilot".to_string());
+    }
+    if m.starts_with("ollama") {
+        return Some("Ollama".to_string());
+    }
+    if m.starts_with("cloudflare") || m.starts_with("cf-") {
+        return Some("Cloudflare".to_string());
+    }
+    if m.starts_with("aihubmix") {
+        return Some("AiHubMix".to_string());
     }
 
     // Unknown model: use first segment before '-' as provider name, preserving original case
@@ -323,13 +380,13 @@ fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter, provi
             if ext == "jsonl" {
                 match parse_session_file(&path, time_filter) {
                     Ok(session_stats) if session_stats.has_activity => {
-                        // Apply provider filter: skip sessions whose primary_model doesn't belong to the provider
+                        // Apply provider filter: skip sessions that have no models from this provider
                         if let Some(ref provider) = provider_filter {
                             let matches = session_stats
-                                .primary_model
-                                .as_ref()
-                                .map(|m| model_matches_provider(m, provider))
-                                .unwrap_or(false);
+                                .tokens
+                                .by_model
+                                .keys()
+                                .any(|m| model_matches_provider(m, provider));
                             if !matches {
                                 continue;
                             }
@@ -392,10 +449,10 @@ pub fn get_sessions(
                 // Apply provider filter
                 if let Some(ref provider) = provider_filter {
                     let matches = session_stats
-                        .primary_model
-                        .as_ref()
-                        .map(|m| model_matches_provider(m, provider))
-                        .unwrap_or(false);
+                        .tokens
+                        .by_model
+                        .keys()
+                        .any(|m| model_matches_provider(m, provider));
                     if !matches {
                         continue;
                     }
@@ -471,17 +528,17 @@ pub fn get_instructions(
                     continue;
                 }
 
-                // Apply provider filter: parse session to check primary_model
+                // Apply provider filter: parse session to check by_model keys
                 if let Some(ref provider) = provider_filter {
                     let session_stats = match parse_session_file(&path, &filter) {
                         Ok(s) => s,
                         Err(_) => continue,
                     };
                     let matches = session_stats
-                        .primary_model
-                        .as_ref()
-                        .map(|m| model_matches_provider(m, provider))
-                        .unwrap_or(false);
+                        .tokens
+                        .by_model
+                        .keys()
+                        .any(|m| model_matches_provider(m, provider));
                     if !matches {
                         continue;
                     }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   useSettingsStore,
   providerGroups,
@@ -8,6 +8,8 @@ import {
   type CustomPricing,
 } from '../../stores/settingsStore';
 import { usePricingStore } from '../../stores/pricingStore';
+import { useUpdateStore } from '../../stores/updateStore';
+import { getVersion } from '@tauri-apps/api/app';
 import { cn } from '../../lib/utils';
 import type { TimeFilter } from '../../types/statistics';
 import {
@@ -222,6 +224,8 @@ function GeneralTab() {
     showDurationCard,
     showTokensCard,
     showCostCard,
+    showSkillsCard,
+    showMcpCard,
     autoRefreshEnabled,
     autoRefreshInterval,
     sessionSortField,
@@ -238,6 +242,8 @@ function GeneralTab() {
     setShowDurationCard,
     setShowTokensCard,
     setShowCostCard,
+    setShowSkillsCard,
+    setShowMcpCard,
     setAutoRefreshEnabled,
     setAutoRefreshInterval,
     setSessionSortField,
@@ -418,6 +424,20 @@ function GeneralTab() {
               right={<Toggle checked={showCostCard} onChange={setShowCostCard} />}
             />
           )}
+          <SettingItem
+            icon={<Zap className="w-5 h-5" />}
+            iconColor="#22c55e"
+            title="Skills"
+            description={t('Skill 调用次数', 'Skill call count', 'スキル呼び出し数', language)}
+            right={<Toggle checked={showSkillsCard} onChange={setShowSkillsCard} />}
+          />
+          <SettingItem
+            icon={<Plug className="w-5 h-5" />}
+            iconColor="#06b6d4"
+            title="MCP"
+            description={t('MCP 调用次数', 'MCP call count', 'MCP呼び出し数', language)}
+            right={<Toggle checked={showMcpCard} onChange={setShowMcpCard} />}
+          />
         </div>
       </section>
 
@@ -864,6 +884,40 @@ function AdvancedTab() {
 
 function AboutTab() {
   const { language } = useSettingsStore();
+  const { status: updateStatus, checkForUpdate, setDialogOpen, currentVersion } = useUpdateStore();
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => {
+    getVersion().then(setAppVersion);
+  }, []);
+
+  const version = currentVersion || appVersion;
+
+  const checkUpdateLabel = language === 'en'
+    ? 'Check for Updates'
+    : language === 'ja'
+    ? 'アップデートを確認'
+    : '检查更新';
+
+  const checkingLabel = language === 'en'
+    ? 'Checking...'
+    : language === 'ja'
+    ? '確認中...'
+    : '检查中...';
+
+  const upToDateLabel = language === 'en'
+    ? 'Up to date'
+    : language === 'ja'
+    ? '最新です'
+    : '已是最新版本';
+
+  const handleCheckUpdate = async () => {
+    await checkForUpdate();
+    const { status } = useUpdateStore.getState();
+    if (status === 'available' || status === 'downloaded') {
+      setDialogOpen(true);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -873,7 +927,32 @@ function AboutTab() {
           <span className="text-white font-bold text-3xl">C</span>
         </div>
         <h2 className="text-xl font-bold mb-1">CC Statistics</h2>
-        <p className="text-sm text-[#808080]">v1.0.0</p>
+        <p className="text-sm text-[#808080]">v{version || '...'}</p>
+        <div className="mt-3">
+          {updateStatus === 'available' || updateStatus === 'downloaded' ? (
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3b82f6] text-sm font-medium text-white hover:bg-[#2563eb] transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {updateStatus === 'downloaded'
+                ? (language === 'en' ? 'Restart to Update' : language === 'ja' ? '再起動して更新' : '重启以更新')
+                : (language === 'en' ? 'Update Available' : language === 'ja' ? '更新あり' : '有可用更新')}
+            </button>
+          ) : (
+            <button
+              onClick={handleCheckUpdate}
+              disabled={updateStatus === 'checking'}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-sm font-medium text-[#a0a0a0] hover:text-white hover:border-[#444] transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={cn('w-4 h-4', updateStatus === 'checking' && 'animate-spin')} />
+              {updateStatus === 'checking' ? checkingLabel : checkUpdateLabel}
+            </button>
+          )}
+          {updateStatus === 'idle' && currentVersion && (
+            <p className="text-xs text-[#606060] mt-2">{upToDateLabel}</p>
+          )}
+        </div>
         <p className="text-xs text-[#606060] mt-3 max-w-sm mx-auto">
           {t(
             '一个本地化的 Claude Code 使用统计分析工具。所有数据均在本地处理，不会上传到任何服务器。',

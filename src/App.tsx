@@ -5,7 +5,12 @@ import { Dashboard } from './pages/Dashboard';
 import { Sessions } from './pages/Sessions';
 import { Instructions } from './pages/Instructions';
 import { CostBreakdown } from './pages/CostBreakdown';
+import { Skills } from './pages/Skills';
+import { McpServers } from './pages/McpServers';
+import { Report } from './pages/Report';
+import { UpdateDialog } from './components/UpdateDialog';
 import { usePricingStore } from './stores/pricingStore';
+import { useUpdateStore } from './stores/updateStore';
 
 const queryClient = new QueryClient();
 
@@ -17,15 +22,31 @@ function PricingLoader() {
   return null;
 }
 
+function UpdateChecker() {
+  const checkForUpdate = useUpdateStore((s) => s.checkForUpdate);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      checkForUpdate();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [checkForUpdate]);
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <PricingLoader />
+      <UpdateChecker />
+      <UpdateDialog />
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/sessions" element={<Sessions />} />
         <Route path="/instructions" element={<Instructions />} />
         <Route path="/cost" element={<CostBreakdown />} />
+        <Route path="/skills" element={<Skills />} />
+        <Route path="/mcp" element={<McpServers />} />
+        <Route path="/report" element={<Report />} />
       </Routes>
     </QueryClientProvider>
   );

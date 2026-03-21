@@ -102,6 +102,11 @@ export interface CustomTimeFilter {
   days: number;
 }
 
+export interface CustomProvider {
+  name: string;     // Display name (e.g., "Fireworks AI")
+  keyword: string;  // Model name prefix to match (e.g., "fireworks")
+}
+
 interface SettingsStore {
   // General
   language: Language;
@@ -120,6 +125,8 @@ interface SettingsStore {
   showDurationCard: boolean;
   showTokensCard: boolean;
   showCostCard: boolean;
+  showSkillsCard: boolean;
+  showMcpCard: boolean;
 
   // Sessions
   sessionSortField: SessionSortField;
@@ -131,6 +138,9 @@ interface SettingsStore {
 
   // Custom time filters
   customTimeFilters: CustomTimeFilter[];
+
+  // Custom providers
+  customProviders: CustomProvider[];
 
   // Actions
   setLanguage: (language: Language) => void;
@@ -147,6 +157,8 @@ interface SettingsStore {
   setShowDurationCard: (show: boolean) => void;
   setShowTokensCard: (show: boolean) => void;
   setShowCostCard: (show: boolean) => void;
+  setShowSkillsCard: (show: boolean) => void;
+  setShowMcpCard: (show: boolean) => void;
   setSessionSortField: (field: SessionSortField) => void;
   setSessionSortOrder: (order: SortOrder) => void;
   setCustomPricingEnabled: (enabled: boolean) => void;
@@ -155,6 +167,8 @@ interface SettingsStore {
   setCustomTimeFilters: (filters: CustomTimeFilter[]) => void;
   addCustomTimeFilter: (filter: CustomTimeFilter) => void;
   removeCustomTimeFilter: (index: number) => void;
+  addCustomProvider: (provider: CustomProvider) => void;
+  removeCustomProvider: (index: number) => void;
   resetSettings: () => void;
 }
 
@@ -205,11 +219,14 @@ const defaultSettings = {
   showDurationCard: true,
   showTokensCard: true,
   showCostCard: true,
+  showSkillsCard: false,
+  showMcpCard: false,
   sessionSortField: 'timestamp' as SessionSortField,
   sessionSortOrder: 'desc' as SortOrder,
   customPricingEnabled: false,
   customPricing: defaultPricing,
   customTimeFilters: [] as CustomTimeFilter[],
+  customProviders: [] as CustomProvider[],
 };
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -230,6 +247,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setShowDurationCard: (show) => set({ showDurationCard: show }),
       setShowTokensCard: (show) => set({ showTokensCard: show }),
       setShowCostCard: (show) => set({ showCostCard: show }),
+      setShowSkillsCard: (show) => set({ showSkillsCard: show }),
+      setShowMcpCard: (show) => set({ showMcpCard: show }),
       setSessionSortField: (field) => set({ sessionSortField: field }),
       setSessionSortOrder: (order) => set({ sessionSortOrder: order }),
       setCustomPricingEnabled: (enabled) => set({ customPricingEnabled: enabled }),
@@ -249,6 +268,14 @@ export const useSettingsStore = create<SettingsStore>()(
       removeCustomTimeFilter: (index) =>
         set((state) => ({
           customTimeFilters: state.customTimeFilters.filter((_, i) => i !== index),
+        })),
+      addCustomProvider: (provider) =>
+        set((state) => ({
+          customProviders: [...state.customProviders, provider],
+        })),
+      removeCustomProvider: (index) =>
+        set((state) => ({
+          customProviders: state.customProviders.filter((_, i) => i !== index),
         })),
       resetSettings: () => set(defaultSettings),
     }),

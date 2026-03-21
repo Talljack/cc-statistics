@@ -37,12 +37,18 @@ pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         .item(&quit_item)
         .build()?;
 
-    TrayIconBuilder::with_id("main")
+    let mut builder = TrayIconBuilder::with_id("main")
         .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
-        .icon_as_template(true)
         .tooltip("CC Statistics")
-        .menu(&menu)
-        .show_menu_on_left_click(true)
+        .menu(&menu);
+
+    // icon_as_template and show_menu_on_left_click are macOS-specific behaviors
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.icon_as_template(true).show_menu_on_left_click(true);
+    }
+
+    builder
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => {
                 if let Some(window) = app.get_webview_window("main") {
