@@ -3,6 +3,7 @@ import { useFilterStore } from '../stores/filterStore';
 import { useStatistics } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { formatNumber } from '../lib/utils';
+import { useTranslation } from '../lib/i18n';
 import { ArrowLeft, Plug } from 'lucide-react';
 
 interface ServerGroup {
@@ -20,6 +21,7 @@ function parseMcpName(fullName: string): { server: string; method: string } {
 }
 
 export function McpServers() {
+  const { t } = useTranslation();
   const { selectedProject, timeFilter } = useFilterStore();
   const navigate = useNavigate();
   const { data: stats, isLoading } = useStatistics(selectedProject, timeFilter);
@@ -51,7 +53,7 @@ export function McpServers() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">Loading...</div>
+        <div className="text-[#a0a0a0]">{t('mcp.loading')}</div>
       </div>
     );
   }
@@ -71,9 +73,9 @@ export function McpServers() {
           <div className="flex items-center gap-2">
             <Plug className="w-5 h-5 text-[#06b6d4]" />
             <h2 className="text-xl font-semibold">
-              MCP Servers
+              {t('mcp.title')}
               <span className="text-[#a0a0a0] text-sm font-normal ml-2">
-                {groups.length} servers · {formatNumber(totalCalls)} calls
+                {groups.length} {t('mcp.servers')} · {formatNumber(totalCalls)} {t('common.calls')}
               </span>
             </h2>
           </div>
@@ -81,7 +83,7 @@ export function McpServers() {
 
         {groups.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
-            No MCP usage found
+            {t('mcp.noData')}
           </div>
         ) : (
           <div className="space-y-4">
@@ -102,7 +104,7 @@ export function McpServers() {
                       </div>
                       <div className="flex items-center gap-3 shrink-0 ml-3">
                         <span className="text-xs text-[#606060]">
-                          {group.methods.length} method{group.methods.length !== 1 ? 's' : ''}
+                          {group.methods.length} {group.methods.length !== 1 ? t('mcp.methods') : t('mcp.method')}
                         </span>
                         <span className="text-sm font-bold" style={{ color }}>
                           {formatNumber(group.total)}
@@ -125,7 +127,7 @@ export function McpServers() {
                           {group.methods.map((m) => (
                             <tr key={m.method} className="border-b border-[#2a2a2a] last:border-b-0 hover:bg-[#222] transition-colors">
                               <td className="px-4 py-2.5 pl-9 text-[#a0a0a0] truncate" title={m.method}>
-                                {m.method || '(default)'}
+                                {m.method || t('mcp.default')}
                               </td>
                               <td className="px-4 py-2.5 text-right font-mono w-24" style={{ color }}>
                                 {formatNumber(m.count)}

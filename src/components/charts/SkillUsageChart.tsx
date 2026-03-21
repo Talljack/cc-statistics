@@ -1,10 +1,12 @@
 import { formatNumber } from '../../lib/utils';
+import { useTranslation } from '../../lib/i18n';
 
 interface SkillUsageChartProps {
   skillUsage: Record<string, number>;
 }
 
 export function SkillUsageChart({ skillUsage }: SkillUsageChartProps) {
+  const { t } = useTranslation();
   const entries = Object.entries(skillUsage);
 
   if (entries.length === 0) {
@@ -19,8 +21,8 @@ export function SkillUsageChart({ skillUsage }: SkillUsageChartProps) {
   return (
     <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">Skill Usage</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} calls</span>
+        <h3 className="text-lg font-semibold">{t('chart.skillUsage')}</h3>
+        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} {t('common.calls')}</span>
       </div>
       <div className="space-y-3">
         {sorted.map(([name, count], index) => {

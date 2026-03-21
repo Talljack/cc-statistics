@@ -1,64 +1,7 @@
 import { useEffect } from 'react';
 import { useUpdateStore } from '../stores/updateStore';
-import { useSettingsStore } from '../stores/settingsStore';
+import { useTranslation } from '../lib/i18n';
 import { X, Download, RotateCcw, Loader2, ArrowRight, CheckCircle2 } from 'lucide-react';
-
-const i18n = {
-  zh: {
-    softwareUpdate: '软件更新',
-    newVersionAvailable: '发现新版本可用',
-    whatsNew: '更新内容',
-    noChangelog: '暂无更新说明',
-    cancel: '取消',
-    downloadInstall: '下载并安装',
-    downloading: '下载中...',
-    downloaded: '下载完成',
-    restartTitle: '重启以完成更新',
-    restartDesc: '更新已下载完成。是否立即重启应用以完成更新？',
-    later: '稍后',
-    restartNow: '立即重启',
-    errorTitle: '更新失败',
-    retry: '重试',
-    updateAvailable: '有更新',
-    checkingUpdate: '检查更新中...',
-  },
-  en: {
-    softwareUpdate: 'Software Update',
-    newVersionAvailable: 'A new version is available',
-    whatsNew: "WHAT'S NEW",
-    noChangelog: 'No release notes available',
-    cancel: 'Cancel',
-    downloadInstall: 'Download & Install',
-    downloading: 'Downloading...',
-    downloaded: 'Downloaded',
-    restartTitle: 'Restart to Apply Update?',
-    restartDesc: 'The update has been downloaded. Would you like to restart the application now to apply the update?',
-    later: 'Later',
-    restartNow: 'Restart Now',
-    errorTitle: 'Update Failed',
-    retry: 'Retry',
-    updateAvailable: 'Update',
-    checkingUpdate: 'Checking for updates...',
-  },
-  ja: {
-    softwareUpdate: 'ソフトウェアアップデート',
-    newVersionAvailable: '新しいバージョンが利用可能です',
-    whatsNew: '新機能',
-    noChangelog: 'リリースノートはありません',
-    cancel: 'キャンセル',
-    downloadInstall: 'ダウンロードしてインストール',
-    downloading: 'ダウンロード中...',
-    downloaded: 'ダウンロード完了',
-    restartTitle: '再起動してアップデートを適用しますか？',
-    restartDesc: 'アップデートがダウンロードされました。アプリケーションを再起動してアップデートを適用しますか？',
-    later: '後で',
-    restartNow: '今すぐ再起動',
-    errorTitle: 'アップデート失敗',
-    retry: 'リトライ',
-    updateAvailable: '更新あり',
-    checkingUpdate: 'アップデートを確認中...',
-  },
-};
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -74,8 +17,7 @@ export function UpdateDialog() {
     downloadProgress, downloadedBytes, totalBytes, error,
     setDialogOpen, downloadAndInstall, installUpdate, checkForUpdate,
   } = useUpdateStore();
-  const language = useSettingsStore((s) => s.language);
-  const t = i18n[language];
+  const { t } = useTranslation();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -106,10 +48,10 @@ export function UpdateDialog() {
               <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
                 <CheckCircle2 className="w-5 h-5 text-green-400" />
               </div>
-              <h2 className="text-lg font-semibold text-white">{t.restartTitle}</h2>
+              <h2 className="text-lg font-semibold text-white">{t('update.restartTitle')}</h2>
             </div>
             <p className="text-sm text-[#a0a0a0] leading-relaxed ml-[52px]">
-              {t.restartDesc}
+              {t('update.restartDesc')}
             </p>
           </div>
           <div className="flex gap-3 px-6 pb-6 justify-end">
@@ -117,7 +59,7 @@ export function UpdateDialog() {
               onClick={() => setDialogOpen(false)}
               className="px-5 py-2.5 rounded-lg border border-[#444] text-sm font-medium text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
             >
-              {t.later}
+              {t('update.later')}
             </button>
             <button
               onClick={installUpdate}
@@ -125,7 +67,7 @@ export function UpdateDialog() {
             >
               <span className="flex items-center gap-2">
                 <RotateCcw className="w-4 h-4" />
-                {t.restartNow}
+                {t('update.restartNow')}
               </span>
             </button>
           </div>
@@ -142,8 +84,8 @@ export function UpdateDialog() {
         {/* Header */}
         <div className="flex items-start justify-between p-6 pb-0">
           <div>
-            <h2 className="text-lg font-semibold text-white">{t.softwareUpdate}</h2>
-            <p className="text-sm text-[#a0a0a0] mt-1">{t.newVersionAvailable}</p>
+            <h2 className="text-lg font-semibold text-white">{t('update.softwareUpdate')}</h2>
+            <p className="text-sm text-[#a0a0a0] mt-1">{t('update.newVersionAvailable')}</p>
           </div>
           {status !== 'downloading' && (
             <button
@@ -167,11 +109,11 @@ export function UpdateDialog() {
         {/* Changelog */}
         <div className="px-6 pb-4">
           <div className="text-[11px] font-semibold text-[#666] uppercase tracking-wider mb-2">
-            {t.whatsNew}
+            {t('update.whatsNew')}
           </div>
           <div className="bg-[#161616] border border-[#2a2a2a] rounded-lg p-4 max-h-40 overflow-y-auto">
             <p className="text-sm text-[#b0b0b0] leading-relaxed whitespace-pre-wrap">
-              {changelog || t.noChangelog}
+              {changelog || t('update.noChangelog')}
             </p>
           </div>
         </div>
@@ -199,7 +141,7 @@ export function UpdateDialog() {
         {status === 'error' && (
           <div className="px-6 pb-2">
             <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-              <p className="text-sm text-red-400">{t.errorTitle}: {error}</p>
+              <p className="text-sm text-red-400">{t('update.errorTitle')}: {error}</p>
             </div>
           </div>
         )}
@@ -211,7 +153,7 @@ export function UpdateDialog() {
               onClick={() => setDialogOpen(false)}
               className="px-5 py-2.5 rounded-lg border border-[#444] text-sm font-medium text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
             >
-              {t.cancel}
+              {t('common.cancel')}
             </button>
           )}
 
@@ -222,7 +164,7 @@ export function UpdateDialog() {
             >
               <span className="flex items-center gap-2">
                 <Download className="w-4 h-4" />
-                {t.downloadInstall}
+                {t('update.downloadInstall')}
               </span>
             </button>
           )}
@@ -234,7 +176,7 @@ export function UpdateDialog() {
             >
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {t.downloading}
+                {t('update.downloading')}
               </span>
             </button>
           )}
@@ -244,7 +186,7 @@ export function UpdateDialog() {
               onClick={checkForUpdate}
               className="px-5 py-2.5 rounded-lg bg-[#3b82f6] text-sm font-medium text-white hover:bg-[#2563eb] transition-colors shadow-lg shadow-blue-500/20"
             >
-              {t.retry}
+              {t('common.retry')}
             </button>
           )}
         </div>

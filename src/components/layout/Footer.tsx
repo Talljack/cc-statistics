@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useTranslation } from '../../lib/i18n';
 
 interface FooterProps {
   lastUpdated?: string;
@@ -8,14 +9,15 @@ interface FooterProps {
 }
 
 export function Footer({ lastUpdated, onRefresh, isRefreshing }: FooterProps) {
+  const { t } = useTranslation();
   const formattedDate = lastUpdated
     ? new Date(lastUpdated).toLocaleString()
-    : 'Never';
+    : t('common.never');
 
   return (
     <footer className="bg-[#1a1a1a] border-t border-[#2a2a2a] px-6 py-3">
       <div className="flex items-center justify-between text-sm text-[#a0a0a0]">
-        <div>Last updated: {formattedDate}</div>
+        <div>{t('footer.lastUpdated')}{formattedDate}</div>
         <div className="flex items-center gap-4">
           <button
             onClick={onRefresh}
@@ -33,7 +35,7 @@ export function Footer({ lastUpdated, onRefresh, isRefreshing }: FooterProps) {
                 isRefreshing && 'animate-refresh-spin'
               )}
             />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            {isRefreshing ? t('common.refreshing') : t('common.refresh')}
           </button>
         </div>
       </div>

@@ -18,8 +18,10 @@ import { SkillUsageChart } from '../components/charts/SkillUsageChart';
 import { McpUsageChart } from '../components/charts/McpUsageChart';
 import { formatTokens, formatNumber, formatCost, calculateCustomCost } from '../lib/utils';
 import { MessageSquare, FileText, Clock, Cpu, DollarSign, Zap, Plug } from 'lucide-react';
+import { useTranslation } from '../lib/i18n';
 
 export function Dashboard() {
+  const { t } = useTranslation();
   const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
   const { currentView } = useAppStore();
   const {
@@ -133,7 +135,7 @@ export function Dashboard() {
               <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_0.15s_infinite]" />
               <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_0.3s_infinite]" />
             </div>
-            <span>Loading</span>
+            <span>{t('dashboard.loading')}</span>
           </div>
         </div>
       </div>
@@ -147,8 +149,8 @@ export function Dashboard() {
           <span className="text-[#606060] text-3xl font-bold">C</span>
         </div>
         <div className="text-center">
-          <p className="text-[#a0a0a0] text-sm">No data available</p>
-          <p className="text-[#606060] text-xs mt-1">Start using Claude Code to see statistics</p>
+          <p className="text-[#a0a0a0] text-sm">{t('dashboard.noData')}</p>
+          <p className="text-[#606060] text-xs mt-1">{t('dashboard.noDataDesc')}</p>
         </div>
       </div>
     );
@@ -171,7 +173,7 @@ export function Dashboard() {
     cards.push(
       <StatCard
         key="sessions"
-        title="Sessions"
+        title={t('dashboard.sessions')}
         value={formatNumber(stats.sessions)}
         icon={<MessageSquare className="w-5 h-5" />}
         color="#3b82f6"
@@ -183,7 +185,7 @@ export function Dashboard() {
     cards.push(
       <StatCard
         key="instructions"
-        title="Instructions"
+        title={t('dashboard.instructions')}
         value={formatNumber(stats.instructions)}
         icon={<FileText className="w-5 h-5" />}
         color="#22c55e"
@@ -195,7 +197,7 @@ export function Dashboard() {
     cards.push(
       <StatCard
         key="duration"
-        title="Duration"
+        title={t('dashboard.duration')}
         value={stats.duration_formatted}
         icon={<Clock className="w-5 h-5" />}
         color="#a855f7"
@@ -206,7 +208,7 @@ export function Dashboard() {
     cards.push(
       <StatCard
         key="tokens"
-        title="Tokens"
+        title={t('dashboard.tokens')}
         value={formatTokens(totalTokens)}
         icon={<Cpu className="w-5 h-5" />}
         color="#f59e0b"
@@ -217,7 +219,7 @@ export function Dashboard() {
     cards.push(
       <StatCard
         key="cost"
-        title="Cost"
+        title={t('dashboard.cost')}
         value={formatCost(displayCost)}
         icon={<DollarSign className="w-5 h-5" />}
         color="#ef4444"
@@ -230,7 +232,7 @@ export function Dashboard() {
     cards.push(
       <StatCard
         key="skills"
-        title="Skills"
+        title={t('dashboard.skills')}
         value={formatNumber(skillCount)}
         icon={<Zap className="w-5 h-5" />}
         color="#22c55e"
@@ -243,7 +245,7 @@ export function Dashboard() {
     cards.push(
       <StatCard
         key="mcp"
-        title="MCP"
+        title={t('dashboard.mcp')}
         value={formatNumber(mcpCount)}
         icon={<Plug className="w-5 h-5" />}
         color="#06b6d4"

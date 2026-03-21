@@ -1,27 +1,29 @@
 import { formatTokens, formatCost } from '../../lib/utils';
 import type { TokenUsage } from '../../types/statistics';
+import { useTranslation } from '../../lib/i18n';
 
 interface TokenChartProps {
   tokens: TokenUsage;
 }
 
 const tokenCategories = [
-  { key: 'input' as const, label: 'Input', color: '#3b82f6' },
-  { key: 'output' as const, label: 'Output', color: '#22c55e' },
-  { key: 'cache_read' as const, label: 'Cache Read', color: '#a855f7' },
-  { key: 'cache_creation' as const, label: 'Cache Creation', color: '#f59e0b' },
+  { key: 'input' as const, labelKey: 'cost.input', color: '#3b82f6' },
+  { key: 'output' as const, labelKey: 'cost.output', color: '#22c55e' },
+  { key: 'cache_read' as const, labelKey: 'cost.cacheRead', color: '#a855f7' },
+  { key: 'cache_creation' as const, labelKey: 'cost.cacheCreation', color: '#f59e0b' },
 ];
 
 export function TokenChart({ tokens }: TokenChartProps) {
+  const { t } = useTranslation();
   const totalTokens = tokens.input + tokens.output + tokens.cache_read + tokens.cache_creation;
   const byModel = Object.entries(tokens.by_model);
 
   if (totalTokens === 0) {
     return (
       <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
-        <h3 className="text-lg font-semibold mb-4">Token Usage</h3>
+        <h3 className="text-lg font-semibold mb-4">{t('chart.tokenUsage')}</h3>
         <div className="h-[200px] flex items-center justify-center text-[#a0a0a0]">
-          No data available
+          {t('common.noData')}
         </div>
       </div>
     );
@@ -48,8 +50,8 @@ export function TokenChart({ tokens }: TokenChartProps) {
   return (
     <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">Token Usage</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatTokens(totalTokens)} total</span>
+        <h3 className="text-lg font-semibold">{t('chart.tokenUsage')}</h3>
+        <span className="text-sm text-[#a0a0a0]">{formatTokens(totalTokens)} {t('common.total').toLowerCase()}</span>
       </div>
 
       {/* Token Type Breakdown - Stacked Bar */}
@@ -72,14 +74,14 @@ export function TokenChart({ tokens }: TokenChartProps) {
 
         {/* Legend + Values */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-3">
-          {tokenCategories.map(({ key, label, color }) => {
+          {tokenCategories.map(({ key, labelKey, color }) => {
             const value = tokens[key];
             const pct = totalTokens > 0 ? (value / totalTokens * 100).toFixed(1) : '0.0';
             return (
               <div key={key} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
-                  <span className="text-sm text-[#a0a0a0]">{label}</span>
+                  <span className="text-sm text-[#a0a0a0]">{t(labelKey)}</span>
                 </div>
                 <span className="text-sm font-medium" style={{ color }}>
                   {formatTokens(value)} <span className="text-[#606060]">({pct}%)</span>
@@ -92,7 +94,7 @@ export function TokenChart({ tokens }: TokenChartProps) {
         {/* Cache Hit Rate */}
         {totalCache > 0 && (
           <div className="mt-3 pt-3 border-t border-[#2a2a2a] flex items-center justify-between">
-            <span className="text-sm text-[#a0a0a0]">Cache Hit Rate</span>
+            <span className="text-sm text-[#a0a0a0]">{t('chart.cacheHitRate')}</span>
             <span className="text-sm font-semibold" style={{ color: cacheHitRate > 70 ? '#22c55e' : cacheHitRate > 30 ? '#f59e0b' : '#ef4444' }}>
               {cacheHitRate.toFixed(1)}%
             </span>
@@ -104,8 +106,8 @@ export function TokenChart({ tokens }: TokenChartProps) {
       {sortedModels.length > 0 && (
         <>
           <div className="flex items-center justify-between mb-3 pt-3 border-t border-[#2a2a2a]">
-            <span className="text-sm font-medium text-[#a0a0a0]">By Model</span>
-            <span className="text-xs text-[#606060]">{sortedModels.length} model{sortedModels.length !== 1 ? 's' : ''}</span>
+            <span className="text-sm font-medium text-[#a0a0a0]">{t('chart.byModel')}</span>
+            <span className="text-xs text-[#606060]">{sortedModels.length} {sortedModels.length !== 1 ? t('chart.byModel').toLowerCase() : t('chart.byModel').toLowerCase()}</span>
           </div>
           <div className="space-y-4">
             {sortedModels.map((model, index) => {

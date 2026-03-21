@@ -1,18 +1,20 @@
 import { formatNumber } from '../../lib/utils';
+import { useTranslation } from '../../lib/i18n';
 
 interface ToolUsageChartProps {
   toolUsage: Record<string, number>;
 }
 
 export function ToolUsageChart({ toolUsage }: ToolUsageChartProps) {
+  const { t } = useTranslation();
   const entries = Object.entries(toolUsage);
 
   if (entries.length === 0) {
     return (
       <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
-        <h3 className="text-lg font-semibold mb-4">Tool Usage</h3>
+        <h3 className="text-lg font-semibold mb-4">{t('chart.toolUsage')}</h3>
         <div className="h-[200px] flex items-center justify-center text-[#a0a0a0]">
-          No data available
+          {t('common.noData')}
         </div>
       </div>
     );
@@ -29,8 +31,8 @@ export function ToolUsageChart({ toolUsage }: ToolUsageChartProps) {
   return (
     <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">Tool Usage</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} calls</span>
+        <h3 className="text-lg font-semibold">{t('chart.toolUsage')}</h3>
+        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} {t('common.calls')}</span>
       </div>
       <div className="space-y-3">
         {sorted.map(([name, count], index) => {
@@ -63,7 +65,7 @@ export function ToolUsageChart({ toolUsage }: ToolUsageChartProps) {
       </div>
       {entries.length > 15 && (
         <div className="mt-3 text-sm text-[#a0a0a0] text-center">
-          +{entries.length - 15} more tools
+          +{entries.length - 15} {t('chart.moreTools')}
         </div>
       )}
     </div>

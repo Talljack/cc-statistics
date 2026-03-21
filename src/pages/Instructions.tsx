@@ -3,8 +3,10 @@ import { useFilterStore } from '../stores/filterStore';
 import { useInstructions } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { ArrowLeft } from 'lucide-react';
+import { useTranslation } from '../lib/i18n';
 
 export function Instructions() {
+  const { t } = useTranslation();
   const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
   const navigate = useNavigate();
   const { data: instructions, isLoading } = useInstructions(selectedProject, timeFilter, selectedProvider);
@@ -12,7 +14,7 @@ export function Instructions() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">Loading instructions...</div>
+        <div className="text-[#a0a0a0]">{t('instructions.loading')}</div>
       </div>
     );
   }
@@ -30,16 +32,16 @@ export function Instructions() {
             <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
           </button>
           <h2 className="text-xl font-semibold">
-            Instructions
+            {t('instructions.title')}
             <span className="text-[#a0a0a0] text-sm font-normal ml-2">
-              {instructions?.length ?? 0} total
+              {instructions?.length ?? 0} {t('common.total')}
             </span>
           </h2>
         </div>
 
         {!instructions || instructions.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
-            No instructions found
+            {t('instructions.noData')}
           </div>
         ) : (
           <div className="space-y-3">

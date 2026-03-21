@@ -1,17 +1,17 @@
 import { useFilterStore } from '../../stores/filterStore';
 import { useAppStore } from '../../stores/appStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import { useProjects } from '../../hooks/useStatistics';
+import { useTranslation } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import type { TimeFilter } from '../../types/statistics';
 import { ArrowLeft, ChevronDown, RefreshCw, Settings, BarChart3, ArrowDownCircle } from 'lucide-react';
 import { useUpdateStore } from '../../stores/updateStore';
 
-const timeFilters: { label: string; value: TimeFilter }[] = [
-  { label: 'Today', value: 'today' },
-  { label: 'Week', value: 'week' },
-  { label: 'Month', value: 'month' },
-  { label: 'All', value: 'all' },
+const timeFilterKeys: { labelKey: string; value: TimeFilter }[] = [
+  { labelKey: 'header.today', value: 'today' },
+  { labelKey: 'header.week', value: 'week' },
+  { labelKey: 'header.month', value: 'month' },
+  { labelKey: 'header.all', value: 'all' },
 ];
 
 interface HeaderProps {
@@ -23,12 +23,8 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
   const { selectedProject, timeFilter, setProject, setTimeFilter } = useFilterStore();
   const { data: projects } = useProjects();
   const { currentView, setView } = useAppStore();
-  const { language } = useSettingsStore();
+  const { t } = useTranslation();
   const { status: updateStatus, setDialogOpen } = useUpdateStore();
-
-  const updateLabel = language === 'en' ? 'Update' : language === 'ja' ? '更新' : '更新';
-
-  const settingsTitle = language === 'en' ? 'Settings' : language === 'ja' ? '設定' : '设置';
 
   if (currentView === 'settings') {
     return (
@@ -37,11 +33,11 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
           <button
             onClick={() => setView('dashboard')}
             className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
-            title="Back to Dashboard"
+            title={t('common.back')}
           >
             <ArrowLeft className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
           </button>
-          <h1 className="text-lg font-semibold">{settingsTitle}</h1>
+          <h1 className="text-lg font-semibold">{t('header.settings')}</h1>
         </div>
       </header>
     );
@@ -67,7 +63,7 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
               onChange={(e) => setProject(e.target.value || null)}
               className="w-full appearance-none bg-[#2a2a2a] border border-[#333] rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:border-[#3b82f6] cursor-pointer hover:border-[#444] transition-colors"
             >
-              <option value="">All Projects</option>
+              <option value="">{t('header.allProjects')}</option>
               {projects?.map((project) => (
                 <option key={project.name} value={project.name}>
                   {project.name}
@@ -79,7 +75,7 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
 
           {/* Time Filter Tabs */}
           <div className="flex shrink-0 bg-[#2a2a2a] rounded-lg p-1">
-            {timeFilters.map((filter) => (
+            {timeFilterKeys.map((filter) => (
               <button
                 key={filter.value}
                 onClick={() => setTimeFilter(filter.value)}
@@ -90,7 +86,7 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
                     : 'text-[#a0a0a0] hover:text-white'
                 )}
               >
-                {filter.label}
+                {t(filter.labelKey)}
               </button>
             ))}
           </div>
@@ -100,7 +96,7 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
             onClick={onRefresh}
             disabled={isRefreshing}
             className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors disabled:opacity-50"
-            title="Refresh"
+            title={t('common.refresh')}
           >
             <RefreshCw className={cn('w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors', isRefreshing && 'animate-refresh-spin text-[#3b82f6]')} />
           </button>
@@ -109,7 +105,7 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
           <button
             onClick={() => { window.location.hash = '#/report'; }}
             className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
-            title="Report"
+            title={t('common.report')}
           >
             <BarChart3 className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
           </button>
@@ -121,7 +117,7 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#3b82f6]/15 border border-[#3b82f6]/30 text-[#60a5fa] text-sm font-medium hover:bg-[#3b82f6]/25 transition-colors"
             >
               <ArrowDownCircle className="w-4 h-4" />
-              {updateLabel}
+              {t('header.update')}
             </button>
           )}
 

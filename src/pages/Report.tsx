@@ -5,6 +5,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useStatistics, useSessions } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { formatTokens, formatNumber, formatCost, formatDuration, calculateCustomCost } from '../lib/utils';
+import { useTranslation } from '../lib/i18n';
 import {
   ArrowLeft,
   BarChart3,
@@ -25,6 +26,7 @@ interface DailyBucket {
 }
 
 export function Report() {
+  const { t } = useTranslation();
   const { selectedProject, timeFilter } = useFilterStore();
   const { showCost, customPricingEnabled, customPricing } = useSettingsStore();
   const navigate = useNavigate();
@@ -89,7 +91,7 @@ export function Report() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">Loading report...</div>
+        <div className="text-[#a0a0a0]">{t('report.loading')}</div>
       </div>
     );
   }
@@ -114,20 +116,20 @@ export function Report() {
             </button>
             <div className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-[#3b82f6]" />
-              <h2 className="text-xl font-semibold">Usage Report</h2>
+              <h2 className="text-xl font-semibold">{t('report.title')}</h2>
             </div>
           </div>
 
           {/* Core Metrics */}
           <section className="mb-8">
-            <h3 className="text-sm font-semibold text-[#a0a0a0] uppercase tracking-wider mb-3">Overview</h3>
+            <h3 className="text-sm font-semibold text-[#a0a0a0] uppercase tracking-wider mb-3">{t('report.overview')}</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
-              <MetricCard icon={<MessageSquare className="w-4 h-4" />} color="#3b82f6" label="Sessions" value={formatNumber(stats?.sessions ?? 0)} />
-              <MetricCard icon={<FileText className="w-4 h-4" />} color="#22c55e" label="Instructions" value={formatNumber(stats?.instructions ?? 0)} />
-              <MetricCard icon={<Clock className="w-4 h-4" />} color="#a855f7" label="Duration" value={stats?.duration_formatted ?? '0s'} />
-              <MetricCard icon={<Cpu className="w-4 h-4" />} color="#f59e0b" label="Tokens" value={formatTokens(totalTokens)} />
+              <MetricCard icon={<MessageSquare className="w-4 h-4" />} color="#3b82f6" label={t('dashboard.sessions')} value={formatNumber(stats?.sessions ?? 0)} />
+              <MetricCard icon={<FileText className="w-4 h-4" />} color="#22c55e" label={t('dashboard.instructions')} value={formatNumber(stats?.instructions ?? 0)} />
+              <MetricCard icon={<Clock className="w-4 h-4" />} color="#a855f7" label={t('dashboard.duration')} value={stats?.duration_formatted ?? '0s'} />
+              <MetricCard icon={<Cpu className="w-4 h-4" />} color="#f59e0b" label={t('dashboard.tokens')} value={formatTokens(totalTokens)} />
               {showCost && (
-                <MetricCard icon={<DollarSign className="w-4 h-4" />} color="#ef4444" label="Cost" value={formatCost(displayCost)} />
+                <MetricCard icon={<DollarSign className="w-4 h-4" />} color="#ef4444" label={t('dashboard.cost')} value={formatCost(displayCost)} />
               )}
             </div>
           </section>
@@ -135,12 +137,12 @@ export function Report() {
           {/* Daily Trend */}
           {dailyTrend.length > 1 && (
             <section className="mb-8">
-              <h3 className="text-sm font-semibold text-[#a0a0a0] uppercase tracking-wider mb-3">Daily Activity</h3>
+              <h3 className="text-sm font-semibold text-[#a0a0a0] uppercase tracking-wider mb-3">{t('report.dailyActivity')}</h3>
               <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-5">
                 {/* Token bars */}
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-[#808080]">Tokens</span>
-                  <span className="text-xs text-[#808080]">Sessions</span>
+                  <span className="text-xs text-[#808080]">{t('dashboard.tokens')}</span>
+                  <span className="text-xs text-[#808080]">{t('dashboard.sessions')}</span>
                 </div>
                 <div className="flex items-end gap-1" style={{ height: 120 }}>
                   {dailyTrend.map((day) => {
@@ -152,8 +154,8 @@ export function Report() {
                         <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
                           <div className="bg-[#333] rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-xl">
                             <div className="font-medium mb-1">{day.date}</div>
-                            <div className="text-[#f59e0b]">{formatTokens(day.tokens)} tokens</div>
-                            <div className="text-[#3b82f6]">{day.sessions} sessions</div>
+                            <div className="text-[#f59e0b]">{formatTokens(day.tokens)} {t('cost.tokens')}</div>
+                            <div className="text-[#3b82f6]">{day.sessions} {t('dashboard.sessions').toLowerCase()}</div>
                             {showCost && <div className="text-[#ef4444]">{formatCost(day.cost)}</div>}
                           </div>
                         </div>
@@ -190,19 +192,19 @@ export function Report() {
           {projectRankings.length > 0 && (
             <section className="mb-8">
               <h3 className="text-sm font-semibold text-[#a0a0a0] uppercase tracking-wider mb-3">
-                Project Leaderboard
-                <span className="text-[#606060] font-normal ml-2">{projectRankings.length} projects</span>
+                {t('report.projectLeaderboard')}
+                <span className="text-[#606060] font-normal ml-2">{projectRankings.length} {t('report.projects')}</span>
               </h3>
               <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-[#2a2a2a] text-[#a0a0a0]">
                       <th className="text-left px-4 py-3 font-medium w-8">#</th>
-                      <th className="text-left px-4 py-3 font-medium">Project</th>
-                      <th className="text-right px-4 py-3 font-medium">Sessions</th>
-                      <th className="text-right px-4 py-3 font-medium">Tokens</th>
-                      {showCost && <th className="text-right px-4 py-3 font-medium">Cost</th>}
-                      <th className="text-right px-4 py-3 font-medium">Duration</th>
+                      <th className="text-left px-4 py-3 font-medium">{t('sessions.project')}</th>
+                      <th className="text-right px-4 py-3 font-medium">{t('dashboard.sessions')}</th>
+                      <th className="text-right px-4 py-3 font-medium">{t('dashboard.tokens')}</th>
+                      {showCost && <th className="text-right px-4 py-3 font-medium">{t('dashboard.cost')}</th>}
+                      <th className="text-right px-4 py-3 font-medium">{t('dashboard.duration')}</th>
                     </tr>
                   </thead>
                   <tbody>

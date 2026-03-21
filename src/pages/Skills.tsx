@@ -3,9 +3,11 @@ import { useFilterStore } from '../stores/filterStore';
 import { useStatistics } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { formatNumber } from '../lib/utils';
+import { useTranslation } from '../lib/i18n';
 import { ArrowLeft, Zap } from 'lucide-react';
 
 export function Skills() {
+  const { t } = useTranslation();
   const { selectedProject, timeFilter } = useFilterStore();
   const navigate = useNavigate();
   const { data: stats, isLoading } = useStatistics(selectedProject, timeFilter);
@@ -20,7 +22,7 @@ export function Skills() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">Loading...</div>
+        <div className="text-[#a0a0a0]">{t('skills.loading')}</div>
       </div>
     );
   }
@@ -42,7 +44,7 @@ export function Skills() {
             <h2 className="text-xl font-semibold">
               Skills
               <span className="text-[#a0a0a0] text-sm font-normal ml-2">
-                {entries.length} skills · {formatNumber(totalCalls)} calls
+                {entries.length} {t('skills.skills')} · {formatNumber(totalCalls)} {t('common.calls')}
               </span>
             </h2>
           </div>
@@ -50,7 +52,7 @@ export function Skills() {
 
         {entries.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
-            No skill usage found
+            {t('skills.noData')}
           </div>
         ) : (
           <div className="space-y-6">
@@ -93,9 +95,9 @@ export function Skills() {
                 <thead>
                   <tr className="border-b border-[#2a2a2a] text-[#a0a0a0]">
                     <th className="text-left px-4 py-3 font-medium">#</th>
-                    <th className="text-left px-4 py-3 font-medium">Skill</th>
-                    <th className="text-right px-4 py-3 font-medium">Calls</th>
-                    <th className="text-right px-4 py-3 font-medium">Share</th>
+                    <th className="text-left px-4 py-3 font-medium">{t('skills.skill')}</th>
+                    <th className="text-right px-4 py-3 font-medium">{t('skills.calls')}</th>
+                    <th className="text-right px-4 py-3 font-medium">{t('skills.share')}</th>
                   </tr>
                 </thead>
                 <tbody>

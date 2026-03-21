@@ -6,8 +6,10 @@ import { useSessions } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { formatTokens, formatNumber, formatCost } from '../lib/utils';
 import { ArrowLeft } from 'lucide-react';
+import { useTranslation } from '../lib/i18n';
 
 export function Sessions() {
+  const { t } = useTranslation();
   const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
   const { showCost, sessionSortField, sessionSortOrder } = useSettingsStore();
   const navigate = useNavigate();
@@ -42,7 +44,7 @@ export function Sessions() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">Loading sessions...</div>
+        <div className="text-[#a0a0a0]">{t('sessions.loading')}</div>
       </div>
     );
   }
@@ -60,16 +62,16 @@ export function Sessions() {
             <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
           </button>
           <h2 className="text-xl font-semibold">
-            Sessions
+            {t('sessions.title')}
             <span className="text-[#a0a0a0] text-sm font-normal ml-2">
-              {sessions?.length ?? 0} total
+              {sessions?.length ?? 0} {t('common.total')}
             </span>
           </h2>
         </div>
 
         {sortedSessions.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
-            No sessions found
+            {t('sessions.noData')}
           </div>
         ) : (
           <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
@@ -77,16 +79,16 @@ export function Sessions() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#2a2a2a] text-[#a0a0a0]">
-                    <th className="text-left px-4 py-3 font-medium">Time</th>
-                    <th className="text-left px-4 py-3 font-medium">Project</th>
-                    <th className="text-left px-4 py-3 font-medium">Duration</th>
-                    <th className="text-right px-4 py-3 font-medium">Tokens</th>
+                    <th className="text-left px-4 py-3 font-medium">{t('sessions.time')}</th>
+                    <th className="text-left px-4 py-3 font-medium">{t('sessions.project')}</th>
+                    <th className="text-left px-4 py-3 font-medium">{t('sessions.duration')}</th>
+                    <th className="text-right px-4 py-3 font-medium">{t('sessions.tokens')}</th>
                     {showCost && (
-                      <th className="text-right px-4 py-3 font-medium">Cost</th>
+                      <th className="text-right px-4 py-3 font-medium">{t('sessions.cost')}</th>
                     )}
-                    <th className="text-right px-4 py-3 font-medium">Instructions</th>
-                    <th className="text-left px-4 py-3 font-medium">Model</th>
-                    <th className="text-left px-4 py-3 font-medium">Branch</th>
+                    <th className="text-right px-4 py-3 font-medium">{t('sessions.instructions')}</th>
+                    <th className="text-left px-4 py-3 font-medium">{t('sessions.model')}</th>
+                    <th className="text-left px-4 py-3 font-medium">{t('sessions.branch')}</th>
                   </tr>
                 </thead>
                 <tbody>

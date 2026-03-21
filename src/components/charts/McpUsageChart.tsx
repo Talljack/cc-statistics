@@ -1,4 +1,5 @@
 import { formatNumber } from '../../lib/utils';
+import { useTranslation } from '../../lib/i18n';
 
 interface McpUsageChartProps {
   mcpUsage: Record<string, number>;
@@ -20,14 +21,15 @@ interface ServerGroup {
 }
 
 export function McpUsageChart({ mcpUsage }: McpUsageChartProps) {
+  const { t } = useTranslation();
   const entries = Object.entries(mcpUsage);
 
   if (entries.length === 0) {
     return (
       <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
-        <h3 className="text-lg font-semibold mb-4">MCP Usage</h3>
+        <h3 className="text-lg font-semibold mb-4">{t('chart.mcpUsage')}</h3>
         <div className="h-[200px] flex items-center justify-center text-[#a0a0a0]">
-          No data available
+          {t('common.noData')}
         </div>
       </div>
     );
@@ -58,8 +60,8 @@ export function McpUsageChart({ mcpUsage }: McpUsageChartProps) {
   return (
     <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">MCP Usage</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} calls</span>
+        <h3 className="text-lg font-semibold">{t('chart.mcpUsage')}</h3>
+        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} {t('common.calls')}</span>
       </div>
       <div className="space-y-4">
         {groups.map((group, gIndex) => {
@@ -98,7 +100,7 @@ export function McpUsageChart({ mcpUsage }: McpUsageChartProps) {
                     </div>
                   ))}
                   {group.methods.length > 5 && (
-                    <div className="text-xs text-[#606060]">+{group.methods.length - 5} more</div>
+                    <div className="text-xs text-[#606060]">+{group.methods.length - 5} {t('chart.more')}</div>
                   )}
                 </div>
               )}
