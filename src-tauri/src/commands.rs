@@ -2,9 +2,77 @@ use crate::models::*;
 use crate::parser::{extract_instructions, format_duration, parse_session_file, ProjectStats};
 use chrono::{DateTime, Duration, Local, TimeZone};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+
+/// Extract provider name from a model string.
+/// Known mappings for common providers, otherwise take the first segment before '-'.
+/// Returns None for synthetic/internal models (e.g. "<synthetic>").
+fn model_to_provider(model: &str) -> Option<String> {
+    let m = model.to_lowercase();
+
+    // Skip synthetic/internal models
+    if m.contains('<') || m.contains('>') || m.is_empty() {
+        return None;
+    }
+
+    // Known provider mappings
+    if m.starts_with("claude") {
+        return Some("Claude".to_string());
+    }
+    if m.starts_with("gpt") || m.starts_with("o3") || m.starts_with("o4") || m.starts_with("o1") {
+        return Some("OpenAI".to_string());
+    }
+    if m.starts_with("gemini") {
+        return Some("Google".to_string());
+    }
+    if m.starts_with("deepseek") {
+        return Some("DeepSeek".to_string());
+    }
+    if m.starts_with("kimi") || m.starts_with("moonshot") {
+        return Some("Moonshot".to_string());
+    }
+    if m.starts_with("glm") {
+        return Some("Zhipu".to_string());
+    }
+
+    // Unknown model: use first segment before '-' as provider name, preserving original case
+    if let Some(pos) = model.find('-') {
+        let provider = &model[..pos];
+        if !provider.is_empty() {
+            return Some(provider.to_string());
+        }
+    }
+
+    // No dash found — use the whole model name as provider
+    Some(model.to_string())
+}
+
+/// Check if a model belongs to the given provider
+fn model_matches_provider(model: &str, provider: &str) -> bool {
+    model_to_provider(model)
+        .map(|p| p.eq_ignore_ascii_case(provider))
+        .unwrap_or(false)
+}
+
+fn parse_time_filter(s: &str) -> TimeFilter {
+    match s {
+        "today" => TimeFilter::Today,
+        "week" => TimeFilter::Week,
+        "month" => TimeFilter::Month,
+        "all" => TimeFilter::All,
+        other => {
+            if let Some(days_str) = other.strip_prefix("days_") {
+                if let Ok(days) = days_str.parse::<u32>() {
+                    return TimeFilter::Days(days);
+                }
+            }
+            TimeFilter::All
+        }
+    }
+}
 
 fn get_claude_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -107,6 +175,10 @@ fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> bool {
             let month_ago = now - Duration::days(30);
             datetime >= month_ago
         }
+        TimeFilter::Days(d) => {
+            let cutoff = now - Duration::days(*d as i64);
+            datetime >= cutoff
+        }
         TimeFilter::All => true,
     }
 }
@@ -183,13 +255,17 @@ pub fn get_projects() -> Result<Vec<ProjectInfo>, String> {
 pub fn get_statistics(
     project: Option<String>,
     time_filter: String,
+    provider_filter: Option<String>,
 ) -> Result<Statistics, String> {
-    let filter = match time_filter.as_str() {
-        "today" => TimeFilter::Today,
-        "week" => TimeFilter::Week,
-        "month" => TimeFilter::Month,
-        _ => TimeFilter::All,
-    };
+    get_statistics_internal(project, time_filter, provider_filter)
+}
+
+pub fn get_statistics_internal(
+    project: Option<String>,
+    time_filter: String,
+    provider_filter: Option<String>,
+) -> Result<Statistics, String> {
+    let filter = parse_time_filter(time_filter.as_str());
 
     let mut all_stats = ProjectStats::default();
 
@@ -202,7 +278,7 @@ pub fn get_statistics(
             .ok_or_else(|| format!("Project not found: {}", project_name))?;
 
         for dir in dirs {
-            match collect_project_stats(dir, &filter) {
+            match collect_project_stats(dir, &filter, &provider_filter) {
                 Ok(stats) => all_stats.merge(stats),
                 Err(e) => {
                     eprintln!("Error collecting stats for {:?}: {}", dir, e);
@@ -216,7 +292,7 @@ pub fn get_statistics(
     // Collect all projects
     for dirs in name_map.values() {
         for dir in dirs {
-            match collect_project_stats(dir, &filter) {
+            match collect_project_stats(dir, &filter, &provider_filter) {
                 Ok(stats) => all_stats.merge(stats),
                 Err(e) => {
                     eprintln!("Error collecting stats for {:?}: {}", dir, e);
@@ -228,7 +304,7 @@ pub fn get_statistics(
     Ok(all_stats.to_statistics())
 }
 
-fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter) -> Result<ProjectStats, String> {
+fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter, provider_filter: &Option<String>) -> Result<ProjectStats, String> {
     let mut stats = ProjectStats::default();
 
     // Find all jsonl files in the project directory
@@ -246,7 +322,20 @@ fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter) -> Re
         if let Some(ext) = path.extension() {
             if ext == "jsonl" {
                 match parse_session_file(&path, time_filter) {
-                    Ok(session_stats) if session_stats.has_activity => stats.merge_session(session_stats),
+                    Ok(session_stats) if session_stats.has_activity => {
+                        // Apply provider filter: skip sessions whose primary_model doesn't belong to the provider
+                        if let Some(ref provider) = provider_filter {
+                            let matches = session_stats
+                                .primary_model
+                                .as_ref()
+                                .map(|m| model_matches_provider(m, provider))
+                                .unwrap_or(false);
+                            if !matches {
+                                continue;
+                            }
+                        }
+                        stats.merge_session(session_stats);
+                    }
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Error parsing {:?}: {}", path, e);
@@ -263,13 +352,9 @@ fn collect_project_stats(project_path: &PathBuf, time_filter: &TimeFilter) -> Re
 pub fn get_sessions(
     project: Option<String>,
     time_filter: String,
+    provider_filter: Option<String>,
 ) -> Result<Vec<SessionInfo>, String> {
-    let filter = match time_filter.as_str() {
-        "today" => TimeFilter::Today,
-        "week" => TimeFilter::Week,
-        "month" => TimeFilter::Month,
-        _ => TimeFilter::All,
-    };
+    let filter = parse_time_filter(time_filter.as_str());
 
     let name_map = build_project_name_map()?;
     let mut sessions: Vec<SessionInfo> = Vec::new();
@@ -303,6 +388,18 @@ pub fn get_sessions(
                     Ok(s) if s.has_activity => s,
                     _ => continue,
                 };
+
+                // Apply provider filter
+                if let Some(ref provider) = provider_filter {
+                    let matches = session_stats
+                        .primary_model
+                        .as_ref()
+                        .map(|m| model_matches_provider(m, provider))
+                        .unwrap_or(false);
+                    if !matches {
+                        continue;
+                    }
+                }
 
                 let total_tokens = session_stats.tokens.input
                     + session_stats.tokens.output
@@ -342,13 +439,9 @@ pub fn get_sessions(
 pub fn get_instructions(
     project: Option<String>,
     time_filter: String,
+    provider_filter: Option<String>,
 ) -> Result<Vec<InstructionInfo>, String> {
-    let filter = match time_filter.as_str() {
-        "today" => TimeFilter::Today,
-        "week" => TimeFilter::Week,
-        "month" => TimeFilter::Month,
-        _ => TimeFilter::All,
-    };
+    let filter = parse_time_filter(time_filter.as_str());
 
     let name_map = build_project_name_map()?;
     let mut instructions: Vec<InstructionInfo> = Vec::new();
@@ -378,6 +471,22 @@ pub fn get_instructions(
                     continue;
                 }
 
+                // Apply provider filter: parse session to check primary_model
+                if let Some(ref provider) = provider_filter {
+                    let session_stats = match parse_session_file(&path, &filter) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let matches = session_stats
+                        .primary_model
+                        .as_ref()
+                        .map(|m| model_matches_provider(m, provider))
+                        .unwrap_or(false);
+                    if !matches {
+                        continue;
+                    }
+                }
+
                 let session_id = path
                     .file_stem()
                     .and_then(|s| s.to_str())
@@ -404,4 +513,46 @@ pub fn get_instructions(
     // Sort by timestamp descending
     instructions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     Ok(instructions)
+}
+
+#[tauri::command]
+pub fn update_tray_stats(app: tauri::AppHandle) {
+    crate::tray::update_tray(&app);
+}
+
+#[tauri::command]
+pub fn get_available_providers() -> Result<Vec<String>, String> {
+    let name_map = build_project_name_map()?;
+    let mut providers: HashSet<String> = HashSet::new();
+
+    for dirs in name_map.values() {
+        for dir in dirs {
+            let entries = match fs::read_dir(dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                    continue;
+                }
+
+                if let Ok(session_stats) = parse_session_file(&path, &TimeFilter::All) {
+                    if session_stats.has_activity {
+                        // Extract provider from each model key
+                        for model_key in session_stats.tokens.by_model.keys() {
+                            if let Some(provider) = model_to_provider(model_key) {
+                                providers.insert(provider);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<String> = providers.into_iter().collect();
+    result.sort();
+    Ok(result)
 }

@@ -1,6 +1,15 @@
 import { useState } from 'react';
-import { useSettingsStore, type Language, type Theme } from '../../stores/settingsStore';
+import {
+  useSettingsStore,
+  providerGroups,
+  type Language,
+  type Theme,
+  type SessionSortField,
+  type CustomPricing,
+} from '../../stores/settingsStore';
+import { usePricingStore } from '../../stores/pricingStore';
 import { cn } from '../../lib/utils';
+import type { TimeFilter } from '../../types/statistics';
 import {
   Sun,
   Moon,
@@ -15,6 +24,12 @@ import {
   Plug,
   ChevronDown,
   Info,
+  DollarSign,
+  MessageSquare,
+  FileText,
+  Clock,
+  Cpu,
+  FlaskConical,
 } from 'lucide-react';
 
 type SettingsTab = 'general' | 'advanced' | 'about';
@@ -42,6 +57,20 @@ const intervalOptions = [
   { label: '5 分钟', value: 5 },
   { label: '10 分钟', value: 10 },
   { label: '30 分钟', value: 30 },
+];
+
+const timeFilterOptions: { label: string; value: TimeFilter }[] = [
+  { label: 'Today', value: 'today' },
+  { label: 'Week', value: 'week' },
+  { label: 'Month', value: 'month' },
+  { label: 'All', value: 'all' },
+];
+
+const sortFieldOptions: { zh: string; en: string; ja: string; value: SessionSortField }[] = [
+  { zh: '时间', en: 'Time', ja: '時間', value: 'timestamp' },
+  { zh: '费用', en: 'Cost', ja: '費用', value: 'cost_usd' },
+  { zh: 'Token 量', en: 'Tokens', ja: 'トークン', value: 'total_tokens' },
+  { zh: '时长', en: 'Duration', ja: '長さ', value: 'duration_ms' },
 ];
 
 // i18n helper
@@ -108,14 +137,16 @@ function ExpandableSection({
   title,
   description,
   children,
+  defaultExpanded = false,
 }: {
   icon: React.ReactNode;
   iconColor: string;
   title: string;
   description: string;
   children: React.ReactNode;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl overflow-hidden">
@@ -149,22 +180,68 @@ function ExpandableSection({
   );
 }
 
+function PricingInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-xs text-[#808080]">{label}</span>
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-[#606060]">$</span>
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+          step="0.01"
+          min="0"
+          className="w-20 bg-[#2a2a2a] border border-[#333] rounded-md px-2 py-1 text-xs text-right focus:outline-none focus:border-[#3b82f6] font-mono"
+        />
+        <span className="text-xs text-[#606060]">/M</span>
+      </div>
+    </div>
+  );
+}
+
 function GeneralTab() {
   const {
     language,
     theme,
+    defaultTimeFilter,
+    showCost,
     showToolUsage,
     showSkillUsage,
     showMcpUsage,
+    showSessionsCard,
+    showInstructionsCard,
+    showDurationCard,
+    showTokensCard,
+    showCostCard,
     autoRefreshEnabled,
     autoRefreshInterval,
+    sessionSortField,
+    sessionSortOrder,
     setLanguage,
     setTheme,
+    setDefaultTimeFilter,
+    setShowCost,
     setShowToolUsage,
     setShowSkillUsage,
     setShowMcpUsage,
+    setShowSessionsCard,
+    setShowInstructionsCard,
+    setShowDurationCard,
+    setShowTokensCard,
+    setShowCostCard,
     setAutoRefreshEnabled,
     setAutoRefreshInterval,
+    setSessionSortField,
+    setSessionSortOrder,
   } = useSettingsStore();
 
   return (
@@ -232,10 +309,122 @@ function GeneralTab() {
         </div>
       </section>
 
-      {/* Dashboard Display */}
+      {/* Default Time Filter */}
       <section>
         <h3 className="text-base font-semibold mb-1">
-          {t('主页面显示', 'Dashboard Display', 'ダッシュボード表示', language)}
+          {t('默认时间范围', 'Default Time Range', 'デフォルト時間範囲', language)}
+        </h3>
+        <p className="text-xs text-[#808080] mb-3">
+          {t(
+            '应用启动时默认显示的时间范围。',
+            'The time range shown when the app starts.',
+            'アプリ起動時に表示するデフォルトの時間範囲。',
+            language
+          )}
+        </p>
+        <div className="flex bg-[#2a2a2a] rounded-lg p-1 w-fit">
+          {timeFilterOptions.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setDefaultTimeFilter(opt.value)}
+              className={cn(
+                'px-4 py-2 rounded-md text-sm font-medium transition-all',
+                defaultTimeFilter === opt.value
+                  ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                  : 'text-[#a0a0a0] hover:text-white'
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Cost Display */}
+      <section>
+        <h3 className="text-base font-semibold mb-1">
+          {t('费用显示', 'Cost Display', '費用表示', language)}
+        </h3>
+        <p className="text-xs text-[#808080] mb-3">
+          {t(
+            '控制是否在应用中显示费用相关信息。',
+            'Control whether cost information is shown in the app.',
+            'アプリ内で費用情報を表示するかどうかを制御します。',
+            language
+          )}
+        </p>
+        <SettingItem
+          icon={<DollarSign className="w-5 h-5" />}
+          iconColor="#ef4444"
+          title={t('显示费用统计', 'Show Cost Statistics', '費用統計を表示', language)}
+          description={t(
+            '在仪表盘和会话列表中显示费用信息',
+            'Show cost info in dashboard and sessions list',
+            'ダッシュボードとセッション一覧に費用を表示',
+            language
+          )}
+          right={<Toggle checked={showCost} onChange={setShowCost} />}
+        />
+      </section>
+
+      {/* Dashboard Cards */}
+      <section>
+        <h3 className="text-base font-semibold mb-1">
+          {t('仪表盘卡片', 'Dashboard Cards', 'ダッシュボードカード', language)}
+        </h3>
+        <p className="text-xs text-[#808080] mb-3">
+          {t(
+            '选择在仪表盘顶部显示的统计卡片。',
+            'Choose which stat cards to display at the top of the dashboard.',
+            'ダッシュボード上部に表示する統計カードを選択します。',
+            language
+          )}
+        </p>
+        <div className="space-y-3">
+          <SettingItem
+            icon={<MessageSquare className="w-5 h-5" />}
+            iconColor="#3b82f6"
+            title="Sessions"
+            description={t('会话数量统计', 'Session count', 'セッション数', language)}
+            right={<Toggle checked={showSessionsCard} onChange={setShowSessionsCard} />}
+          />
+          <SettingItem
+            icon={<FileText className="w-5 h-5" />}
+            iconColor="#22c55e"
+            title="Instructions"
+            description={t('指令数量统计', 'Instruction count', '指示数', language)}
+            right={<Toggle checked={showInstructionsCard} onChange={setShowInstructionsCard} />}
+          />
+          <SettingItem
+            icon={<Clock className="w-5 h-5" />}
+            iconColor="#a855f7"
+            title="Duration"
+            description={t('AI 处理时长', 'AI processing duration', 'AI処理時間', language)}
+            right={<Toggle checked={showDurationCard} onChange={setShowDurationCard} />}
+          />
+          <SettingItem
+            icon={<Cpu className="w-5 h-5" />}
+            iconColor="#f59e0b"
+            title="Tokens"
+            description={t('Token 使用量', 'Token usage', 'トークン使用量', language)}
+            right={<Toggle checked={showTokensCard} onChange={setShowTokensCard} />}
+          />
+          {showCost && (
+            <SettingItem
+              icon={<DollarSign className="w-5 h-5" />}
+              iconColor="#ef4444"
+              title="Cost"
+              description={t('预估费用统计', 'Estimated cost', '推定費用', language)}
+              right={<Toggle checked={showCostCard} onChange={setShowCostCard} />}
+            />
+          )}
+        </div>
+      </section>
+
+      {/* Dashboard Chart Display */}
+      <section>
+        <h3 className="text-base font-semibold mb-1">
+          {t('图表模块', 'Chart Modules', 'チャートモジュール', language)}
         </h3>
         <p className="text-xs text-[#808080] mb-3">
           {t(
@@ -282,6 +471,73 @@ function GeneralTab() {
             )}
             right={<Toggle checked={showMcpUsage} onChange={setShowMcpUsage} />}
           />
+        </div>
+      </section>
+
+      {/* Session Sort */}
+      <section>
+        <h3 className="text-base font-semibold mb-1">
+          {t('会话排序', 'Session Sort', 'セッションソート', language)}
+        </h3>
+        <p className="text-xs text-[#808080] mb-3">
+          {t(
+            '会话列表的默认排序方式。',
+            'Default sorting for the sessions list.',
+            'セッション一覧のデフォルトソート。',
+            language
+          )}
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <div>
+            <span className="text-xs text-[#808080] mb-1.5 block">
+              {t('排序字段', 'Sort by', 'ソートフィールド', language)}
+            </span>
+            <div className="flex bg-[#2a2a2a] rounded-lg p-1">
+              {sortFieldOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setSessionSortField(opt.value)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                    sessionSortField === opt.value
+                      ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                      : 'text-[#a0a0a0] hover:text-white'
+                  )}
+                >
+                  {t(opt.zh, opt.en, opt.ja, language)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span className="text-xs text-[#808080] mb-1.5 block">
+              {t('排序方向', 'Order', 'ソート方向', language)}
+            </span>
+            <div className="flex bg-[#2a2a2a] rounded-lg p-1">
+              <button
+                onClick={() => setSessionSortOrder('desc')}
+                className={cn(
+                  'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                  sessionSortOrder === 'desc'
+                    ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                    : 'text-[#a0a0a0] hover:text-white'
+                )}
+              >
+                {t('降序', 'Desc', '降順', language)}
+              </button>
+              <button
+                onClick={() => setSessionSortOrder('asc')}
+                className={cn(
+                  'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                  sessionSortOrder === 'asc'
+                    ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                    : 'text-[#a0a0a0] hover:text-white'
+                )}
+              >
+                {t('升序', 'Asc', '昇順', language)}
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -340,12 +596,179 @@ function GeneralTab() {
   );
 }
 
+function ModelPricingSection({
+  label,
+  model,
+  pricing,
+  language,
+}: {
+  label: string;
+  model: keyof CustomPricing;
+  pricing: CustomPricing;
+  language: Language;
+}) {
+  const { updateModelPricing } = useSettingsStore();
+  const p = pricing[model];
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium text-white">{label}</div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 pl-2">
+        <PricingInput
+          label="Input"
+          value={p.input}
+          onChange={(v) => updateModelPricing(model, { input: v })}
+        />
+        <PricingInput
+          label="Output"
+          value={p.output}
+          onChange={(v) => updateModelPricing(model, { output: v })}
+        />
+        <PricingInput
+          label={t('Cache Read', 'Cache Read', 'キャッシュ読取', language)}
+          value={p.cacheRead}
+          onChange={(v) => updateModelPricing(model, { cacheRead: v })}
+        />
+        <PricingInput
+          label={t('Cache Write', 'Cache Write', 'キャッシュ書込', language)}
+          value={p.cacheCreation}
+          onChange={(v) => updateModelPricing(model, { cacheCreation: v })}
+        />
+      </div>
+    </div>
+  );
+}
+
 function AdvancedTab() {
-  const { language, resetSettings } = useSettingsStore();
+  const { language, customPricingEnabled, customPricing, setCustomPricingEnabled, resetSettings } =
+    useSettingsStore();
+  const { models: pricingModels, lastFetched, isFetching, error: pricingError, fetchPricing } =
+    usePricingStore();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  const handleRefreshPricing = () => {
+    // Force refetch by clearing lastFetched
+    usePricingStore.setState({ lastFetched: null });
+    fetchPricing();
+  };
 
   return (
     <div className="space-y-4">
+      {/* Dynamic Pricing Status */}
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#22c55e]/20 flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-[#22c55e]" />
+            </div>
+            <div>
+              <div className="text-sm font-medium">
+                {t('动态定价数据', 'Dynamic Pricing Data', '動的価格データ', language)}
+              </div>
+              <div className="text-xs text-[#808080] mt-0.5">
+                {pricingModels.length > 0 ? (
+                  <>
+                    {pricingModels.length} {t('个模型', 'models', 'モデル', language)}
+                    {lastFetched && (
+                      <span className="ml-2">
+                        · {t('更新于', 'Updated', '更新', language)}{' '}
+                        {new Date(lastFetched).toLocaleString()}
+                      </span>
+                    )}
+                  </>
+                ) : pricingError ? (
+                  <span className="text-[#ef4444]">{pricingError}</span>
+                ) : (
+                  t('未获取', 'Not fetched', '未取得', language)
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleRefreshPricing}
+            disabled={isFetching}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2a2a2a] text-[#a0a0a0] rounded-lg text-xs font-medium hover:bg-[#333] hover:text-white transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', isFetching && 'animate-spin')} />
+            {isFetching
+              ? t('获取中...', 'Fetching...', '取得中...', language)
+              : t('刷新定价', 'Refresh', '更新', language)}
+          </button>
+        </div>
+        <p className="text-xs text-[#606060] mt-2">
+          {t(
+            '从 OpenRouter API 自动获取最新模型定价，覆盖 100+ 模型。每 24 小时自动更新。',
+            'Auto-fetches latest model pricing from OpenRouter API, covering 100+ models. Updates every 24 hours.',
+            'OpenRouter API から最新のモデル価格を自動取得。24時間ごとに更新。',
+            language
+          )}
+        </p>
+      </div>
+
+      {/* Custom Pricing Override */}
+      <ExpandableSection
+        icon={<FlaskConical className="w-5 h-5" />}
+        iconColor="#f59e0b"
+        title={t('自定义定价覆盖', 'Custom Pricing Override', 'カスタム価格オーバーライド', language)}
+        description={t(
+          '手动覆盖动态定价（优先级高于自动获取）',
+          'Manually override dynamic pricing (takes priority over auto-fetched)',
+          '動的価格を手動でオーバーライド（自動取得より優先）',
+          language
+        )}
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">
+                {t('启用自定义定价', 'Enable Custom Pricing', 'カスタム価格を有効にする', language)}
+              </div>
+              <div className="text-xs text-[#808080] mt-0.5">
+                {t(
+                  '关闭时使用各厂商官方定价',
+                  'Uses official provider pricing when disabled',
+                  '無効時は各プロバイダーの公式価格を使用',
+                  language
+                )}
+              </div>
+            </div>
+            <Toggle checked={customPricingEnabled} onChange={setCustomPricingEnabled} />
+          </div>
+
+          {customPricingEnabled && (
+            <div className="space-y-4 pt-2 border-t border-[#2a2a2a]">
+              <p className="text-xs text-[#606060]">
+                {t(
+                  '价格单位：美元 / 百万 Token',
+                  'Prices in USD per million tokens',
+                  '価格単位: USD / 百万トークン',
+                  language
+                )}
+              </p>
+              {providerGroups.map((group, gi) => (
+                <div key={group.provider || 'default'}>
+                  {gi > 0 && <div className="border-t border-[#2a2a2a] my-3" />}
+                  {group.provider && (
+                    <div className="text-xs font-semibold text-[#3b82f6] uppercase tracking-wider mb-3">
+                      {group.provider}
+                    </div>
+                  )}
+                  {group.models.map((m) => (
+                    <ModelPricingSection
+                      key={m.key}
+                      label={m.label}
+                      model={m.key}
+                      pricing={customPricing}
+                      language={language}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </ExpandableSection>
+
       {/* Data Source */}
       <ExpandableSection
         icon={<FolderOpen className="w-5 h-5" />}
@@ -371,7 +794,7 @@ function AdvancedTab() {
             {t(
               '当前仅支持默认路径，自定义路径将在后续版本支持。',
               'Currently only the default path is supported. Custom paths will be available in a future version.',
-              '現在はデフォルトパスのみサポートしています。カスタムパスは将来のバージョンで利用可能になります。',
+              '現在はデフォルトパスのみサポートしています。',
               language
             )}
           </p>
@@ -398,9 +821,9 @@ function AdvancedTab() {
               </div>
               <div className="text-xs text-[#808080] mt-0.5">
                 {t(
-                  '将所有设置恢复为默认值',
-                  'Restore all settings to their default values',
-                  'すべての設定をデフォルト値に戻します',
+                  '将所有设置恢复为默认值（含定价）',
+                  'Restore all settings to defaults (including pricing)',
+                  'すべての設定をデフォルトに戻します（価格含む）',
                   language
                 )}
               </div>
@@ -455,7 +878,7 @@ function AboutTab() {
           {t(
             '一个本地化的 Claude Code 使用统计分析工具。所有数据均在本地处理，不会上传到任何服务器。',
             'A local Claude Code usage statistics analyzer. All data is processed locally and never uploaded to any server.',
-            'ローカルで動作する Claude Code 使用統計分析ツール。すべてのデータはローカルで処理され、サーバーにアップロードされることはありません。',
+            'ローカルで動作する Claude Code 使用統計分析ツール。',
             language
           )}
         </p>
@@ -475,9 +898,7 @@ function AboutTab() {
             </div>
             <span className="text-sm font-medium">CC Statistics</span>
           </div>
-
           <div className="border-t border-[#2a2a2a]" />
-
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-[#22c55e]/10 flex items-center justify-center">
@@ -489,9 +910,7 @@ function AboutTab() {
             </div>
             <span className="text-sm font-medium">Tauri + React + TypeScript</span>
           </div>
-
           <div className="border-t border-[#2a2a2a]" />
-
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-[#a855f7]/10 flex items-center justify-center">
@@ -505,9 +924,7 @@ function AboutTab() {
               {t('仅本地', 'Local Only', 'ローカルのみ', language)}
             </span>
           </div>
-
           <div className="border-t border-[#2a2a2a]" />
-
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-[#f59e0b]/10 flex items-center justify-center">

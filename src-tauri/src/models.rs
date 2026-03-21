@@ -90,6 +90,8 @@ pub enum TimeFilter {
     Week,
     Month,
     All,
+    #[serde(untagged)]
+    Days(u32),
 }
 
 impl Default for TimeFilter {

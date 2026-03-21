@@ -5,9 +5,9 @@ import { Header } from '../components/layout/Header';
 import { ArrowLeft } from 'lucide-react';
 
 export function Instructions() {
-  const { selectedProject, timeFilter } = useFilterStore();
+  const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
   const navigate = useNavigate();
-  const { data: instructions, isLoading } = useInstructions(selectedProject, timeFilter);
+  const { data: instructions, isLoading } = useInstructions(selectedProject, timeFilter, selectedProvider);
 
   if (isLoading) {
     return (

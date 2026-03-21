@@ -1,4 +1,5 @@
 import { RefreshCw } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
 interface FooterProps {
   lastUpdated?: string;
@@ -19,10 +20,20 @@ export function Footer({ lastUpdated, onRefresh, isRefreshing }: FooterProps) {
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="flex items-center gap-2 hover:text-white transition-colors disabled:opacity-50"
+            className={cn(
+              'flex items-center gap-2 transition-colors',
+              isRefreshing
+                ? 'text-[#3b82f6] cursor-not-allowed'
+                : 'hover:text-white active:text-[#3b82f6] cursor-pointer'
+            )}
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw
+              className={cn(
+                'w-4 h-4 transition-transform',
+                isRefreshing && 'animate-refresh-spin'
+              )}
+            />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>

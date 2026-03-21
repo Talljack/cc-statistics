@@ -147,25 +147,59 @@ fn parse_assistant_record(value: &Value, stats: &mut SessionStats) {
 }
 
 /// Calculate cost in USD based on model pricing
-/// Prices are per million tokens
+/// Prices are per million tokens — last updated March 2026
+/// Sources: platform.claude.com, openai.com, ai.google.dev, api-docs.deepseek.com,
+///          platform.moonshot.ai, open.bigmodel.cn
 fn calculate_cost(model: &str, input: u64, output: u64, cache_read: u64, cache_creation: u64) -> f64 {
+    let ml = model.to_lowercase();
     // (input_per_m, output_per_m, cache_read_per_m, cache_creation_per_m)
-    let (input_rate, output_rate, cache_read_rate, cache_creation_rate) = match model {
-        // Claude Opus 4 / 4.5 / 4.6
-        m if m.contains("opus") => (15.0, 75.0, 1.875, 18.75),
-        // Claude Sonnet 4 / 4.5 / 4.6
-        m if m.contains("sonnet") => (3.0, 15.0, 0.30, 3.75),
-        // Claude Haiku 3.5 / 4.5
-        m if m.contains("haiku") => (0.80, 4.0, 0.08, 1.0),
-        // Unknown models — use Sonnet pricing as default
-        _ => (3.0, 15.0, 0.30, 3.75),
+    let rates = if ml.contains("opus-4-5") || ml.contains("opus-4-6")
+        || ml.contains("opus_4_5") || ml.contains("opus_4_6")
+        || ml.contains("opus-4.5") || ml.contains("opus-4.6") {
+        (5.0, 25.0, 0.50, 6.25)                      // Opus 4.5/4.6
+    } else if ml.contains("opus") {
+        (15.0, 75.0, 1.50, 18.75)                     // Opus 4/4.1 legacy
+    } else if ml.contains("sonnet") {
+        (3.0, 15.0, 0.30, 3.75)                       // Sonnet (all)
+    } else if ml.contains("haiku-4-5") || ml.contains("haiku_4_5") || ml.contains("haiku-4.5") {
+        (1.0, 5.0, 0.10, 1.25)                        // Haiku 4.5
+    } else if ml.contains("haiku-3-5") || ml.contains("haiku_3_5") || ml.contains("haiku-3.5") {
+        (0.80, 4.0, 0.08, 1.0)                        // Haiku 3.5
+    } else if ml.contains("haiku") {
+        (0.25, 1.25, 0.03, 0.30)                      // Haiku 3
+    } else if ml.contains("o3") {
+        (2.0, 8.0, 0.50, 2.0)                         // OpenAI o3
+    } else if ml.contains("o4-mini") || ml.contains("o4_mini") {
+        (1.10, 4.40, 0.275, 1.10)                     // OpenAI o4-mini
+    } else if ml.contains("gpt-4.1") || ml.contains("gpt-4-1") || ml.contains("gpt_4_1") {
+        (2.0, 8.0, 0.50, 2.0)                         // GPT-4.1
+    } else if ml.contains("gpt-4o") || ml.contains("gpt_4o") {
+        (2.50, 10.0, 1.25, 2.50)                      // GPT-4o
+    } else if ml.contains("gpt") {
+        (2.50, 10.0, 1.25, 2.50)                      // GPT fallback
+    } else if ml.contains("gemini") && ml.contains("flash") {
+        (0.15, 0.60, 0.0375, 0.15)                    // Gemini 2.5 Flash
+    } else if ml.contains("gemini") && ml.contains("pro") {
+        (1.25, 10.0, 0.315, 1.25)                     // Gemini 2.5 Pro
+    } else if ml.contains("gemini") {
+        (0.15, 0.60, 0.0375, 0.15)                    // Gemini fallback
+    } else if ml.contains("deepseek") && ml.contains("r1") {
+        (0.55, 2.19, 0.055, 0.55)                     // DeepSeek R1
+    } else if ml.contains("deepseek") {
+        (0.28, 0.42, 0.028, 0.28)                     // DeepSeek V3
+    } else if ml.contains("kimi") || ml.contains("moonshot") {
+        (0.60, 2.50, 0.15, 0.60)                      // Kimi K2
+    } else if ml.contains("glm") {
+        (0.60, 2.20, 0.15, 0.60)                      // GLM-4.7
+    } else {
+        (3.0, 15.0, 0.30, 3.75)                       // Default (Sonnet)
     };
 
-    let m = 1_000_000.0;
-    (input as f64 / m) * input_rate
-        + (output as f64 / m) * output_rate
-        + (cache_read as f64 / m) * cache_read_rate
-        + (cache_creation as f64 / m) * cache_creation_rate
+    let million = 1_000_000.0;
+    (input as f64 / million) * rates.0
+        + (output as f64 / million) * rates.1
+        + (cache_read as f64 / million) * rates.2
+        + (cache_creation as f64 / million) * rates.3
 }
 
 #[derive(Debug, Default, Clone)]
@@ -427,6 +461,7 @@ fn matches_time_filter(value: &Value, time_filter: &TimeFilter) -> bool {
         }
         TimeFilter::Week => record_time >= now - Duration::days(7),
         TimeFilter::Month => record_time >= now - Duration::days(30),
+        TimeFilter::Days(d) => record_time >= now - Duration::days(*d as i64),
         TimeFilter::All => true,
     }
 }

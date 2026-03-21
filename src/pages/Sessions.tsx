@@ -1,18 +1,43 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFilterStore } from '../stores/filterStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useSessions } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { formatTokens, formatNumber, formatCost } from '../lib/utils';
 import { ArrowLeft } from 'lucide-react';
 
 export function Sessions() {
-  const { selectedProject, timeFilter } = useFilterStore();
+  const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
+  const { showCost, sessionSortField, sessionSortOrder } = useSettingsStore();
   const navigate = useNavigate();
-  const { data: sessions, isLoading } = useSessions(selectedProject, timeFilter);
+  const { data: sessions, isLoading } = useSessions(selectedProject, timeFilter, selectedProvider);
 
-  const handleRefresh = () => {
-    // Sessions page doesn't need a full refresh - query will auto-refetch
-  };
+  const sortedSessions = useMemo(() => {
+    if (!sessions) return [];
+    const sorted = [...sessions];
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      switch (sessionSortField) {
+        case 'timestamp':
+          cmp = a.timestamp.localeCompare(b.timestamp);
+          break;
+        case 'cost_usd':
+          cmp = a.cost_usd - b.cost_usd;
+          break;
+        case 'total_tokens':
+          cmp = a.total_tokens - b.total_tokens;
+          break;
+        case 'duration_ms':
+          cmp = a.duration_ms - b.duration_ms;
+          break;
+      }
+      return sessionSortOrder === 'desc' ? -cmp : cmp;
+    });
+    return sorted;
+  }, [sessions, sessionSortField, sessionSortOrder]);
+
+  const handleRefresh = () => {};
 
   if (isLoading) {
     return (
@@ -42,7 +67,7 @@ export function Sessions() {
           </h2>
         </div>
 
-        {!sessions || sessions.length === 0 ? (
+        {sortedSessions.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
             No sessions found
           </div>
@@ -56,14 +81,16 @@ export function Sessions() {
                     <th className="text-left px-4 py-3 font-medium">Project</th>
                     <th className="text-left px-4 py-3 font-medium">Duration</th>
                     <th className="text-right px-4 py-3 font-medium">Tokens</th>
-                    <th className="text-right px-4 py-3 font-medium">Cost</th>
+                    {showCost && (
+                      <th className="text-right px-4 py-3 font-medium">Cost</th>
+                    )}
                     <th className="text-right px-4 py-3 font-medium">Instructions</th>
                     <th className="text-left px-4 py-3 font-medium">Model</th>
                     <th className="text-left px-4 py-3 font-medium">Branch</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sessions.map((session) => (
+                  {sortedSessions.map((session) => (
                     <tr
                       key={session.session_id}
                       className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors"
@@ -80,9 +107,11 @@ export function Sessions() {
                       <td className="px-4 py-3 text-right font-mono text-[#f59e0b]">
                         {formatTokens(session.total_tokens)}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-[#ef4444]">
-                        {formatCost(session.cost_usd)}
-                      </td>
+                      {showCost && (
+                        <td className="px-4 py-3 text-right font-mono text-[#ef4444]">
+                          {formatCost(session.cost_usd)}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right font-mono">
                         {formatNumber(session.instructions)}
                       </td>

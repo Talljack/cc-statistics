@@ -1,6 +1,7 @@
 mod commands;
 mod models;
 mod parser;
+mod tray;
 
 use commands::*;
 
@@ -14,7 +15,13 @@ pub fn run() {
             get_statistics,
             get_sessions,
             get_instructions,
+            get_available_providers,
+            update_tray_stats,
         ])
+        .setup(|app| {
+            tray::setup_tray(app)?;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

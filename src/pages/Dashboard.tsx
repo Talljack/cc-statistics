@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { invoke } from '@tauri-apps/api/core';
 import { useFilterStore } from '../stores/filterStore';
 import { useAppStore } from '../stores/appStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -15,25 +16,50 @@ import { CodeChanges } from '../components/charts/CodeChanges';
 import { ToolUsageChart } from '../components/charts/ToolUsageChart';
 import { SkillUsageChart } from '../components/charts/SkillUsageChart';
 import { McpUsageChart } from '../components/charts/McpUsageChart';
-import { formatTokens, formatNumber, formatCost } from '../lib/utils';
+import { formatTokens, formatNumber, formatCost, calculateCustomCost } from '../lib/utils';
 import { MessageSquare, FileText, Clock, Cpu, DollarSign } from 'lucide-react';
 
 export function Dashboard() {
-  const { selectedProject, timeFilter } = useFilterStore();
+  const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
   const { currentView } = useAppStore();
-  const { autoRefreshEnabled, autoRefreshInterval, showToolUsage, showSkillUsage, showMcpUsage } = useSettingsStore();
+  const {
+    autoRefreshEnabled,
+    autoRefreshInterval,
+    showToolUsage,
+    showSkillUsage,
+    showMcpUsage,
+    showCost,
+    showSessionsCard,
+    showInstructionsCard,
+    showDurationCard,
+    showTokensCard,
+    showCostCard,
+    customPricingEnabled,
+    customPricing,
+  } = useSettingsStore();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data: stats, isLoading, refetch, isRefetching } = useStatistics(
     selectedProject,
-    timeFilter
+    timeFilter,
+    selectedProvider
   );
 
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const initialLoadRef = useRef(false);
 
   const isRefreshing = isRefetching || isAnimating;
+
+  // Set lastUpdated on initial data load
+  useEffect(() => {
+    if (stats && !initialLoadRef.current) {
+      initialLoadRef.current = true;
+      setLastUpdated(new Date().toISOString());
+      invoke('update_tray_stats').catch(() => {});
+    }
+  }, [stats]);
 
   const handleRefresh = async () => {
     setIsAnimating(true);
@@ -44,6 +70,7 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       await Promise.all([refetch(), minDelay]);
       setLastUpdated(new Date().toISOString());
+      invoke('update_tray_stats').catch(() => {});
     } catch {
       // ignore refresh errors
     } finally {
@@ -82,16 +109,45 @@ export function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">Loading statistics...</div>
+      <div className="min-h-screen bg-[#0f0f0f] flex flex-col items-center justify-center gap-6">
+        {/* Logo */}
+        <div className="relative">
+          <div className="w-20 h-20 bg-gradient-to-br from-[#3b82f6] to-[#6366f1] rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/30 animate-pulse">
+            <span className="text-white font-bold text-4xl">C</span>
+          </div>
+          {/* Orbit ring */}
+          <div className="absolute -inset-4 border-2 border-[#3b82f6]/20 rounded-full animate-[spin_3s_linear_infinite]" />
+          <div className="absolute -inset-4 border-2 border-transparent border-t-[#3b82f6]/60 rounded-full animate-[spin_1.5s_linear_infinite]" />
+        </div>
+
+        {/* Text */}
+        <div className="text-center">
+          <h1 className="text-xl font-semibold mb-2">
+            CC <span className="text-[#a0a0a0]">Statistics</span>
+          </h1>
+          <div className="flex items-center gap-2 text-sm text-[#606060]">
+            <div className="flex gap-1">
+              <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_infinite]" />
+              <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_0.15s_infinite]" />
+              <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_0.3s_infinite]" />
+            </div>
+            <span>Loading</span>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!stats) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">No data available</div>
+      <div className="min-h-screen bg-[#0f0f0f] flex flex-col items-center justify-center gap-4">
+        <div className="w-16 h-16 bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl flex items-center justify-center">
+          <span className="text-[#606060] text-3xl font-bold">C</span>
+        </div>
+        <div className="text-center">
+          <p className="text-[#a0a0a0] text-sm">No data available</p>
+          <p className="text-[#606060] text-xs mt-1">Start using Claude Code to see statistics</p>
+        </div>
       </div>
     );
   }
@@ -102,7 +158,78 @@ export function Dashboard() {
     stats.tokens.cache_read +
     stats.tokens.cache_creation;
 
-  // Determine which usage charts are visible
+  // Calculate cost (custom pricing or backend default)
+  const displayCost = customPricingEnabled
+    ? calculateCustomCost(stats.tokens, customPricing)
+    : stats.cost_usd;
+
+  // Collect visible cards
+  const cards: React.ReactNode[] = [];
+  if (showSessionsCard) {
+    cards.push(
+      <StatCard
+        key="sessions"
+        title="Sessions"
+        value={formatNumber(stats.sessions)}
+        icon={<MessageSquare className="w-5 h-5" />}
+        color="#3b82f6"
+        onClick={() => navigate('/sessions')}
+      />
+    );
+  }
+  if (showInstructionsCard) {
+    cards.push(
+      <StatCard
+        key="instructions"
+        title="Instructions"
+        value={formatNumber(stats.instructions)}
+        icon={<FileText className="w-5 h-5" />}
+        color="#22c55e"
+        onClick={() => navigate('/instructions')}
+      />
+    );
+  }
+  if (showDurationCard) {
+    cards.push(
+      <StatCard
+        key="duration"
+        title="Duration"
+        value={stats.duration_formatted}
+        icon={<Clock className="w-5 h-5" />}
+        color="#a855f7"
+      />
+    );
+  }
+  if (showTokensCard) {
+    cards.push(
+      <StatCard
+        key="tokens"
+        title="Tokens"
+        value={formatTokens(totalTokens)}
+        icon={<Cpu className="w-5 h-5" />}
+        color="#f59e0b"
+      />
+    );
+  }
+  if (showCost && showCostCard) {
+    cards.push(
+      <StatCard
+        key="cost"
+        title="Cost"
+        value={formatCost(displayCost)}
+        icon={<DollarSign className="w-5 h-5" />}
+        color="#ef4444"
+        onClick={() => navigate('/cost')}
+      />
+    );
+  }
+
+  // Determine grid columns based on card count
+  const gridCols = cards.length <= 4
+    ? 'md:grid-cols-2 2xl:grid-cols-4'
+    : 'md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5';
+
+  // Chart visibility
   const hasToolData = showToolUsage && Object.keys(stats.tool_usage).length > 0;
   const hasMcpData = showMcpUsage && Object.keys(stats.mcp_usage).length > 0;
   const hasSkillData = showSkillUsage && Object.keys(stats.skill_usage).length > 0;
@@ -114,40 +241,11 @@ export function Dashboard() {
 
       <main className="flex-1 p-6 overflow-auto">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 2xl:grid-cols-5">
-          <StatCard
-            title="Sessions"
-            value={formatNumber(stats.sessions)}
-            icon={<MessageSquare className="w-5 h-5" />}
-            color="#3b82f6"
-            onClick={() => navigate('/sessions')}
-          />
-          <StatCard
-            title="Instructions"
-            value={formatNumber(stats.instructions)}
-            icon={<FileText className="w-5 h-5" />}
-            color="#22c55e"
-            onClick={() => navigate('/instructions')}
-          />
-          <StatCard
-            title="Duration"
-            value={stats.duration_formatted}
-            icon={<Clock className="w-5 h-5" />}
-            color="#a855f7"
-          />
-          <StatCard
-            title="Tokens"
-            value={formatTokens(totalTokens)}
-            icon={<Cpu className="w-5 h-5" />}
-            color="#f59e0b"
-          />
-          <StatCard
-            title="Cost"
-            value={formatCost(stats.cost_usd)}
-            icon={<DollarSign className="w-5 h-5" />}
-            color="#ef4444"
-          />
-        </div>
+        {cards.length > 0 && (
+          <div className={`grid grid-cols-1 gap-4 mb-6 ${gridCols}`}>
+            {cards}
+          </div>
+        )}
 
         {/* Charts Row */}
         <div className="grid grid-cols-1 gap-6 mb-6 xl:grid-cols-2">

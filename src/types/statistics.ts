@@ -71,4 +71,4 @@ export interface ProjectInfo {
   path: string;
 }
 
-export type TimeFilter = 'today' | 'week' | 'month' | 'all';
+export type TimeFilter = 'today' | 'week' | 'month' | 'all' | string;
