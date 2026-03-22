@@ -16,6 +16,7 @@
 - Create: `src/lib/costing.ts`
 - Create: `src/lib/costing.test.ts`
 - Create: `src/hooks/useCostMetrics.ts`
+- Modify: `src/components/charts/TokenChart.tsx`
 - Modify: `src-tauri/src/models.rs`
 - Modify: `src-tauri/src/aggregation.rs`
 - Modify: `src/types/statistics.ts`
@@ -124,6 +125,7 @@ Create `src/lib/costing.test.ts` and cover:
 - mixed-model session totals remain exact
 - ambiguous substring matches fall back deterministically
 - `unknown` model buckets stay at zero cost
+- pricing snapshot changes recompute all derived outputs from one shared snapshot
 
 - [ ] **Step 2: Run the new frontend tests and verify failure**
 
@@ -154,6 +156,14 @@ export interface ResolvedPricing {
 
 export function resolveModelPricing(model: string, ctx: PricingContext): ResolvedPricing
 ```
+
+`src/lib/modelPricing.ts` must become the only pricing matcher used by display-cost code.
+Update `src/stores/pricingStore.ts` so it either:
+
+- delegates matching to shared normalization helpers from `modelPricing.ts`, or
+- stops exposing matching behavior beyond raw dynamic model data
+
+Do not leave a second substring-based resolver alive in the store.
 
 - [ ] **Step 4: Implement the shared cost derivation module**
 
@@ -211,6 +221,7 @@ git commit -m "feat: add shared cost derivation and pricing resolver"
 - Create: `src/hooks/useCostMetrics.ts`
 - Modify: `src/pages/Dashboard.tsx`
 - Modify: `src/pages/CostBreakdown.tsx`
+- Modify: `src/hooks/useStatistics.ts`
 
 - [ ] **Step 1: Add a failing frontend test for shared derived totals**
 
@@ -220,6 +231,7 @@ Extend `src/lib/costing.test.ts` or add a light hook test so one shared derived 
 - cost breakdown total
 - cost by type
 - cost by model
+- reactivity when pricing inputs change
 
 with equal raw totals.
 
@@ -234,14 +246,14 @@ Expected: FAIL because the pages still compute/display cost from different sourc
 Create `src/hooks/useCostMetrics.ts` that:
 
 - reads `customPricingEnabled` and `customPricing`
-- reads dynamic pricing from `usePricingStore`
-- accepts `stats` and `sessions`
+- subscribes to the dynamic pricing state through React/Zustand, not imperative one-off getters
+- accepts canonical session data
 - returns one memoized derived result object
 
 Suggested hook shape:
 
 ```ts
-export function useCostMetrics(stats: Statistics | undefined, sessions: SessionInfo[] | undefined) {
+export function useCostMetrics(sessions: SessionInfo[] | undefined) {
   return {
     totalCost,
     costByType,
@@ -251,9 +263,17 @@ export function useCostMetrics(stats: Statistics | undefined, sessions: SessionI
 }
 ```
 
+The hook must derive all outputs from one memoized pricing snapshot so every surface on screen recomputes together when:
+
+- custom pricing changes
+- dynamic pricing refreshes
+- fallback pricing is used because no dynamic price exists
+
 - [ ] **Step 4: Migrate Dashboard**
 
-Update `src/pages/Dashboard.tsx` so the cost card displays `useCostMetrics(...).totalCost`.
+Update `src/pages/Dashboard.tsx` so it also fetches filtered sessions with `useSessions(...)`, then passes those sessions into `useCostMetrics(...)`.
+
+The cost card must display `useCostMetrics(...).totalCost`.
 
 Stop using:
 
@@ -284,11 +304,12 @@ git add src/hooks/useCostMetrics.ts src/pages/Dashboard.tsx src/pages/CostBreakd
 git commit -m "feat: route dashboard and cost page through shared cost metrics"
 ```
 
-## Task 4: Migrate Sessions + Report And Keep Sorting Consistent
+## Task 4: Migrate Sessions + Report + Token Chart And Keep Sorting Consistent
 
 **Files:**
 - Modify: `src/pages/Sessions.tsx`
 - Modify: `src/pages/Report.tsx`
+- Modify: `src/components/charts/TokenChart.tsx`
 
 - [ ] **Step 1: Add failing tests for session/report consistency**
 
@@ -297,6 +318,7 @@ Extend `src/lib/costing.test.ts` with cases that prove:
 - session derived costs sum to `totalCost`
 - report day/project rollups derived from sessions sum to `totalCost`
 - session sorting by cost uses derived session cost, not stale backend `cost_usd`
+- token chart model cost badges use the same derived model costs as the cost page
 
 - [ ] **Step 2: Run the targeted frontend tests and verify failure**
 
@@ -328,17 +350,23 @@ Update `src/pages/Report.tsx` so:
 
 Do not add any page-local pricing math.
 
-- [ ] **Step 5: Re-run frontend tests**
+- [ ] **Step 5: Migrate Token Chart model cost badges**
+
+Update `src/components/charts/TokenChart.tsx` so any displayed money value comes from the shared derived model-cost output, not `tokens.by_model[*].cost_usd`.
+
+If needed, update `Dashboard.tsx` to pass the derived model-cost map into the chart as props.
+
+- [ ] **Step 6: Re-run frontend tests**
 
 Run: `pnpm vitest run`
 
 Expected: PASS
 
-- [ ] **Step 6: Commit the remaining page migration**
+- [ ] **Step 7: Commit the remaining page migration**
 
 ```bash
-git add src/pages/Sessions.tsx src/pages/Report.tsx src/lib/costing.test.ts
-git commit -m "feat: unify sessions and report cost calculations"
+git add src/pages/Sessions.tsx src/pages/Report.tsx src/components/charts/TokenChart.tsx src/pages/Dashboard.tsx src/lib/costing.test.ts
+git commit -m "feat: unify session report and token chart cost calculations"
 ```
 
 ## Task 5: Verify End-To-End Consistency
@@ -384,12 +412,26 @@ Under the same filter state, verify:
 - Cost Breakdown total
 - sum of Cost Breakdown by-model raw values
 - sum of Cost Breakdown by-session raw values
-- Sessions page displayed costs summed manually from the top rows as spot-check
+- Sessions page full displayed costs sum to the same filtered total, not only top rows
 - Report overview total
+- Report project leaderboard summed cost
+- Report daily trend summed cost
+- Dashboard token chart per-model cost badges against Cost Breakdown by-model
 
 All must be derived from the same pricing snapshot and agree within raw precision.
 
-- [ ] **Step 7: Commit verification-only follow-up if needed**
+- [ ] **Step 7: Regression matrix**
+
+Repeat the consistency checks for:
+
+- Codex-only filter
+- mixed providers
+- custom pricing enabled
+- dynamic pricing available
+- fallback pricing path
+- pricing snapshot change after settings update
+
+- [ ] **Step 8: Commit verification-only follow-up if needed**
 
 ```bash
 git add src/lib/costing.test.ts
