@@ -73,6 +73,26 @@ For any active filter state:
 - `dashboardCost == reportCost == costBreakdownTotal`
 - session table cost values must sum to the same filtered total
 
+### Canonical Cost Dataset
+
+There must be exactly one money source of truth for the UI:
+
+- session-level per-model token records
+
+Every displayed cost value must be derived from the same aggregation path:
+
+1. start from filtered session rows
+2. read each session's per-model token buckets
+3. compute model cost from input/output tokens only
+4. fold those per-session model costs into:
+   - total cost
+   - cost by type
+   - cost by model
+   - cost by session
+   - report project/day totals
+
+`stats.tokens` remains useful for token analytics and validation, but it is not the authoritative cost input once the new cost layer lands. This avoids drift between aggregate totals and session/report rollups.
+
 ## Options Considered
 
 ### Option 1: Keep mixed sources and patch the cost page
@@ -134,11 +154,14 @@ Add a new frontend module responsible for all displayed cost values. It should e
 - `costByModel`
 - `costBySession`
 
-Inputs:
+Canonical input:
 
-- `stats.tokens`
-- `sessions`
+- filtered sessions enriched with per-model session token detail
+
+Secondary inputs:
+
 - pricing context from settings and pricing store
+- optionally `stats.tokens` for validation assertions only, not for displayed money values
 
 Outputs must be the only source used by UI components for money values.
 
@@ -151,6 +174,36 @@ Extract one reusable pricing resolver:
 - then fallback pricing
 
 The resolver must normalize model names using the same matching logic everywhere.
+
+The matching contract must be explicit:
+
+- keep the raw model identifier for display
+- create a canonical lookup key by:
+  - lowercasing
+  - trimming whitespace
+  - removing bracketed suffixes like `[1m]`
+  - removing trailing date/version suffixes like `-20241022`
+  - removing trailing `:variant` or `@variant`
+  - normalizing `_` and `.` separators to `-`
+  - collapsing repeated `-`
+  - stripping provider prefix for lookup, while still allowing exact raw-id matches first
+- pricing resolution order for a model:
+  1. exact custom model key
+  2. normalized custom model key
+  3. exact dynamic pricing id
+  4. normalized dynamic pricing id
+  5. unique substring candidate from dynamic pricing ids
+  6. fallback pricing
+
+Deterministic substring rule:
+
+- a substring candidate is allowed only when exactly one normalized dynamic pricing id matches
+- if multiple candidates match, substring resolution is treated as ambiguous and must not choose any of them
+- ambiguous substring matches must immediately fall through to fallback pricing
+- no tie-breaking by array order is allowed
+- if one candidate remains, it is accepted regardless of id length because uniqueness, not shortest length, is the safety condition
+
+The same raw identifier must always produce the same canonical lookup key in every surface.
 
 ### Session Cost Derivation
 
@@ -166,6 +219,20 @@ Minimum new session payload requirements:
 - session-level `cache_creation`
 - per-model token attribution for sessions that contain more than one model
 
+Required per-session model token shape:
+
+- `session.tokens_by_model[model].input`
+- `session.tokens_by_model[model].output`
+- `session.tokens_by_model[model].cache_read`
+- `session.tokens_by_model[model].cache_creation`
+
+Unknown-model representation:
+
+- if the source provides no model identifier, store the bucket under the literal key `unknown`
+- `unknown` buckets may carry token counts
+- `unknown` buckets always derive `cost = 0`
+- `unknown` buckets are excluded from `costByModel` rankings unless their derived cost is non-zero, which it never should be under this rule
+
 Without per-session token detail, the frontend cannot make `bySession` and `Report` totals mathematically consistent with app-wide total cost.
 
 ### Type Cost Derivation
@@ -176,6 +243,40 @@ The type breakdown must be derived from the same by-model token data, but only:
 - output cost
 
 It may still render cache rows for transparency, but those rows must always be zero-cost under the new policy.
+
+## Precision and Rounding
+
+All derived cost math must use full-precision numeric values through derivation and sorting.
+
+- do not round per model
+- do not round per session
+- do not round per report bucket
+- do not round before comparing or sorting
+
+Rounding is allowed only at final render formatting.
+
+This guarantees that:
+
+- `sum(display inputs)` may differ by a cent due to display rounding
+- raw derived totals remain internally identical across all surfaces
+
+If exact rendered equality is needed in a grouped view, the grouped view must format the already-aggregated raw total, not sum previously formatted strings.
+
+## Pricing Snapshot Behavior
+
+All cost surfaces on screen must derive from the same pricing snapshot in a given render pass.
+
+Rules:
+
+- if custom pricing changes, all derived cost outputs recompute together
+- if dynamic pricing store updates, all derived cost outputs recompute from the same updated snapshot
+- while dynamic pricing is loading, the app uses:
+  - custom pricing if present
+  - otherwise currently cached dynamic pricing if available
+  - otherwise fallback pricing
+- the UI must never mix old and new pricing sources across surfaces in the same render
+
+Implementation-wise, the shared cost layer should consume one memoized pricing context and produce one memoized cost result object for all pages.
 
 ## UI Surface Changes
 
@@ -215,12 +316,16 @@ Extend session-facing data so the frontend can derive exact session cost:
 - preserve existing `cost_usd` temporarily for compatibility
 - do not use the legacy field for displayed money values once the new path lands
 
+The app-level `Statistics` payload may continue returning aggregate `tokens.by_model`, but displayed cost must be derived from enriched session data so every rollup path uses the same base grain.
+
 ## Edge Cases
 
 - If a model has no custom or dynamic price, fallback pricing is used.
-- If a session has tokens but no resolvable model name, fallback pricing is applied to the reported model identifier.
+- If a session has a raw model identifier but no custom or dynamic match, fallback pricing is applied to that model bucket.
+- If a session has tokens but no model identifier at all, cost is `0` for that unresolved bucket and the bucket is marked internally as `unpriced/unknown`.
 - If cache tokens exist without input/output tokens, session cost is zero.
 - If token counts are zero, cost is zero regardless of model match.
+- If substring matching finds more than one dynamic pricing candidate, the match is ambiguous and fallback pricing must be used.
 
 ## Testing Strategy
 
