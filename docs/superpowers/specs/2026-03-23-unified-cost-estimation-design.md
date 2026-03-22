@@ -322,7 +322,7 @@ The app-level `Statistics` payload may continue returning aggregate `tokens.by_m
 
 - If a model has no custom or dynamic price, fallback pricing is used.
 - If a session has a raw model identifier but no custom or dynamic match, fallback pricing is applied to that model bucket.
-- If a session has tokens but no model identifier at all, cost is `0` for that unresolved bucket and the bucket is marked internally as `unpriced/unknown`.
+- If a session has tokens but no model identifier at all, cost is `0` for that bucket and the bucket key must be the literal string `unknown`.
 - If cache tokens exist without input/output tokens, session cost is zero.
 - If token counts are zero, cost is zero regardless of model match.
 - If substring matching finds more than one dynamic pricing candidate, the match is ambiguous and fallback pricing must be used.
