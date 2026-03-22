@@ -27,11 +27,19 @@ interface DailyBucket {
 
 export function Report() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange } = useFilterStore();
+  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
   const { showCost } = useSettingsStore();
   const navigate = useNavigate();
-  const { data: stats, isLoading: statsLoading } = useStatistics(selectedProject, activeTimeRange);
-  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedProject, activeTimeRange);
+  const { data: stats, isLoading: statsLoading } = useStatistics(
+    selectedProject,
+    activeTimeRange,
+    selectedProvider,
+  );
+  const { data: sessions, isLoading: sessionsLoading } = useSessions(
+    selectedProject,
+    activeTimeRange,
+    selectedProvider,
+  );
 
   const isLoading = statsLoading || sessionsLoading;
 

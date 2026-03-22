@@ -1,11 +1,10 @@
+use crate::aggregation;
 use crate::models::*;
-use crate::parser::{extract_instructions, format_duration, parse_session_file, ProjectStats};
 use crate::sources;
 use crate::time_ranges;
 use chrono::{DateTime, Duration, Local, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -310,14 +309,6 @@ pub(crate) fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> b
     }
 }
 
-/// Unified file-level filter: use structured query_range if available, else legacy time_filter
-fn should_include_file(path: &PathBuf, filter: &TimeFilter, query_range: &Option<QueryTimeRange>) -> bool {
-    match query_range {
-        Some(qr) => time_ranges::filter_by_query_range(qr, path),
-        None => filter_by_time(filter, path),
-    }
-}
-
 fn has_any_activity(project_dir: &PathBuf) -> bool {
     let entries = match fs::read_dir(project_dir) {
         Ok(entries) => entries,
@@ -427,100 +418,16 @@ pub fn get_statistics_internal(
         Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
         None => parse_time_filter(time_filter.as_str()),
     };
+    let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
+    let sessions =
+        sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, config);
 
-    let mut all_stats = ProjectStats::default();
-
-    // Claude Code stats
-    if config.claude_code {
-        if let Ok(name_map) = build_project_name_map() {
-            if let Some(ref project_name) = project {
-                if let Some(dirs) = name_map.get(project_name) {
-                    for dir in dirs {
-                        if let Ok(stats) = collect_project_stats(dir, &filter, &time_range, &provider_filter, custom_providers) {
-                            all_stats.merge(stats);
-                        }
-                    }
-                }
-            } else {
-                for dirs in name_map.values() {
-                    for dir in dirs {
-                        if let Ok(stats) = collect_project_stats(dir, &filter, &time_range, &provider_filter, custom_providers) {
-                            all_stats.merge(stats);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Other sources
-    if config.codex {
-        all_stats.merge(sources::codex::collect_stats(project.as_deref(), &filter, &provider_filter, custom_providers));
-    }
-    if config.gemini {
-        all_stats.merge(sources::gemini::collect_stats(project.as_deref(), &filter, &provider_filter, custom_providers));
-    }
-    if config.opencode {
-        all_stats.merge(sources::opencode::collect_stats(project.as_deref(), &filter, &provider_filter, custom_providers));
-    }
-    if config.openclaw {
-        all_stats.merge(sources::openclaw::collect_stats(project.as_deref(), &filter, &provider_filter, custom_providers));
-    }
-
-    Ok(all_stats.to_statistics())
-}
-
-fn collect_project_stats(
-    project_path: &PathBuf,
-    time_filter: &TimeFilter,
-    query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
-    custom_providers: &[CustomProviderDef],
-) -> Result<ProjectStats, String> {
-    let mut stats = ProjectStats::default();
-
-    let entries = fs::read_dir(project_path).map_err(|e| format!("Failed to read project dir: {}", e))?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        if !should_include_file(&path, time_filter, query_range) {
-            continue;
-        }
-
-        if let Some(ext) = path.extension() {
-            if ext == "jsonl" {
-                match parse_session_file(&path, time_filter) {
-                    Ok(session_stats) if session_stats.has_activity => {
-                        // Skip empty sessions with no meaningful data
-                        let total_tokens = session_stats.tokens.input
-                            + session_stats.tokens.output
-                            + session_stats.tokens.cache_read
-                            + session_stats.tokens.cache_creation;
-                        if total_tokens == 0 && session_stats.instructions == 0 && session_stats.duration_ms == 0 {
-                            continue;
-                        }
-
-                        if let Some(ref provider) = provider_filter {
-                            let matches = session_stats
-                                .tokens
-                                .by_model
-                                .keys()
-                                .any(|m| model_matches_provider(m, provider, custom_providers));
-                            if !matches {
-                                continue;
-                            }
-                        }
-                        stats.merge_session(session_stats);
-                    }
-                    Ok(_) => {}
-                    Err(e) => { eprintln!("Error parsing {:?}: {}", path, e); }
-                }
-            }
-        }
-    }
-
-    Ok(stats)
+    Ok(aggregation::aggregate_statistics(
+        &sessions,
+        &effective_range,
+        &provider_filter,
+        custom_providers,
+    ))
 }
 
 #[tauri::command]
@@ -538,93 +445,16 @@ pub fn get_sessions(
     };
     let cps = custom_providers.unwrap_or_default();
     let config = enabled_sources.unwrap_or_default();
+    let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
+    let sessions =
+        sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
 
-    let mut sessions: Vec<SessionInfo> = Vec::new();
-
-    // Claude Code sessions
-    if config.claude_code {
-        if let Ok(name_map) = build_project_name_map() {
-            let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(ref project_name) = project {
-                match name_map.get(project_name) {
-                    Some(dirs) => vec![(project_name.clone(), dirs)],
-                    None => vec![],
-                }
-            } else {
-                name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
-            };
-
-            for (project_name, dirs) in target_dirs {
-                for dir in dirs {
-                    let entries = match fs::read_dir(dir) {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                            continue;
-                        }
-                        if !should_include_file(&path, &filter, &time_range) {
-                            continue;
-                        }
-
-                        let session_stats = match parse_session_file(&path, &filter) {
-                            Ok(s) if s.has_activity => s,
-                            _ => continue,
-                        };
-
-                        if let Some(ref provider) = provider_filter {
-                            let matches = session_stats.tokens.by_model.keys()
-                                .any(|m| model_matches_provider(m, provider, &cps));
-                            if !matches { continue; }
-                        }
-
-                        let total_tokens = session_stats.tokens.input
-                            + session_stats.tokens.output
-                            + session_stats.tokens.cache_read
-                            + session_stats.tokens.cache_creation;
-
-                        // Skip empty sessions (no tokens, no instructions, no duration)
-                        if total_tokens == 0 && session_stats.instructions == 0 && session_stats.duration_ms == 0 {
-                            continue;
-                        }
-
-                        sessions.push(SessionInfo {
-                            session_id: session_stats.session_id.unwrap_or_else(|| "unknown".to_string()),
-                            project_name: project_name.clone(),
-                            timestamp: session_stats.first_timestamp.unwrap_or_else(|| "".to_string()),
-                            duration_ms: session_stats.duration_ms,
-                            duration_formatted: format_duration(session_stats.duration_ms),
-                            total_tokens,
-                            instructions: session_stats.instructions,
-                            model: session_stats.primary_model.unwrap_or_else(|| "unknown".to_string()),
-                            git_branch: session_stats.git_branch.unwrap_or_else(|| "".to_string()),
-                            cost_usd: session_stats.cost_usd,
-                            source: "claude_code".to_string(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // Other sources
-    if config.codex {
-        sessions.extend(sources::codex::collect_sessions(project.as_deref(), &filter, &provider_filter, &cps));
-    }
-    if config.gemini {
-        sessions.extend(sources::gemini::collect_sessions(project.as_deref(), &filter, &provider_filter, &cps));
-    }
-    if config.opencode {
-        sessions.extend(sources::opencode::collect_sessions(project.as_deref(), &filter, &provider_filter, &cps));
-    }
-    if config.openclaw {
-        sessions.extend(sources::openclaw::collect_sessions(project.as_deref(), &filter, &provider_filter, &cps));
-    }
-
-    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(sessions)
+    Ok(aggregation::aggregate_sessions(
+        &sessions,
+        &effective_range,
+        &provider_filter,
+        &cps,
+    ))
 }
 
 #[tauri::command]
@@ -641,75 +471,17 @@ pub fn get_instructions(
         None => parse_time_filter(time_filter.as_str()),
     };
     let cps = custom_providers.unwrap_or_default();
+    let config = enabled_sources.unwrap_or_default();
+    let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
+    let sessions =
+        sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
 
-    let name_map = build_project_name_map()?;
-    let mut instructions: Vec<InstructionInfo> = Vec::new();
-
-    let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(ref project_name) = project {
-        match name_map.get(project_name) {
-            Some(dirs) => vec![(project_name.clone(), dirs)],
-            None => return Ok(vec![]),
-        }
-    } else {
-        name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
-    };
-
-    for (project_name, dirs) in target_dirs {
-        for dir in dirs {
-            let entries = match fs::read_dir(dir) {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                    continue;
-                }
-                if !should_include_file(&path, &filter, &time_range) {
-                    continue;
-                }
-
-                if let Some(ref provider) = provider_filter {
-                    let session_stats = match parse_session_file(&path, &filter) {
-                        Ok(s) => s,
-                        Err(_) => continue,
-                    };
-                    let matches = session_stats
-                        .tokens
-                        .by_model
-                        .keys()
-                        .any(|m| model_matches_provider(m, provider, &cps));
-                    if !matches {
-                        continue;
-                    }
-                }
-
-                let session_id = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-
-                let items = match extract_instructions(&path, &filter) {
-                    Ok(items) => items,
-                    Err(_) => continue,
-                };
-
-                for (timestamp, content) in items {
-                    instructions.push(InstructionInfo {
-                        timestamp,
-                        project_name: project_name.clone(),
-                        session_id: session_id.clone(),
-                        content,
-                    });
-                }
-            }
-        }
-    }
-
-    instructions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(instructions)
+    Ok(aggregation::aggregate_instructions(
+        &sessions,
+        &effective_range,
+        &provider_filter,
+        &cps,
+    ))
 }
 
 #[tauri::command]
@@ -724,155 +496,11 @@ pub fn get_available_providers(
 ) -> Result<Vec<String>, String> {
     let cps = custom_providers.unwrap_or_default();
     let config = enabled_sources.unwrap_or_default();
-    let mut providers: HashSet<String> = HashSet::new();
-
-    // Claude Code: scan first 20 lines of each JSONL for model field (lightweight)
-    if config.claude_code {
-        if let Ok(name_map) = build_project_name_map() {
-            for dirs in name_map.values() {
-                for dir in dirs {
-                    let entries = match fs::read_dir(dir) {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") { continue; }
-                        // Lightweight: read first 50 lines to find model
-                        if let Ok(file) = fs::File::open(&path) {
-                            let reader = BufReader::new(file);
-                            for line in reader.lines().take(50).flatten() {
-                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-                                    if let Some(model) = v.pointer("/message/model").and_then(|m| m.as_str()) {
-                                        if let Some(p) = model_to_provider(model, &cps) {
-                                            providers.insert(p);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Codex: use SQLite for fast model lookup
-    if config.codex {
-        if let Some(home) = dirs::home_dir() {
-            let db_path = home.join(".codex").join("state_5.sqlite");
-            if let Ok(conn) = rusqlite::Connection::open_with_flags(
-                &db_path,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            ) {
-                if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT model FROM threads WHERE model IS NOT NULL AND tokens_used > 0") {
-                    if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
-                        for model in rows.flatten() {
-                            if let Some(p) = model_to_provider(&model, &cps) {
-                                providers.insert(p);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Opencode: use SQLite for fast model lookup
-    if config.opencode {
-        if let Some(home) = dirs::home_dir() {
-            let db_path = home.join(".local/share/opencode/opencode.db");
-            if let Ok(conn) = rusqlite::Connection::open_with_flags(
-                &db_path,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            ) {
-                // Extract distinct modelID from message JSON data
-                if let Ok(mut stmt) = conn.prepare(
-                    "SELECT DISTINCT json_extract(data, '$.modelID') FROM message WHERE json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.modelID') IS NOT NULL LIMIT 200"
-                ) {
-                    if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
-                        for model in rows.flatten() {
-                            if let Some(p) = model_to_provider(&model, &cps) {
-                                providers.insert(p);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Gemini: scan session JSON files for model field (lightweight)
-    if config.gemini {
-        if let Some(home) = dirs::home_dir() {
-            let gemini_tmp = home.join(".gemini").join("tmp");
-            if gemini_tmp.exists() {
-                if let Ok(entries) = fs::read_dir(&gemini_tmp) {
-                    for entry in entries.flatten() {
-                        let chats_dir = entry.path().join("chats");
-                        if !chats_dir.is_dir() { continue; }
-                        if let Ok(files) = fs::read_dir(&chats_dir) {
-                            for file in files.flatten() {
-                                let path = file.path();
-                                if path.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
-                                if let Ok(content) = fs::read_to_string(&path) {
-                                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-                                        if let Some(msgs) = v.get("messages").and_then(|m| m.as_array()) {
-                                            for msg in msgs {
-                                                if let Some(model) = msg.get("model").and_then(|m| m.as_str()) {
-                                                    if let Some(p) = model_to_provider(model, &cps) {
-                                                        providers.insert(p);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Openclaw: scan first few lines of each session JSONL for model_change/message events
-    if config.openclaw {
-        if let Some(home) = dirs::home_dir() {
-            let sessions_dir = home.join(".openclaw/agents/main/sessions");
-            if sessions_dir.exists() {
-                if let Ok(entries) = fs::read_dir(&sessions_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") { continue; }
-                        if let Ok(file) = fs::File::open(&path) {
-                            let reader = BufReader::new(file);
-                            for line in reader.lines().take(100).flatten() {
-                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-                                    // model_change event
-                                    if let Some(model_id) = v.get("modelId").and_then(|m| m.as_str()) {
-                                        if let Some(p) = model_to_provider(model_id, &cps) {
-                                            providers.insert(p);
-                                        }
-                                    }
-                                    // message with model
-                                    if let Some(model) = v.pointer("/message/model").and_then(|m| m.as_str()) {
-                                        if let Some(p) = model_to_provider(model, &cps) {
-                                            providers.insert(p);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let mut result: Vec<String> = providers.into_iter().collect();
-    result.sort();
-    Ok(result)
+    let all_range = QueryTimeRange::BuiltIn {
+        key: BuiltInTimeRangeKey::All,
+    };
+    let sessions = sources::collect_all_normalized_sessions(None, &all_range, &config);
+    Ok(aggregation::aggregate_available_providers(&sessions, &cps))
 }
 
 #[tauri::command]

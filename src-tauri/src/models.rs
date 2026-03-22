@@ -94,6 +94,7 @@ pub struct InstructionInfo {
     pub timestamp: String,
     pub project_name: String,
     pub session_id: String,
+    pub source: String,
     pub content: String,
 }
 

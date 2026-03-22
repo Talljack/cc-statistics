@@ -64,6 +64,7 @@ export interface InstructionInfo {
   timestamp: string;
   project_name: string;
   session_id: string;
+  source: string;
   content: string;
 }
 

@@ -1,6 +1,8 @@
 use crate::models::*;
+use crate::normalized::{InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord};
 use crate::parser::{ProjectStats, SessionStats, format_duration};
 use crate::commands::{model_to_provider, model_matches_provider, CustomProviderDef};
+use crate::time_ranges::record_matches_query_range;
 use chrono::{DateTime, Duration, Local, TimeZone};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -130,6 +132,59 @@ pub fn collect_sessions(
 
     // Sort by timestamp descending
     sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    sessions
+}
+
+pub fn collect_normalized_sessions(
+    project: Option<&str>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+
+    collect_normalized_sessions_from_home(&home, project, query_range)
+}
+
+pub fn collect_normalized_sessions_from_home(
+    home: &std::path::Path,
+    project: Option<&str>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let mut sessions = Vec::new();
+
+    let tmp_dir = home.join(".gemini").join("tmp");
+    if !tmp_dir.is_dir() {
+        return sessions;
+    }
+
+    for entry in WalkDir::new(&tmp_dir).into_iter().filter_map(|entry| entry.ok()) {
+        let path = entry.path();
+        if !is_gemini_session(path) {
+            continue;
+        }
+        let Some(session) = parse_normalized_gemini_session(&path, project, query_range) else {
+            continue;
+        };
+        if !session.records.is_empty() {
+            sessions.push(session);
+        }
+    }
+
+    sessions.sort_by(|a, b| {
+        let a_key = a
+            .records
+            .first()
+            .map(|record| record.timestamp().to_rfc3339())
+            .unwrap_or_default();
+        let b_key = b
+            .records
+            .first()
+            .map(|record| record.timestamp().to_rfc3339())
+            .unwrap_or_default();
+        b_key.cmp(&a_key)
+    });
+
     sessions
 }
 
@@ -374,6 +429,129 @@ fn parse_gemini_session(path: &std::path::Path) -> Option<SessionStats> {
     Some(stats)
 }
 
+fn parse_normalized_gemini_session(
+    path: &std::path::Path,
+    project: Option<&str>,
+    query_range: &QueryTimeRange,
+) -> Option<NormalizedSession> {
+    let content = fs::read_to_string(path).ok()?;
+    let root: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let project_path = path
+        .parent()
+        .and_then(|chats_dir| chats_dir.parent())
+        .and_then(|hash_dir| read_project_root(&hash_dir.to_path_buf()))
+        .map(|(_, project_path)| project_path)?;
+    let project_name = PathBuf::from(&project_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+
+    if let Some(project) = project {
+        if !project_name.eq_ignore_ascii_case(project) {
+            return None;
+        }
+    }
+
+    let mut session = NormalizedSession {
+        source: "gemini".to_string(),
+        session_id: root
+            .get("sessionId")
+            .and_then(|value| value.as_str())
+            .or_else(|| path.file_stem().and_then(|stem| stem.to_str()))
+            .unwrap_or("unknown")
+            .to_string(),
+        project_name,
+        git_branch: None,
+        primary_model: None,
+        provider: None,
+        records: Vec::new(),
+    };
+
+    let messages = root.get("messages").and_then(|value| value.as_array())?;
+    let fallback_start = root.get("startTime").and_then(|value| value.as_str());
+
+    for (index, message) in messages.iter().enumerate() {
+        let timestamp = parse_gemini_message_timestamp(message)
+            .or_else(|| {
+                if matches!(query_range, QueryTimeRange::BuiltIn { key: BuiltInTimeRangeKey::All }) {
+                    parse_gemini_message_timestamp_with_fallback(message, fallback_start, index == 0)
+                } else {
+                    None
+                }
+            });
+        let Some(timestamp) = timestamp else {
+            continue;
+        };
+        let message_type = message.get("type").and_then(|value| value.as_str()).unwrap_or("");
+
+        match message_type {
+            "user" => {
+                if has_text_content(message) {
+                    let content = user_content_text(message);
+                    if !content.is_empty() {
+                        let record = NormalizedRecord::Instruction(InstructionRecord {
+                            timestamp,
+                            content,
+                        });
+                        if record_matches_query_range(query_range, record.timestamp()) {
+                            session.records.push(record);
+                        }
+                    }
+                }
+            }
+            "gemini" => {
+                let model = message
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                if session.primary_model.is_none() && model != "unknown" {
+                    session.primary_model = Some(model.clone());
+                    session.provider = model_to_provider(&model, &[]);
+                }
+
+                if let Some(tokens) = message.get("tokens") {
+                    let input = tokens.get("input").and_then(|value| value.as_u64()).unwrap_or(0);
+                    let output = tokens.get("output").and_then(|value| value.as_u64()).unwrap_or(0);
+                    let thoughts = tokens
+                        .get("thoughts")
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0);
+                    let cache_read = tokens.get("cached").and_then(|value| value.as_u64()).unwrap_or(0);
+                    let output = output + thoughts;
+
+                    if input + output + cache_read > 0 {
+                        let cost_usd =
+                            crate::parser::calculate_cost(&model, input, output, cache_read, 0);
+                        let record = NormalizedRecord::Token(TokenRecord {
+                            timestamp,
+                            model,
+                            input,
+                            output,
+                            cache_read,
+                            cache_creation: 0,
+                            cost_usd,
+                        });
+                        if record_matches_query_range(query_range, record.timestamp()) {
+                            session.records.push(record);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if session.records.is_empty() {
+        None
+    } else {
+        Some(session)
+    }
+}
+
 /// Check whether a user message has non-empty text content.
 fn has_text_content(msg: &serde_json::Value) -> bool {
     // content can be a string or an array of objects with "text" fields
@@ -394,6 +572,51 @@ fn has_text_content(msg: &serde_json::Value) -> bool {
         }
     }
     false
+}
+
+fn user_content_text(msg: &serde_json::Value) -> String {
+    if let Some(content) = msg.get("content") {
+        match content {
+            serde_json::Value::String(text) => return text.trim().to_string(),
+            serde_json::Value::Array(items) => {
+                let text = items
+                    .iter()
+                    .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+                    .map(|value| value.trim())
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return text;
+            }
+            _ => {}
+        }
+    }
+
+    String::new()
+}
+
+fn parse_gemini_message_timestamp(
+    msg: &serde_json::Value,
+) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    msg.get("timestamp")
+        .and_then(|value| value.as_str())
+        .or_else(|| msg.get("time").and_then(|value| value.as_str()))
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+}
+
+fn parse_gemini_message_timestamp_with_fallback(
+    msg: &serde_json::Value,
+    fallback_start: Option<&str>,
+    is_first_message: bool,
+) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    parse_gemini_message_timestamp(msg).or_else(|| {
+        if is_first_message {
+            fallback_start
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        } else {
+            None
+        }
+    })
 }
 
 /// Parse a gemini-type message for tokens and model information.

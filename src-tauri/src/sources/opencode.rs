@@ -1,8 +1,10 @@
 use crate::models::*;
+use crate::normalized::{CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord};
 use crate::parser::{ProjectStats, SessionStats, format_duration};
 use crate::commands::{model_to_provider, model_matches_provider, CustomProviderDef};
-use chrono::{DateTime, Duration, Local, TimeZone};
-use std::collections::HashMap;
+use crate::time_ranges::record_matches_query_range;
+use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone, Utc};
+use serde_json::Value;
 use std::path::PathBuf;
 use rusqlite::{Connection, OpenFlags};
 
@@ -95,6 +97,48 @@ pub fn discover_projects() -> Vec<(String, String)> {
 
     results.sort_by(|a, b| a.0.cmp(&b.0));
     results
+}
+
+pub fn collect_normalized_sessions(
+    project: Option<&str>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let conn = match open_db() {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+
+    let project_ids = match project {
+        Some(name) => resolve_project_ids(&conn, name),
+        None => Vec::new(),
+    };
+
+    let sessions = query_sessions(&conn, &project_ids, 0);
+    let mut normalized = Vec::new();
+
+    for sess in sessions {
+        if let Some(session) = build_normalized_session(&conn, &sess, query_range) {
+            if !session.records.is_empty() {
+                normalized.push(session);
+            }
+        }
+    }
+
+    normalized.sort_by(|a, b| {
+        let a_ts = a
+            .records
+            .first()
+            .map(|record| record.timestamp().to_rfc3339())
+            .unwrap_or_default();
+        let b_ts = b
+            .records
+            .first()
+            .map(|record| record.timestamp().to_rfc3339())
+            .unwrap_or_default();
+        b_ts.cmp(&a_ts)
+    });
+
+    normalized
 }
 
 /// Collect aggregate stats across matching sessions.
@@ -357,6 +401,210 @@ fn query_sessions(conn: &Connection, project_ids: &[String], cutoff_ms: i64) -> 
     };
 
     rows.flatten().collect()
+}
+
+fn build_normalized_session(
+    conn: &Connection,
+    sess: &SessionRow,
+    query_range: &QueryTimeRange,
+) -> Option<NormalizedSession> {
+    let mut records: Vec<NormalizedRecord> = Vec::new();
+    let mut primary_model: Option<String> = None;
+
+    let mut stmt = match conn.prepare(
+        "SELECT time_created, data FROM message WHERE session_id = ?1 ORDER BY time_created ASC",
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => return None,
+    };
+
+    let rows = match stmt.query_map([&sess.id], |row| {
+        let time_created: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
+        let data: String = row.get(1)?;
+        Ok((time_created, data))
+    }) {
+        Ok(rows) => rows,
+        Err(_) => return None,
+    };
+
+    for row in rows.flatten() {
+        let (time_created, data_str) = row;
+        let value: Value = match serde_json::from_str(&data_str) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let role = value.get("role").and_then(|v| v.as_str()).unwrap_or("");
+        let timestamp = match fixed_offset_timestamp_ms(
+            message_timestamp_ms(&value, time_created).unwrap_or(time_created),
+        ) {
+            Some(timestamp) => timestamp,
+            None => continue,
+        };
+
+        match role {
+            "user" => {
+                if let Some(content) = user_message_content(&value) {
+                    if !content.trim().is_empty() {
+                        records.push(NormalizedRecord::Instruction(InstructionRecord {
+                            timestamp,
+                            content,
+                        }));
+                    }
+                }
+            }
+            "assistant" => {
+                let model_id = value
+                    .get("modelID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let tokens_obj = value.get("tokens");
+                let input = tokens_obj
+                    .and_then(|t| t.get("input"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let output_raw = tokens_obj
+                    .and_then(|t| t.get("output"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let reasoning = tokens_obj
+                    .and_then(|t| t.get("reasoning"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let output = output_raw + reasoning;
+                let cache_obj = tokens_obj.and_then(|t| t.get("cache"));
+                let cache_read = cache_obj
+                    .and_then(|c| c.get("read"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cache_creation = cache_obj
+                    .and_then(|c| c.get("write"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cost = value.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                let model_name = if model_id.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    if primary_model.is_none() {
+                        primary_model = Some(model_id.clone());
+                    }
+                    model_id.clone()
+                };
+
+                records.push(NormalizedRecord::Token(TokenRecord {
+                    timestamp,
+                    model: model_name,
+                    input,
+                    output,
+                    cache_read,
+                    cache_creation,
+                    cost_usd: if cost > 0.0 {
+                        cost
+                    } else if !model_id.is_empty() {
+                        crate::parser::calculate_cost(&model_id, input, output, cache_read, cache_creation)
+                    } else {
+                        0.0
+                    },
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    if summary_code_changes_fit_range(sess, query_range) {
+        if sess.summary_additions > 0 || sess.summary_deletions > 0 || sess.summary_files > 0 {
+            if let Some(timestamp) = fixed_offset_timestamp_ms(sess.time_created) {
+                records.push(NormalizedRecord::CodeChange(CodeChangeRecord {
+                    timestamp,
+                    file_path: format!("session:{}", sess.id),
+                    extension: "summary".to_string(),
+                    additions: sess.summary_additions,
+                    deletions: sess.summary_deletions,
+                    files: sess.summary_files,
+                }));
+            }
+        }
+    }
+
+    if records.is_empty() {
+        return None;
+    }
+
+    let primary_model = primary_model.or_else(|| {
+        records.iter().find_map(|record| match record {
+            NormalizedRecord::Token(token) if token.model != "unknown" => Some(token.model.clone()),
+            _ => None,
+        })
+    });
+
+    let provider = primary_model
+        .as_deref()
+        .and_then(|model| model_to_provider(model, &[]));
+
+    Some(NormalizedSession {
+        source: "opencode".to_string(),
+        session_id: sess.id.clone(),
+        project_name: sess.project_name.clone(),
+        git_branch: None,
+        primary_model,
+        provider,
+        records,
+    })
+}
+
+fn summary_code_changes_fit_range(sess: &SessionRow, query_range: &QueryTimeRange) -> bool {
+    let Some(start) = fixed_offset_timestamp_ms(sess.time_created) else {
+        return false;
+    };
+    let Some(end) = fixed_offset_timestamp_ms(sess.time_updated.max(sess.time_created)) else {
+        return false;
+    };
+
+    record_matches_query_range(query_range, &start)
+        && record_matches_query_range(query_range, &end)
+}
+
+fn fixed_offset_timestamp_ms(ms: i64) -> Option<DateTime<FixedOffset>> {
+    DateTime::<Utc>::from_timestamp_millis(ms)
+        .map(|dt| dt.with_timezone(&FixedOffset::east_opt(0).unwrap()))
+}
+
+fn message_timestamp_ms(value: &Value, fallback: i64) -> Option<i64> {
+    if fallback > 0 {
+        return Some(fallback);
+    }
+
+    value
+        .pointer("/time/created")
+        .and_then(|v| v.as_i64())
+        .or_else(|| value.pointer("/time/completed").and_then(|v| v.as_i64()))
+}
+
+fn user_message_content(value: &Value) -> Option<String> {
+    if let Some(content) = value.get("content") {
+        match content {
+            Value::String(text) => return Some(text.clone()),
+            Value::Array(items) => {
+                let joined = items
+                    .iter()
+                    .filter_map(|item| item.get("text").and_then(|v| v.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !joined.is_empty() {
+                    return Some(joined);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    value
+        .get("text")
+        .and_then(|v| v.as_str())
+        .map(|text| text.to_string())
 }
 
 /// Build SessionStats for a single session by reading its messages.

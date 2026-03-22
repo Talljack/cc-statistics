@@ -1,5 +1,7 @@
 use crate::models::*;
+use crate::normalized::NormalizedSession;
 use crate::parser::{extract_instructions, format_duration, parse_session_file, ProjectStats};
+use crate::parser::parse_normalized_session_file;
 use crate::commands::{model_matches_provider, filter_by_time, CustomProviderDef};
 use crate::time_ranges::filter_by_query_range;
 use std::collections::HashMap;
@@ -303,6 +305,54 @@ pub fn collect_sessions(
     sessions
 }
 
+pub fn collect_normalized_sessions(
+    project: Option<&str>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let name_map = match build_project_name_map() {
+        Ok(map) => map,
+        Err(_) => return Vec::new(),
+    };
+
+    let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(project_name) = project {
+        match name_map.get(project_name) {
+            Some(dirs) => vec![(project_name.to_string(), dirs)],
+            None => return Vec::new(),
+        }
+    } else {
+        name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
+    };
+
+    let mut sessions = Vec::new();
+
+    for (project_name, dirs) in target_dirs {
+        for dir in dirs {
+            let entries = match fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(_) => continue,
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                if !filter_by_query_range(query_range, &path) {
+                    continue;
+                }
+
+                match parse_normalized_session_file(&path, &project_name) {
+                    Ok(session) if !session.records.is_empty() => sessions.push(session),
+                    Ok(_) => {}
+                    Err(error) => eprintln!("Error parsing normalized Claude session {:?}: {}", path, error),
+                }
+            }
+        }
+    }
+
+    sessions
+}
+
 pub fn collect_instructions(
     project: Option<&str>,
     time_filter: &TimeFilter,
@@ -377,6 +427,7 @@ pub fn collect_instructions(
                         timestamp,
                         project_name: project_name.clone(),
                         session_id: session_id.clone(),
+                        source: "claude_code".to_string(),
                         content,
                     });
                 }

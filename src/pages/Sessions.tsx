@@ -94,14 +94,19 @@ export function Sessions() {
                 <tbody>
                   {sortedSessions.map((session) => (
                     <tr
-                      key={session.session_id}
+                      key={`${session.source}:${session.session_id}`}
                       className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors"
                     >
                       <td className="px-4 py-3 whitespace-nowrap text-[#a0a0a0]">
                         {formatTimestamp(session.timestamp)}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="text-[#3b82f6]">{session.project_name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#3b82f6]">{session.project_name}</span>
+                          <span className="rounded bg-[#262626] px-2 py-0.5 text-xs text-[#9ca3af]">
+                            {session.source}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-[#a0a0a0]">
                         {session.duration_formatted}
