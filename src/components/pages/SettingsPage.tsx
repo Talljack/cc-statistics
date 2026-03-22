@@ -10,8 +10,8 @@ import { useUpdateStore } from '../../stores/updateStore';
 import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
-import type { TimeFilter } from '../../types/statistics';
 import type { SessionSortField } from '../../stores/settingsStore';
+import { TimeRangeManagementSection } from '../settings/TimeRangeManagementSection';
 import {
   Sun,
   Moon,
@@ -32,6 +32,9 @@ import {
   Clock,
   Cpu,
   FlaskConical,
+  Layers,
+  Plus,
+  X,
 } from 'lucide-react';
 
 type SettingsTab = 'general' | 'advanced' | 'about';
@@ -40,13 +43,6 @@ const languages: { label: string; value: Language }[] = [
   { label: '中文', value: 'zh' },
   { label: 'English', value: 'en' },
   { label: '日本語', value: 'ja' },
-];
-
-const timeFilterOptions: { label: string; value: TimeFilter }[] = [
-  { label: 'Today', value: 'today' },
-  { label: 'Week', value: 'week' },
-  { label: 'Month', value: 'month' },
-  { label: 'All', value: 'all' },
 ];
 
 const sortFieldKeys: { key: string; value: SessionSortField }[] = [
@@ -196,7 +192,6 @@ function GeneralTab() {
   const {
     language,
     theme,
-    defaultTimeFilter,
     showCost,
     showToolUsage,
     showSkillUsage,
@@ -214,7 +209,6 @@ function GeneralTab() {
     sessionSortOrder,
     setLanguage,
     setTheme,
-    setDefaultTimeFilter,
     setShowCost,
     setShowToolUsage,
     setShowSkillUsage,
@@ -285,27 +279,8 @@ function GeneralTab() {
         </div>
       </section>
 
-      {/* Default Time Filter */}
-      <section>
-        <h3 className="text-base font-semibold mb-1">{t('settings.timeRange.title')}</h3>
-        <p className="text-xs text-[#808080] mb-3">{t('settings.timeRange.desc')}</p>
-        <div className="flex bg-[#2a2a2a] rounded-lg p-1 w-fit">
-          {timeFilterOptions.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setDefaultTimeFilter(opt.value)}
-              className={cn(
-                'px-4 py-2 rounded-md text-sm font-medium transition-all',
-                defaultTimeFilter === opt.value
-                  ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
-                  : 'text-[#a0a0a0] hover:text-white'
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      {/* Time Range Management */}
+      <TimeRangeManagementSection />
 
       {/* Cost Display */}
       <section>
@@ -469,15 +444,34 @@ function ModelPricingSection({
 
 function AdvancedTab() {
   const { t } = useTranslation();
-  const { customPricingEnabled, customPricing, setCustomPricingEnabled, resetSettings } =
-    useSettingsStore();
+  const {
+    customPricingEnabled,
+    customPricing,
+    customProviders,
+    setCustomPricingEnabled,
+    addCustomProvider,
+    removeCustomProvider,
+    resetSettings,
+  } = useSettingsStore();
   const { models: pricingModels, lastFetched, isFetching, error: pricingError, fetchPricing } =
     usePricingStore();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [newProviderName, setNewProviderName] = useState('');
+  const [newProviderKeyword, setNewProviderKeyword] = useState('');
 
   const handleRefreshPricing = () => {
     usePricingStore.setState({ lastFetched: null });
     fetchPricing();
+  };
+
+  const handleAddProvider = () => {
+    const name = newProviderName.trim();
+    const keyword = newProviderKeyword.trim().toLowerCase();
+    if (!name || !keyword) return;
+    if (customProviders.some((cp) => cp.keyword.toLowerCase() === keyword)) return;
+    addCustomProvider({ name, keyword });
+    setNewProviderName('');
+    setNewProviderKeyword('');
   };
 
   return (
@@ -561,6 +555,83 @@ function AdvancedTab() {
               ))}
             </div>
           )}
+        </div>
+      </ExpandableSection>
+
+      {/* Custom Providers */}
+      <ExpandableSection
+        icon={<Layers className="w-5 h-5" />}
+        iconColor="#8b5cf6"
+        title={t('settings.customProviders.title')}
+        description={t('settings.customProviders.desc')}
+      >
+        <div className="space-y-4">
+          {/* Add form */}
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-[#808080] mb-1 block">
+                {t('settings.customProviders.name')}
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., Fireworks AI"
+                value={newProviderName}
+                onChange={(e) => setNewProviderName(e.target.value)}
+                className="w-full bg-[#2a2a2a] border border-[#333] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#3b82f6] placeholder-[#555] transition-colors"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs text-[#808080] mb-1 block">
+                {t('settings.customProviders.keyword')}
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., fireworks"
+                value={newProviderKeyword}
+                onChange={(e) => setNewProviderKeyword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddProvider()}
+                className="w-full bg-[#2a2a2a] border border-[#333] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#3b82f6] placeholder-[#555] transition-colors"
+              />
+            </div>
+            <button
+              onClick={handleAddProvider}
+              disabled={!newProviderName.trim() || !newProviderKeyword.trim()}
+              className="flex items-center gap-1.5 px-3 py-2 bg-[#3b82f6] text-white rounded-md text-sm font-medium hover:bg-[#2563eb] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              {t('settings.customProviders.add')}
+            </button>
+          </div>
+
+          {/* Existing custom providers list */}
+          {customProviders.length > 0 && (
+            <div className="space-y-2 pt-3 border-t border-[#2a2a2a]">
+              {customProviders.map((cp, index) => (
+                <div
+                  key={`${cp.keyword}-${index}`}
+                  className="flex items-center justify-between bg-[#222] rounded-lg px-3 py-2.5"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium">{cp.name}</span>
+                    <span className="text-xs text-[#808080] bg-[#2a2a2a] px-2 py-0.5 rounded">
+                      {t('settings.customProviders.keywordPrefix')}: {cp.keyword}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => removeCustomProvider(index)}
+                    className="p-1 rounded hover:bg-[#333] text-[#808080] hover:text-red-400 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Help text */}
+          <p className="text-xs text-[#606060]">
+            {t('settings.customProviders.help')}
+          </p>
         </div>
       </ExpandableSection>
 

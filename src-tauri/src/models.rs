@@ -2,6 +2,27 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceConfig {
+    pub claude_code: bool,
+    pub codex: bool,
+    pub gemini: bool,
+    pub opencode: bool,
+    pub openclaw: bool,
+}
+
+impl Default for SourceConfig {
+    fn default() -> Self {
+        Self {
+            claude_code: true,
+            codex: true,
+            gemini: true,
+            opencode: true,
+            openclaw: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectInfo {
     pub name: String,
     pub path: String,
@@ -65,6 +86,7 @@ pub struct SessionInfo {
     pub model: String,
     pub git_branch: String,
     pub cost_usd: f64,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,3 +122,43 @@ impl Default for TimeFilter {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BuiltInTimeRangeKey {
+    Today,
+    Week,
+    Month,
+    All,
+}
+
+impl From<&BuiltInTimeRangeKey> for TimeFilter {
+    fn from(value: &BuiltInTimeRangeKey) -> Self {
+        match value {
+            BuiltInTimeRangeKey::Today => TimeFilter::Today,
+            BuiltInTimeRangeKey::Week => TimeFilter::Week,
+            BuiltInTimeRangeKey::Month => TimeFilter::Month,
+            BuiltInTimeRangeKey::All => TimeFilter::All,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum QueryTimeRange {
+    BuiltIn {
+        key: BuiltInTimeRangeKey,
+    },
+    Relative {
+        days: u32,
+        #[serde(default = "default_include_today")]
+        include_today: bool,
+    },
+    Absolute {
+        start_date: String,
+        end_date: String,
+    },
+}
+
+fn default_include_today() -> bool {
+    true
+}

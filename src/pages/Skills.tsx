@@ -8,9 +8,9 @@ import { ArrowLeft, Zap } from 'lucide-react';
 
 export function Skills() {
   const { t } = useTranslation();
-  const { selectedProject, timeFilter } = useFilterStore();
+  const { selectedProject, activeTimeRange } = useFilterStore();
   const navigate = useNavigate();
-  const { data: stats, isLoading } = useStatistics(selectedProject, timeFilter);
+  const { data: stats, isLoading } = useStatistics(selectedProject, activeTimeRange);
 
   const handleRefresh = () => {};
 

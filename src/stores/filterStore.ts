@@ -1,23 +1,21 @@
 import { create } from 'zustand';
-import type { TimeFilter } from '../types/statistics';
+import type { ActiveTimeRange } from '../lib/timeRanges';
 import { useSettingsStore } from './settingsStore';
 
 interface FilterStore {
   selectedProject: string | null;
-  timeFilter: TimeFilter;
+  activeTimeRange: ActiveTimeRange;
   selectedProvider: string | null;
-  _initialized: boolean;
   setProject: (project: string | null) => void;
-  setTimeFilter: (filter: TimeFilter) => void;
+  setActiveTimeRange: (range: ActiveTimeRange) => void;
   setProvider: (provider: string | null) => void;
 }
 
 export const useFilterStore = create<FilterStore>((set) => ({
   selectedProject: null,
-  timeFilter: useSettingsStore.getState().defaultTimeFilter,
+  activeTimeRange: useSettingsStore.getState().defaultTimeRange,
   selectedProvider: null,
-  _initialized: false,
   setProject: (project) => set({ selectedProject: project }),
-  setTimeFilter: (filter) => set({ timeFilter: filter }),
+  setActiveTimeRange: (range) => set({ activeTimeRange: range }),
   setProvider: (provider) => set({ selectedProvider: provider }),
 }));

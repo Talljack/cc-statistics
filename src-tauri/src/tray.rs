@@ -73,7 +73,7 @@ pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn update_tray(app: &AppHandle) {
-    let stats = match get_statistics_internal(None, "today".to_string(), None) {
+    let stats = match get_statistics_internal(None, "today".to_string(), None, None, &[], &Default::default()) {
         Ok(s) => s,
         Err(_) => return,
     };

@@ -1,6 +1,8 @@
 mod commands;
 mod models;
 mod parser;
+mod sources;
+mod time_ranges;
 mod tray;
 
 use commands::*;
@@ -19,6 +21,7 @@ pub fn run() {
             get_instructions,
             get_available_providers,
             update_tray_stats,
+            detect_sources,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

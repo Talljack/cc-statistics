@@ -150,7 +150,7 @@ fn parse_assistant_record(value: &Value, stats: &mut SessionStats) {
 /// Prices are per million tokens — last updated March 2026
 /// Sources: platform.claude.com, openai.com, ai.google.dev, api-docs.deepseek.com,
 ///          platform.moonshot.ai, open.bigmodel.cn
-fn calculate_cost(model: &str, input: u64, output: u64, cache_read: u64, cache_creation: u64) -> f64 {
+pub(crate) fn calculate_cost(model: &str, input: u64, output: u64, cache_read: u64, cache_creation: u64) -> f64 {
     let ml = model.to_lowercase();
     // (input_per_m, output_per_m, cache_read_per_m, cache_creation_per_m)
     let rates = if ml.contains("opus-4-5") || ml.contains("opus-4-6")
@@ -171,6 +171,8 @@ fn calculate_cost(model: &str, input: u64, output: u64, cache_read: u64, cache_c
         (2.0, 8.0, 0.50, 2.0)                         // OpenAI o3
     } else if ml.contains("o4-mini") || ml.contains("o4_mini") {
         (1.10, 4.40, 0.275, 1.10)                     // OpenAI o4-mini
+    } else if ml.contains("codex") {
+        (2.0, 8.0, 0.50, 2.0)                         // OpenAI Codex
     } else if ml.contains("gpt-4.1") || ml.contains("gpt-4-1") || ml.contains("gpt_4_1") {
         (2.0, 8.0, 0.50, 2.0)                         // GPT-4.1
     } else if ml.contains("gpt-4o") || ml.contains("gpt_4o") {
@@ -226,6 +228,8 @@ pub struct SessionStats {
     pub git_branch: Option<String>,
     pub version: Option<String>,
     pub primary_model: Option<String>,
+    /// Source CLI tool
+    pub source: String,
 }
 
 #[derive(Debug, Default, Clone)]

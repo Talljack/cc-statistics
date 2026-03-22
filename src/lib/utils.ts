@@ -92,6 +92,7 @@ function getPricingForModel(model: string, customPricing: CustomPricing): ModelP
   if (m.includes('sonnet') || m.includes('claude')) return customPricing.sonnet;
   if (m.includes('o3')) return customPricing.o3;
   if (m.includes('o4-mini') || m.includes('o4_mini')) return customPricing.o4mini;
+  if (m.includes('codex')) return customPricing.gpt41;
   if (m.includes('gpt-4.1') || m.includes('gpt-4-1') || m.includes('gpt_4_1')) return customPricing.gpt41;
   if (m.includes('gpt-4o') || m.includes('gpt_4o') || m.includes('gpt4o')) return customPricing.gpt4o;
   if (m.includes('gemini') && m.includes('flash')) return customPricing.gemini25flash;

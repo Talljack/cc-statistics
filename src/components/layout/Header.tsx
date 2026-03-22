@@ -1,18 +1,11 @@
 import { useFilterStore } from '../../stores/filterStore';
 import { useAppStore } from '../../stores/appStore';
-import { useProjects } from '../../hooks/useStatistics';
+import { useProjects, useAvailableProviders } from '../../hooks/useStatistics';
 import { useTranslation } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
-import type { TimeFilter } from '../../types/statistics';
 import { ArrowLeft, ChevronDown, RefreshCw, Settings, BarChart3, ArrowDownCircle } from 'lucide-react';
 import { useUpdateStore } from '../../stores/updateStore';
-
-const timeFilterKeys: { labelKey: string; value: TimeFilter }[] = [
-  { labelKey: 'header.today', value: 'today' },
-  { labelKey: 'header.week', value: 'week' },
-  { labelKey: 'header.month', value: 'month' },
-  { labelKey: 'header.all', value: 'all' },
-];
+import { HeaderTimeRangeControl } from '../time-ranges/HeaderTimeRangeControl';
 
 interface HeaderProps {
   onRefresh: () => void;
@@ -20,8 +13,9 @@ interface HeaderProps {
 }
 
 export function Header({ onRefresh, isRefreshing }: HeaderProps) {
-  const { selectedProject, timeFilter, setProject, setTimeFilter } = useFilterStore();
+  const { selectedProject, selectedProvider, setProject, setProvider } = useFilterStore();
   const { data: projects } = useProjects();
+  const { data: providers } = useAvailableProviders();
   const { currentView, setView } = useAppStore();
   const { t } = useTranslation();
   const { status: updateStatus, setDialogOpen } = useUpdateStore();
@@ -73,23 +67,27 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-[#a0a0a0]" />
           </div>
 
-          {/* Time Filter Tabs */}
-          <div className="flex shrink-0 bg-[#2a2a2a] rounded-lg p-1">
-            {timeFilterKeys.map((filter) => (
-              <button
-                key={filter.value}
-                onClick={() => setTimeFilter(filter.value)}
-                className={cn(
-                  'px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
-                  timeFilter === filter.value
-                    ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
-                    : 'text-[#a0a0a0] hover:text-white'
-                )}
+          {/* Provider Filter */}
+          {providers && providers.length > 1 && (
+            <div className="relative min-w-[140px] max-w-[200px]">
+              <select
+                value={selectedProvider || ''}
+                onChange={(e) => setProvider(e.target.value || null)}
+                className="w-full appearance-none bg-[#2a2a2a] border border-[#333] rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:border-[#3b82f6] cursor-pointer hover:border-[#444] transition-colors"
               >
-                {t(filter.labelKey)}
-              </button>
-            ))}
-          </div>
+                <option value="">{t('header.allProviders')}</option>
+                {providers.map((provider) => (
+                  <option key={provider} value={provider}>
+                    {provider}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-[#a0a0a0]" />
+            </div>
+          )}
+
+          {/* Time Range Control */}
+          <HeaderTimeRangeControl />
 
           {/* Refresh Button */}
           <button

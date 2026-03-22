@@ -10,10 +10,10 @@ import { useTranslation } from '../lib/i18n';
 
 export function Sessions() {
   const { t } = useTranslation();
-  const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
+  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
   const { showCost, sessionSortField, sessionSortOrder } = useSettingsStore();
   const navigate = useNavigate();
-  const { data: sessions, isLoading } = useSessions(selectedProject, timeFilter, selectedProvider);
+  const { data: sessions, isLoading } = useSessions(selectedProject, activeTimeRange, selectedProvider);
 
   const sortedSessions = useMemo(() => {
     if (!sessions) return [];

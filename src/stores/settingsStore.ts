@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { TimeFilter } from '../types/statistics';
+import type { ActiveTimeRange, SavedTimeRange } from '../lib/timeRanges';
 
 export type Language = 'zh' | 'en' | 'ja';
 export type Theme = 'light' | 'dark' | 'system';
@@ -97,11 +97,6 @@ export const providerGroups: ProviderGroup[] = [
   },
 ];
 
-export interface CustomTimeFilter {
-  label: string;
-  days: number;
-}
-
 export interface CustomProvider {
   name: string;     // Display name (e.g., "Fireworks AI")
   keyword: string;  // Model name prefix to match (e.g., "fireworks")
@@ -111,7 +106,7 @@ interface SettingsStore {
   // General
   language: Language;
   theme: Theme;
-  defaultTimeFilter: TimeFilter;
+  defaultTimeRange: ActiveTimeRange;
   showCost: boolean;
   showToolUsage: boolean;
   showSkillUsage: boolean;
@@ -136,16 +131,19 @@ interface SettingsStore {
   customPricingEnabled: boolean;
   customPricing: CustomPricing;
 
-  // Custom time filters
-  customTimeFilters: CustomTimeFilter[];
+  // Custom time ranges
+  savedTimeRanges: SavedTimeRange[];
 
   // Custom providers
   customProviders: CustomProvider[];
 
+  // Data sources
+  enabledSources: { claude_code: boolean; codex: boolean; gemini: boolean; opencode: boolean; openclaw: boolean };
+
   // Actions
   setLanguage: (language: Language) => void;
   setTheme: (theme: Theme) => void;
-  setDefaultTimeFilter: (filter: TimeFilter) => void;
+  setDefaultTimeRange: (range: ActiveTimeRange) => void;
   setShowCost: (show: boolean) => void;
   setShowToolUsage: (show: boolean) => void;
   setShowSkillUsage: (show: boolean) => void;
@@ -164,11 +162,12 @@ interface SettingsStore {
   setCustomPricingEnabled: (enabled: boolean) => void;
   setCustomPricing: (pricing: CustomPricing) => void;
   updateModelPricing: (model: keyof CustomPricing, pricing: Partial<ModelPricing>) => void;
-  setCustomTimeFilters: (filters: CustomTimeFilter[]) => void;
-  addCustomTimeFilter: (filter: CustomTimeFilter) => void;
-  removeCustomTimeFilter: (index: number) => void;
+  addSavedTimeRange: (range: SavedTimeRange) => void;
+  updateSavedTimeRange: (id: string, range: SavedTimeRange) => void;
+  removeSavedTimeRange: (id: string) => void;
   addCustomProvider: (provider: CustomProvider) => void;
   removeCustomProvider: (index: number) => void;
+  toggleSource: (source: 'claude_code' | 'codex' | 'gemini' | 'opencode' | 'openclaw') => void;
   resetSettings: () => void;
 }
 
@@ -207,7 +206,7 @@ const defaultPricing: CustomPricing = {
 const defaultSettings = {
   language: 'zh' as Language,
   theme: 'dark' as Theme,
-  defaultTimeFilter: 'today' as TimeFilter,
+  defaultTimeRange: { kind: 'built_in', key: 'today' } as ActiveTimeRange,
   showCost: true,
   showToolUsage: false,
   showSkillUsage: true,
@@ -225,17 +224,24 @@ const defaultSettings = {
   sessionSortOrder: 'desc' as SortOrder,
   customPricingEnabled: false,
   customPricing: defaultPricing,
-  customTimeFilters: [] as CustomTimeFilter[],
+  savedTimeRanges: [] as SavedTimeRange[],
   customProviders: [] as CustomProvider[],
+  enabledSources: {
+    claude_code: true,
+    codex: true,
+    gemini: true,
+    opencode: true,
+    openclaw: true,
+  },
 };
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...defaultSettings,
       setLanguage: (language) => set({ language }),
       setTheme: (theme) => set({ theme }),
-      setDefaultTimeFilter: (filter) => set({ defaultTimeFilter: filter }),
+      setDefaultTimeRange: (range) => set({ defaultTimeRange: range }),
       setShowCost: (show) => set({ showCost: show }),
       setShowToolUsage: (show) => set({ showToolUsage: show }),
       setShowSkillUsage: (show) => set({ showSkillUsage: show }),
@@ -260,15 +266,24 @@ export const useSettingsStore = create<SettingsStore>()(
             [model]: { ...state.customPricing[model], ...pricing },
           },
         })),
-      setCustomTimeFilters: (filters) => set({ customTimeFilters: filters }),
-      addCustomTimeFilter: (filter) =>
+      addSavedTimeRange: (range) =>
         set((state) => ({
-          customTimeFilters: [...state.customTimeFilters, filter],
+          savedTimeRanges: [...state.savedTimeRanges, range],
         })),
-      removeCustomTimeFilter: (index) =>
+      updateSavedTimeRange: (id, range) =>
         set((state) => ({
-          customTimeFilters: state.customTimeFilters.filter((_, i) => i !== index),
+          savedTimeRanges: state.savedTimeRanges.map((r) => (r.id === id ? range : r)),
         })),
+      removeSavedTimeRange: (id) => {
+        const state = get();
+        const newRanges = state.savedTimeRanges.filter((r) => r.id !== id);
+        const updates: Partial<SettingsStore> = { savedTimeRanges: newRanges };
+        // If the deleted range was the default, fall back to Today
+        if (state.defaultTimeRange.kind === 'custom' && state.defaultTimeRange.id === id) {
+          updates.defaultTimeRange = { kind: 'built_in', key: 'today' };
+        }
+        set(updates);
+      },
       addCustomProvider: (provider) =>
         set((state) => ({
           customProviders: [...state.customProviders, provider],
@@ -277,10 +292,46 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => ({
           customProviders: state.customProviders.filter((_, i) => i !== index),
         })),
+      toggleSource: (source) =>
+        set((state) => ({
+          enabledSources: {
+            ...state.enabledSources,
+            [source]: !state.enabledSources[source],
+          },
+        })),
       resetSettings: () => set(defaultSettings),
     }),
     {
       name: 'cc-statistics-settings',
+      // Migrate old settings shape
+      migrate: (persisted: unknown) => {
+        const state = persisted as Record<string, unknown>;
+        // Migrate old defaultTimeFilter string → new defaultTimeRange object
+        if (state && typeof state.defaultTimeFilter === 'string' && !state.defaultTimeRange) {
+          const key = state.defaultTimeFilter as string;
+          if (['today', 'week', 'month', 'all'].includes(key)) {
+            state.defaultTimeRange = { kind: 'built_in', key };
+          } else {
+            state.defaultTimeRange = { kind: 'built_in', key: 'today' };
+          }
+          delete state.defaultTimeFilter;
+        }
+        // Migrate old customTimeFilters → savedTimeRanges
+        if (state && Array.isArray(state.customTimeFilters) && state.customTimeFilters.length > 0 && (!state.savedTimeRanges || (state.savedTimeRanges as SavedTimeRange[]).length === 0)) {
+          state.savedTimeRanges = (state.customTimeFilters as Array<{ label: string; days: number }>).map((f, i) => ({
+            id: crypto.randomUUID(),
+            label: f.label || `Last ${f.days} Days`,
+            kind: 'relative' as const,
+            days: f.days,
+            includeToday: true,
+            showInHeader: i < 2,
+            sortOrder: i,
+          }));
+          state.customTimeFilters = [];
+        }
+        return state as unknown as SettingsStore;
+      },
+      version: 1,
     }
   )
 );

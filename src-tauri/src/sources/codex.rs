@@ -1,0 +1,717 @@
+use crate::models::*;
+use crate::parser::{format_duration, ProjectStats, SessionStats};
+use crate::commands::CustomProviderDef;
+use chrono::{DateTime, Duration, Local, TimeZone, Utc};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::io::{BufRead, BufReader};
+use std::fs;
+use walkdir::WalkDir;
+use rusqlite::{Connection, OpenFlags};
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Discover all Codex CLI projects.
+/// Returns (project_display_name, project_path) pairs derived from session data.
+pub fn discover_projects() -> Vec<(String, String)> {
+    let mut seen: HashMap<String, String> = HashMap::new();
+
+    // 1. Scan JSONL session files
+    if let Some(sessions_dir) = codex_sessions_dir() {
+        for entry in WalkDir::new(&sessions_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !is_codex_jsonl(path) {
+                continue;
+            }
+            if let Some((name, cwd)) = extract_project_from_jsonl(path) {
+                seen.entry(name).or_insert(cwd);
+            }
+        }
+    }
+
+    // 2. Scan SQLite fallback
+    if let Some(db_path) = codex_sqlite_path() {
+        if let Ok(rows) = query_sqlite_projects(&db_path) {
+            for (name, cwd) in rows {
+                seen.entry(name).or_insert(cwd);
+            }
+        }
+    }
+
+    seen.into_iter().collect()
+}
+
+/// Collect aggregate statistics across Codex sessions.
+pub fn collect_stats(
+    project: Option<&str>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<String>,
+    custom_providers: &[CustomProviderDef],
+) -> ProjectStats {
+    let mut combined = ProjectStats::default();
+
+    // JSONL sessions
+    if let Some(sessions_dir) = codex_sessions_dir() {
+        for entry in WalkDir::new(&sessions_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !is_codex_jsonl(path) {
+                continue;
+            }
+            if !filter_by_mtime(time_filter, path) {
+                continue;
+            }
+            let session = match parse_codex_jsonl(path) {
+                Some(s) => s,
+                None => continue,
+            };
+            if !session.has_activity {
+                continue;
+            }
+            if !matches_project(project, &session) {
+                continue;
+            }
+            if !matches_provider(provider_filter, &session, custom_providers) {
+                continue;
+            }
+            combined.merge_session(session);
+        }
+    }
+
+    // SQLite fallback
+    if let Some(db_path) = codex_sqlite_path() {
+        if let Ok(rows) = query_sqlite_sessions(&db_path, project, time_filter) {
+            for session in rows {
+                if !matches_provider(provider_filter, &session, custom_providers) {
+                    continue;
+                }
+                combined.merge_session(session);
+            }
+        }
+    }
+
+    combined
+}
+
+/// Collect individual session info entries from Codex data.
+pub fn collect_sessions(
+    project: Option<&str>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<String>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<SessionInfo> {
+    let mut sessions: Vec<SessionInfo> = Vec::new();
+
+    // JSONL sessions
+    if let Some(sessions_dir) = codex_sessions_dir() {
+        for entry in WalkDir::new(&sessions_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !is_codex_jsonl(path) {
+                continue;
+            }
+            if !filter_by_mtime(time_filter, path) {
+                continue;
+            }
+            let session = match parse_codex_jsonl(path) {
+                Some(s) => s,
+                None => continue,
+            };
+            if !session.has_activity {
+                continue;
+            }
+            if !matches_project(project, &session) {
+                continue;
+            }
+            if !matches_provider(provider_filter, &session, custom_providers) {
+                continue;
+            }
+
+            let project_name = session_project_name(&session);
+            sessions.push(session_stats_to_info(session, &project_name));
+        }
+    }
+
+    // SQLite fallback
+    if let Some(db_path) = codex_sqlite_path() {
+        if let Ok(rows) = query_sqlite_sessions(&db_path, project, time_filter) {
+            for session in rows {
+                if !matches_provider(provider_filter, &session, custom_providers) {
+                    continue;
+                }
+                let project_name = session_project_name(&session);
+                sessions.push(session_stats_to_info(session, &project_name));
+            }
+        }
+    }
+
+    // Sort by timestamp descending
+    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    sessions
+}
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+fn codex_home_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".codex"))
+}
+
+fn codex_sessions_dir() -> Option<PathBuf> {
+    let dir = codex_home_dir()?.join("sessions");
+    if dir.is_dir() {
+        Some(dir)
+    } else {
+        None
+    }
+}
+
+fn codex_sqlite_path() -> Option<PathBuf> {
+    let path = codex_home_dir()?.join("state_5.sqlite");
+    if path.is_file() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+/// Check if a path looks like a Codex JSONL session file (rollout-*.jsonl).
+fn is_codex_jsonl(path: &Path) -> bool {
+    let name = match path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n,
+        None => return false,
+    };
+    name.starts_with("rollout-") && name.ends_with(".jsonl")
+}
+
+// ---------------------------------------------------------------------------
+// Time filtering (file modification time)
+// ---------------------------------------------------------------------------
+
+fn filter_by_mtime(time_filter: &TimeFilter, path: &Path) -> bool {
+    if matches!(time_filter, TimeFilter::All) {
+        return true;
+    }
+    let metadata = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    let modified: DateTime<Local> = match metadata.modified() {
+        Ok(t) => t.into(),
+        Err(_) => return false,
+    };
+    let now = Local::now();
+    match time_filter {
+        TimeFilter::Today => {
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+            let today_start_local = Local.from_local_datetime(&today_start).unwrap();
+            modified >= today_start_local
+        }
+        TimeFilter::Week => modified >= now - Duration::days(7),
+        TimeFilter::Month => modified >= now - Duration::days(30),
+        TimeFilter::Days(d) => modified >= now - Duration::days(*d as i64),
+        TimeFilter::All => true,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JSONL parsing
+// ---------------------------------------------------------------------------
+
+/// Parse a single Codex JSONL session file and return aggregated SessionStats.
+fn parse_codex_jsonl(path: &Path) -> Option<SessionStats> {
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
+
+    let mut stats = SessionStats::default();
+    stats.source = "codex".to_string();
+
+    // Extract session id from filename: rollout-<id>.jsonl
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        stats.session_id = Some(stem.to_string());
+    }
+
+    // Accumulate last token_count values (they are cumulative)
+    let mut last_input: u64 = 0;
+    let mut last_cached_input: u64 = 0;
+    let mut last_output: u64 = 0;
+    let mut last_reasoning_output: u64 = 0;
+
+    let mut first_ts: Option<DateTime<Utc>> = None;
+    let mut last_ts: Option<DateTime<Utc>> = None;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Track timestamps for duration estimation
+        if let Some(ts_str) = value.get("timestamp").and_then(|v| v.as_str()) {
+            if let Ok(dt) = DateTime::parse_from_rfc3339(ts_str) {
+                let dt_utc = dt.with_timezone(&Utc);
+                if first_ts.is_none() {
+                    first_ts = Some(dt_utc);
+                    stats.first_timestamp = Some(ts_str.to_string());
+                }
+                last_ts = Some(dt_utc);
+            }
+        }
+
+        let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        match event_type {
+            "session_meta" => {
+                parse_session_meta(&value, &mut stats);
+            }
+            "event_msg" => {
+                // Check for token_count sub-type
+                let payload_type = value
+                    .pointer("/payload/type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if payload_type == "token_count" {
+                    if let Some(usage) = value.pointer("/payload/info/total_token_usage") {
+                        let input = usage
+                            .get("input_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let cached = usage
+                            .get("cached_input_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let output = usage
+                            .get("output_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let reasoning = usage
+                            .get("reasoning_output_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+
+                        // Keep the last (cumulative) values
+                        last_input = input;
+                        last_cached_input = cached;
+                        last_output = output;
+                        last_reasoning_output = reasoning;
+                    }
+                }
+            }
+            "turn_context" => {
+                // Extract model name
+                if let Some(model) = value
+                    .pointer("/payload/model")
+                    .and_then(|v| v.as_str())
+                {
+                    if stats.primary_model.is_none() {
+                        stats.primary_model = Some(model.to_string());
+                    }
+                }
+            }
+            "response_item" => {
+                // Count user role items as instructions
+                let role = value
+                    .pointer("/payload/role")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if role == "user" {
+                    stats.instructions += 1;
+                    stats.has_activity = true;
+                }
+            }
+            "function_call" => {
+                // Count tool usage
+                if let Some(name) = value
+                    .pointer("/payload/name")
+                    .and_then(|v| v.as_str())
+                {
+                    *stats.tool_usage.entry(name.to_string()).or_insert(0) += 1;
+                    stats.has_activity = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Apply cumulative token counts
+    // input_tokens -> tokens.input
+    // cached_input_tokens -> tokens.cache_read
+    // output_tokens + reasoning_output_tokens -> tokens.output
+    // cache_creation = 0
+    stats.tokens.input = last_input;
+    stats.tokens.cache_read = last_cached_input;
+    stats.tokens.output = last_output + last_reasoning_output;
+    stats.tokens.cache_creation = 0;
+
+    if last_input > 0 || last_output > 0 {
+        stats.has_activity = true;
+    }
+
+    // Populate by_model with the primary model
+    if let Some(ref model) = stats.primary_model {
+        let model_tokens = stats.tokens.by_model.entry(model.clone()).or_default();
+        model_tokens.input = stats.tokens.input;
+        model_tokens.output = stats.tokens.output;
+        model_tokens.cache_read = stats.tokens.cache_read;
+        model_tokens.cache_creation = 0;
+        // Cost set to 0 -- frontend recalculates via dynamic pricing
+        model_tokens.cost_usd = 0.0;
+    }
+    stats.cost_usd = 0.0;
+
+    // Estimate duration from first/last timestamp
+    if let (Some(first), Some(last)) = (first_ts, last_ts) {
+        let diff = last - first;
+        stats.duration_ms = diff.num_milliseconds().max(0) as u64;
+    }
+
+    Some(stats)
+}
+
+/// Extract metadata from the `session_meta` event.
+fn parse_session_meta(value: &serde_json::Value, stats: &mut SessionStats) {
+    let payload = match value.get("payload") {
+        Some(p) => p,
+        None => return,
+    };
+
+    if let Some(id) = payload.get("id").and_then(|v| v.as_str()) {
+        stats.session_id = Some(id.to_string());
+    }
+
+    if let Some(cwd) = payload.get("cwd").and_then(|v| v.as_str()) {
+        stats.cwd = Some(cwd.to_string());
+    }
+
+    if let Some(version) = payload.get("cli_version").and_then(|v| v.as_str()) {
+        stats.version = Some(version.to_string());
+    }
+
+    if let Some(branch) = payload
+        .pointer("/git/branch")
+        .and_then(|v| v.as_str())
+    {
+        stats.git_branch = Some(branch.to_string());
+    }
+}
+
+/// Read the first few lines of a JSONL to get the project cwd, then derive
+/// (display_name, cwd_path).
+fn extract_project_from_jsonl(path: &Path) -> Option<(String, String)> {
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines().take(5) {
+        let line = line.ok()?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if value.get("type").and_then(|v| v.as_str()) != Some("session_meta") {
+            continue;
+        }
+        let cwd = value
+            .pointer("/payload/cwd")
+            .and_then(|v| v.as_str())?;
+        let name = project_name_from_cwd(cwd);
+        return Some((name, cwd.to_string()));
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Project name detection
+// ---------------------------------------------------------------------------
+
+/// Walk up from `cwd` to find a project root marker, then use that directory's
+/// name as the project display name.
+fn project_name_from_cwd(cwd: &str) -> String {
+    let path = Path::new(cwd);
+    let root = path
+        .ancestors()
+        .find(|ancestor| {
+            ancestor.join(".git").exists()
+                || ancestor.join("package.json").exists()
+                || ancestor.join("Cargo.toml").exists()
+                || ancestor.join("pnpm-lock.yaml").exists()
+        })
+        .unwrap_or(path);
+
+    root.file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Filtering helpers
+// ---------------------------------------------------------------------------
+
+fn matches_project(project: Option<&str>, session: &SessionStats) -> bool {
+    let wanted = match project {
+        Some(p) => p,
+        None => return true,
+    };
+    let name = session_project_name(session);
+    name.eq_ignore_ascii_case(wanted)
+}
+
+fn session_project_name(session: &SessionStats) -> String {
+    match session.cwd.as_deref() {
+        Some(cwd) => project_name_from_cwd(cwd),
+        None => "unknown".to_string(),
+    }
+}
+
+/// Check whether at least one model in the session matches the requested provider.
+fn matches_provider(
+    provider_filter: &Option<String>,
+    session: &SessionStats,
+    custom_providers: &[CustomProviderDef],
+) -> bool {
+    let provider = match provider_filter {
+        Some(p) => p,
+        None => return true,
+    };
+    session
+        .tokens
+        .by_model
+        .keys()
+        .any(|m| model_matches_provider(m, provider, custom_providers))
+}
+
+// ---------------------------------------------------------------------------
+// Provider resolution — delegates to shared crate::commands functions
+// ---------------------------------------------------------------------------
+
+fn model_to_provider(model: &str, custom_providers: &[CustomProviderDef]) -> Option<String> {
+    crate::commands::model_to_provider(model, custom_providers)
+}
+
+fn model_matches_provider(
+    model: &str,
+    provider: &str,
+    custom_providers: &[CustomProviderDef],
+) -> bool {
+    crate::commands::model_matches_provider(model, provider, custom_providers)
+}
+
+// ---------------------------------------------------------------------------
+// Convert SessionStats -> SessionInfo
+// ---------------------------------------------------------------------------
+
+fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionInfo {
+    let total_tokens = session.tokens.input
+        + session.tokens.output
+        + session.tokens.cache_read
+        + session.tokens.cache_creation;
+
+    SessionInfo {
+        session_id: session.session_id.unwrap_or_else(|| "unknown".to_string()),
+        project_name: project_name.to_string(),
+        timestamp: session.first_timestamp.unwrap_or_default(),
+        duration_ms: session.duration_ms,
+        duration_formatted: format_duration(session.duration_ms),
+        total_tokens,
+        instructions: session.instructions,
+        model: session.primary_model.unwrap_or_else(|| "unknown".to_string()),
+        git_branch: session.git_branch.unwrap_or_default(),
+        cost_usd: session.cost_usd,
+        source: "codex".to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SQLite fallback
+// ---------------------------------------------------------------------------
+
+fn open_sqlite(db_path: &Path) -> Option<Connection> {
+    Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+}
+
+/// Query distinct projects from the SQLite database.
+fn query_sqlite_projects(db_path: &Path) -> Result<Vec<(String, String)>, ()> {
+    let conn = open_sqlite(db_path).ok_or(())?;
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT cwd FROM threads WHERE cwd IS NOT NULL AND cwd != ''")
+        .map_err(|_| ())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let cwd: String = row.get(0)?;
+            Ok(cwd)
+        })
+        .map_err(|_| ())?;
+
+    let mut results: Vec<(String, String)> = Vec::new();
+    let mut seen: HashMap<String, bool> = HashMap::new();
+
+    for row in rows {
+        let cwd = match row {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let name = project_name_from_cwd(&cwd);
+        if seen.contains_key(&name) {
+            continue;
+        }
+        seen.insert(name.clone(), true);
+        results.push((name, cwd));
+    }
+
+    Ok(results)
+}
+
+/// Query sessions from the SQLite database, applying project and time filters.
+fn query_sqlite_sessions(
+    db_path: &Path,
+    project: Option<&str>,
+    time_filter: &TimeFilter,
+) -> Result<Vec<SessionStats>, ()> {
+    let conn = open_sqlite(db_path).ok_or(())?;
+
+    // Build the cutoff unix timestamp for time filtering
+    let cutoff_ts = time_filter_to_unix(time_filter);
+
+    let mut sql = String::from(
+        "SELECT id, cwd, title, tokens_used, model, git_branch, \
+         model_provider, cli_version, source, created_at, updated_at \
+         FROM threads WHERE 1=1",
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if let Some(cutoff) = cutoff_ts {
+        sql.push_str(" AND created_at >= ?");
+        params.push(Box::new(cutoff));
+    }
+
+    let mut stmt = conn.prepare(&sql).map_err(|_| ())?;
+
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt
+        .query_map(param_refs.as_slice(), |row| {
+            let id: String = row.get(0)?;
+            let cwd: Option<String> = row.get(1)?;
+            let _title: Option<String> = row.get(2)?;
+            let tokens_used: Option<i64> = row.get(3)?;
+            let model: Option<String> = row.get(4)?;
+            let git_branch: Option<String> = row.get(5)?;
+            let _model_provider: Option<String> = row.get(6)?;
+            let cli_version: Option<String> = row.get(7)?;
+            let _source: Option<String> = row.get(8)?;
+            let created_at: Option<i64> = row.get(9)?;
+            let updated_at: Option<i64> = row.get(10)?;
+
+            Ok((
+                id,
+                cwd,
+                tokens_used,
+                model,
+                git_branch,
+                cli_version,
+                created_at,
+                updated_at,
+            ))
+        })
+        .map_err(|_| ())?;
+
+    let mut sessions: Vec<SessionStats> = Vec::new();
+
+    for row in rows {
+        let (id, cwd, tokens_used, model, git_branch, cli_version, created_at, updated_at) =
+            match row {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+        // Project filter
+        if let Some(wanted_project) = project {
+            let name = cwd
+                .as_deref()
+                .map(project_name_from_cwd)
+                .unwrap_or_else(|| "unknown".to_string());
+            if !name.eq_ignore_ascii_case(wanted_project) {
+                continue;
+            }
+        }
+
+        let tokens_total = tokens_used.unwrap_or(0).max(0) as u64;
+
+        // Rough split: assume 80% input, 20% output when we only have a total
+        let input_tokens = (tokens_total as f64 * 0.8) as u64;
+        let output_tokens = tokens_total - input_tokens;
+
+        let mut stats = SessionStats::default();
+        stats.source = "codex".to_string();
+        stats.session_id = Some(id);
+        stats.cwd = cwd;
+        stats.git_branch = git_branch;
+        stats.version = cli_version;
+        stats.primary_model = model.clone();
+        stats.has_activity = tokens_total > 0;
+        stats.tokens.input = input_tokens;
+        stats.tokens.output = output_tokens;
+        stats.cost_usd = 0.0;
+
+        if let Some(ref m) = model {
+            let mt = stats.tokens.by_model.entry(m.clone()).or_default();
+            mt.input = input_tokens;
+            mt.output = output_tokens;
+            mt.cost_usd = 0.0;
+        }
+
+        // Timestamp
+        if let Some(ts) = created_at {
+            if let Some(dt) = DateTime::from_timestamp(ts, 0) {
+                stats.first_timestamp = Some(dt.to_rfc3339());
+            }
+        }
+
+        // Duration estimate
+        if let (Some(c), Some(u)) = (created_at, updated_at) {
+            let diff = (u - c).max(0) as u64;
+            stats.duration_ms = diff * 1000;
+        }
+
+        sessions.push(stats);
+    }
+
+    Ok(sessions)
+}
+
+/// Convert a TimeFilter into a Unix timestamp cutoff (seconds), or None for All.
+fn time_filter_to_unix(time_filter: &TimeFilter) -> Option<i64> {
+    let now = Local::now();
+    let cutoff = match time_filter {
+        TimeFilter::Today => {
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+            Local.from_local_datetime(&today_start).unwrap()
+        }
+        TimeFilter::Week => now - Duration::days(7),
+        TimeFilter::Month => now - Duration::days(30),
+        TimeFilter::Days(d) => now - Duration::days(*d as i64),
+        TimeFilter::All => return None,
+    };
+    Some(cutoff.timestamp())
+}

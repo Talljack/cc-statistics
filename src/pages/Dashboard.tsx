@@ -22,7 +22,7 @@ import { useTranslation } from '../lib/i18n';
 
 export function Dashboard() {
   const { t } = useTranslation();
-  const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
+  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
   const { currentView } = useAppStore();
   const {
     autoRefreshEnabled,
@@ -45,7 +45,7 @@ export function Dashboard() {
   const navigate = useNavigate();
   const { data: stats, isLoading, refetch, isRefetching } = useStatistics(
     selectedProject,
-    timeFilter,
+    activeTimeRange,
     selectedProvider
   );
 

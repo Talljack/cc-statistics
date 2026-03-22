@@ -57,6 +57,7 @@ export interface SessionInfo {
   model: string;
   git_branch: string;
   cost_usd: number;
+  source: string;
 }
 
 export interface InstructionInfo {
@@ -72,3 +73,11 @@ export interface ProjectInfo {
 }
 
 export type TimeFilter = 'today' | 'week' | 'month' | 'all' | string;
+
+export interface SourceConfig {
+  claude_code: boolean;
+  codex: boolean;
+  gemini: boolean;
+  opencode: boolean;
+  openclaw: boolean;
+}

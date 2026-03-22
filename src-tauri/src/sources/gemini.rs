@@ -1,0 +1,490 @@
+use crate::models::*;
+use crate::parser::{ProjectStats, SessionStats, format_duration};
+use crate::commands::{model_to_provider, model_matches_provider, CustomProviderDef};
+use chrono::{DateTime, Duration, Local, TimeZone};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::fs;
+use walkdir::WalkDir;
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Discover all Gemini CLI projects.
+/// Returns (project_display_name, project_path) pairs.
+pub fn discover_projects() -> Vec<(String, String)> {
+    let mut seen: HashMap<String, String> = HashMap::new();
+
+    // Scan ~/.gemini/tmp/{hash}/chats/ for session files
+    if let Some(tmp_dir) = gemini_tmp_dir() {
+        for entry in fs::read_dir(&tmp_dir).into_iter().flatten().flatten() {
+            let hash_dir = entry.path();
+            if !hash_dir.is_dir() {
+                continue;
+            }
+
+            // Check if this hash dir has any session files
+            let chats_dir = hash_dir.join("chats");
+            if !chats_dir.is_dir() || !has_session_files(&chats_dir) {
+                continue;
+            }
+
+            // Read .project_root to get project path
+            if let Some((name, path)) = read_project_root(&hash_dir) {
+                seen.entry(name).or_insert(path);
+            }
+        }
+    }
+
+    // Also check ~/.gemini/history/ for project mapping
+    if let Some(history_dir) = gemini_history_dir() {
+        for entry in fs::read_dir(&history_dir).into_iter().flatten().flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            if let Some((name, path)) = read_project_root(&dir) {
+                seen.entry(name).or_insert(path);
+            }
+        }
+    }
+
+    seen.into_iter().collect()
+}
+
+/// Collect aggregate statistics across Gemini sessions.
+pub fn collect_stats(
+    project: Option<&str>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<String>,
+    custom_providers: &[CustomProviderDef],
+) -> ProjectStats {
+    let mut combined = ProjectStats::default();
+
+    for path in find_all_session_files(time_filter) {
+        let session = match parse_gemini_session(&path) {
+            Some(s) => s,
+            None => continue,
+        };
+        if !session.has_activity {
+            continue;
+        }
+        if !session_matches_time(time_filter, &session) {
+            continue;
+        }
+        if !matches_project(project, &session) {
+            continue;
+        }
+        if !matches_provider(provider_filter, &session, custom_providers) {
+            continue;
+        }
+        combined.merge_session(session);
+    }
+
+    combined
+}
+
+/// Collect individual session info entries from Gemini data.
+pub fn collect_sessions(
+    project: Option<&str>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<String>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<SessionInfo> {
+    let mut sessions: Vec<SessionInfo> = Vec::new();
+
+    for path in find_all_session_files(time_filter) {
+        let session = match parse_gemini_session(&path) {
+            Some(s) => s,
+            None => continue,
+        };
+        if !session.has_activity {
+            continue;
+        }
+        if !session_matches_time(time_filter, &session) {
+            continue;
+        }
+        if !matches_project(project, &session) {
+            continue;
+        }
+        if !matches_provider(provider_filter, &session, custom_providers) {
+            continue;
+        }
+
+        let project_name = session_project_name(&session);
+        sessions.push(session_stats_to_info(session, &project_name));
+    }
+
+    // Sort by timestamp descending
+    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    sessions
+}
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+fn gemini_home_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".gemini"))
+}
+
+fn gemini_tmp_dir() -> Option<PathBuf> {
+    let dir = gemini_home_dir()?.join("tmp");
+    if dir.is_dir() {
+        Some(dir)
+    } else {
+        None
+    }
+}
+
+fn gemini_history_dir() -> Option<PathBuf> {
+    let dir = gemini_home_dir()?.join("history");
+    if dir.is_dir() {
+        Some(dir)
+    } else {
+        None
+    }
+}
+
+/// Check if a directory contains any session-*.json files.
+fn has_session_files(chats_dir: &PathBuf) -> bool {
+    let entries = match fs::read_dir(chats_dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    for entry in entries.flatten() {
+        if let Some(name) = entry.file_name().to_str() {
+            if name.starts_with("session-") && name.ends_with(".json") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Read `.project_root` from a directory and derive (project_name, project_path).
+fn read_project_root(dir: &PathBuf) -> Option<(String, String)> {
+    let project_root_file = dir.join(".project_root");
+    let content = fs::read_to_string(&project_root_file).ok()?;
+    let project_path = content.trim().to_string();
+    if project_path.is_empty() {
+        return None;
+    }
+    let name = PathBuf::from(&project_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+    Some((name, project_path))
+}
+
+/// Collect all session-*.json file paths, applying mtime pre-filter.
+fn find_all_session_files(time_filter: &TimeFilter) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = Vec::new();
+
+    let tmp_dir = match gemini_tmp_dir() {
+        Some(d) => d,
+        None => return files,
+    };
+
+    for entry in WalkDir::new(&tmp_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if !is_gemini_session(path) {
+            continue;
+        }
+        if !filter_by_mtime(time_filter, path) {
+            continue;
+        }
+        files.push(path.to_path_buf());
+    }
+
+    files
+}
+
+/// Check if a path looks like a Gemini session file (session-*.json).
+fn is_gemini_session(path: &std::path::Path) -> bool {
+    let name = match path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n,
+        None => return false,
+    };
+    name.starts_with("session-") && name.ends_with(".json")
+}
+
+// ---------------------------------------------------------------------------
+// Time filtering
+// ---------------------------------------------------------------------------
+
+/// Pre-filter by file modification time.
+fn filter_by_mtime(time_filter: &TimeFilter, path: &std::path::Path) -> bool {
+    if matches!(time_filter, TimeFilter::All) {
+        return true;
+    }
+    let metadata = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    let modified: DateTime<Local> = match metadata.modified() {
+        Ok(t) => t.into(),
+        Err(_) => return false,
+    };
+    let now = Local::now();
+    match time_filter {
+        TimeFilter::Today => {
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+            let today_start_local = Local.from_local_datetime(&today_start).unwrap();
+            modified >= today_start_local
+        }
+        TimeFilter::Week => modified >= now - Duration::days(7),
+        TimeFilter::Month => modified >= now - Duration::days(30),
+        TimeFilter::Days(d) => modified >= now - Duration::days(*d as i64),
+        TimeFilter::All => true,
+    }
+}
+
+/// Check if a parsed session's startTime falls within the time filter.
+fn session_matches_time(time_filter: &TimeFilter, session: &SessionStats) -> bool {
+    if matches!(time_filter, TimeFilter::All) {
+        return true;
+    }
+    let ts_str = match session.first_timestamp.as_deref() {
+        Some(ts) => ts,
+        None => return true, // no timestamp → don't exclude
+    };
+    let record_time = match DateTime::parse_from_rfc3339(ts_str) {
+        Ok(dt) => dt.with_timezone(&Local),
+        Err(_) => return true,
+    };
+    let now = Local::now();
+    match time_filter {
+        TimeFilter::Today => {
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+            let today_start_local = Local.from_local_datetime(&today_start).unwrap();
+            record_time >= today_start_local
+        }
+        TimeFilter::Week => record_time >= now - Duration::days(7),
+        TimeFilter::Month => record_time >= now - Duration::days(30),
+        TimeFilter::Days(d) => record_time >= now - Duration::days(*d as i64),
+        TimeFilter::All => true,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Session JSON parsing
+// ---------------------------------------------------------------------------
+
+/// Parse a single Gemini session-*.json file into SessionStats.
+fn parse_gemini_session(path: &std::path::Path) -> Option<SessionStats> {
+    let content = fs::read_to_string(path).ok()?;
+    let root: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let mut stats = SessionStats::default();
+    stats.source = "gemini".to_string();
+
+    // Session ID
+    if let Some(id) = root.get("sessionId").and_then(|v| v.as_str()) {
+        stats.session_id = Some(id.to_string());
+    } else if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        stats.session_id = Some(stem.to_string());
+    }
+
+    // Derive project cwd from parent directory's .project_root
+    // Path: ~/.gemini/tmp/{hash}/chats/session-*.json
+    // .project_root lives at ~/.gemini/tmp/{hash}/.project_root
+    if let Some(chats_dir) = path.parent() {
+        if let Some(hash_dir) = chats_dir.parent() {
+            if let Some((_, project_path)) = read_project_root(&hash_dir.to_path_buf()) {
+                stats.cwd = Some(project_path);
+            }
+        }
+    }
+
+    // Timestamps
+    let start_time_str = root.get("startTime").and_then(|v| v.as_str());
+    let last_updated_str = root.get("lastUpdated").and_then(|v| v.as_str());
+
+    if let Some(ts) = start_time_str {
+        stats.first_timestamp = Some(ts.to_string());
+    }
+
+    // Duration: lastUpdated - startTime
+    if let (Some(start_str), Some(end_str)) = (start_time_str, last_updated_str) {
+        if let (Ok(start_dt), Ok(end_dt)) = (
+            DateTime::parse_from_rfc3339(start_str),
+            DateTime::parse_from_rfc3339(end_str),
+        ) {
+            let diff = end_dt - start_dt;
+            stats.duration_ms = diff.num_milliseconds().max(0) as u64;
+        }
+    }
+
+    // Parse messages
+    let messages = match root.get("messages").and_then(|v| v.as_array()) {
+        Some(msgs) => msgs,
+        None => return Some(stats),
+    };
+
+    for msg in messages {
+        let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        match msg_type {
+            "user" => {
+                // Count user messages as instructions
+                if has_text_content(msg) {
+                    stats.instructions += 1;
+                    stats.has_activity = true;
+                }
+            }
+            "gemini" => {
+                parse_gemini_response(msg, &mut stats);
+            }
+            _ => {}
+        }
+    }
+
+    // Cost: set to 0.0, frontend handles via dynamic pricing
+    stats.cost_usd = 0.0;
+    // Also zero out per-model cost
+    for mt in stats.tokens.by_model.values_mut() {
+        mt.cost_usd = 0.0;
+    }
+
+    Some(stats)
+}
+
+/// Check whether a user message has non-empty text content.
+fn has_text_content(msg: &serde_json::Value) -> bool {
+    // content can be a string or an array of objects with "text" fields
+    if let Some(content) = msg.get("content") {
+        match content {
+            serde_json::Value::String(text) => {
+                return !text.trim().is_empty();
+            }
+            serde_json::Value::Array(items) => {
+                return items.iter().any(|item| {
+                    item.get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|t| !t.trim().is_empty())
+                        .unwrap_or(false)
+                });
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Parse a gemini-type message for tokens and model information.
+fn parse_gemini_response(msg: &serde_json::Value, stats: &mut SessionStats) {
+    // Extract model
+    let model = msg.get("model").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Extract token usage
+    if let Some(tokens) = msg.get("tokens") {
+        let input = tokens.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
+        let output_base = tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
+        let cached = tokens.get("cached").and_then(|v| v.as_u64()).unwrap_or(0);
+        let thoughts = tokens.get("thoughts").and_then(|v| v.as_u64()).unwrap_or(0);
+        // tool tokens ignored (counted in input/output already)
+
+        // Map: input -> input, output + thoughts -> output, cached -> cache_read, cache_creation = 0
+        let output = output_base + thoughts;
+
+        stats.tokens.input += input;
+        stats.tokens.output += output;
+        stats.tokens.cache_read += cached;
+        // cache_creation stays 0
+
+        if input > 0 || output > 0 {
+            stats.has_activity = true;
+        }
+
+        // Track per-model tokens
+        if !model.is_empty() {
+            let model_tokens = stats.tokens.by_model.entry(model.to_string()).or_default();
+            model_tokens.input += input;
+            model_tokens.output += output;
+            model_tokens.cache_read += cached;
+            model_tokens.cache_creation = 0;
+            model_tokens.cost_usd = 0.0;
+        }
+    }
+
+    // Track primary model (first model seen)
+    if stats.primary_model.is_none() && !model.is_empty() {
+        stats.primary_model = Some(model.to_string());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Filtering helpers
+// ---------------------------------------------------------------------------
+
+fn matches_project(project: Option<&str>, session: &SessionStats) -> bool {
+    let wanted = match project {
+        Some(p) => p,
+        None => return true,
+    };
+    let name = session_project_name(session);
+    name.eq_ignore_ascii_case(wanted)
+}
+
+fn session_project_name(session: &SessionStats) -> String {
+    match session.cwd.as_deref() {
+        Some(cwd) => {
+            PathBuf::from(cwd)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or("unknown")
+                .to_string()
+        }
+        None => "unknown".to_string(),
+    }
+}
+
+/// Check whether at least one model in the session matches the requested provider.
+fn matches_provider(
+    provider_filter: &Option<String>,
+    session: &SessionStats,
+    custom_providers: &[CustomProviderDef],
+) -> bool {
+    let provider = match provider_filter {
+        Some(p) => p,
+        None => return true,
+    };
+    session
+        .tokens
+        .by_model
+        .keys()
+        .any(|m| model_matches_provider(m, provider, custom_providers))
+}
+
+// ---------------------------------------------------------------------------
+// Convert SessionStats -> SessionInfo
+// ---------------------------------------------------------------------------
+
+fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionInfo {
+    let total_tokens = session.tokens.input
+        + session.tokens.output
+        + session.tokens.cache_read
+        + session.tokens.cache_creation;
+
+    SessionInfo {
+        session_id: session.session_id.unwrap_or_else(|| "unknown".to_string()),
+        project_name: project_name.to_string(),
+        timestamp: session.first_timestamp.unwrap_or_default(),
+        duration_ms: session.duration_ms,
+        duration_formatted: format_duration(session.duration_ms),
+        total_tokens,
+        instructions: session.instructions,
+        model: session.primary_model.unwrap_or_else(|| "unknown".to_string()),
+        git_branch: session.git_branch.unwrap_or_default(),
+        cost_usd: session.cost_usd,
+        source: "gemini".to_string(),
+    }
+}

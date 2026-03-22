@@ -27,10 +27,10 @@ function getModelPricing(model: string) {
 
 export function CostBreakdown() {
   const { t } = useTranslation();
-  const { selectedProject, timeFilter, selectedProvider } = useFilterStore();
+  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
   const navigate = useNavigate();
-  const { data: stats, isLoading: statsLoading } = useStatistics(selectedProject, timeFilter, selectedProvider);
-  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedProject, timeFilter, selectedProvider);
+  const { data: stats, isLoading: statsLoading } = useStatistics(selectedProject, activeTimeRange, selectedProvider);
+  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedProject, activeTimeRange, selectedProvider);
 
   const handleRefresh = () => {};
 
