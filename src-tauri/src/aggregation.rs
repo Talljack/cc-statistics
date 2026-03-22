@@ -222,7 +222,7 @@ fn aggregate_session(
             && non_matching_token_count == 0
             && session_provider_matches);
     let allow_provider_agnostic_records = provider_filter.is_none()
-        || (matching_token_count > 0 && non_matching_token_count == 0)
+        || matching_token_count > 0
         || (matching_token_count == 0
             && non_matching_token_count == 0
             && session_provider_matches);
@@ -506,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_filter_keeps_only_matching_provider_tokens_and_drops_ambiguous_non_token_records() {
+    fn provider_filter_includes_code_changes_when_matching_tokens_exist_in_mixed_session() {
         let sessions = vec![NormalizedSession {
             source: "codex".to_string(),
             session_id: "mixed-provider".to_string(),
@@ -537,24 +537,43 @@ mod tests {
                     cache_creation: 0,
                     cost_usd: 0.5,
                 }),
+                NormalizedRecord::CodeChange(CodeChangeRecord {
+                    timestamp: ts("2026-03-10T09:03:00+08:00"),
+                    file_path: "src/main.rs".to_string(),
+                    extension: "rs".to_string(),
+                    additions: 10,
+                    deletions: 3,
+                    files: 1,
+                }),
             ],
         }];
         let range = QueryTimeRange::BuiltIn {
             key: crate::models::BuiltInTimeRangeKey::All,
         };
-        let provider = Some("Anthropic".to_string());
 
+        // Filter by Anthropic: should include only Anthropic tokens but ALSO code changes + instructions
+        let provider = Some("Anthropic".to_string());
         let stats = aggregate_statistics(&sessions, &range, &provider, &[]);
         assert_eq!(stats.sessions, 1);
-        assert_eq!(stats.instructions, 0);
-        assert_eq!(stats.tokens.input, 10);
+        assert_eq!(stats.tokens.input, 10); // only Anthropic tokens
         assert_eq!(stats.tokens.output, 20);
         assert_eq!(stats.cost_usd, 1.0);
-        assert_eq!(stats.duration_ms, 0);
+        // Code changes should be included even in mixed-provider session
+        assert_eq!(stats.code_changes.total.additions, 10);
+        assert_eq!(stats.code_changes.total.deletions, 3);
+        assert_eq!(stats.code_changes.total.files, 1);
+        // Instructions should be included too
+        assert_eq!(stats.instructions, 1);
 
-        let sessions = aggregate_sessions(&sessions, &range, &provider, &[]);
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].timestamp, "2026-03-10T09:01:00+08:00");
-        assert_eq!(sessions[0].duration_ms, 0);
+        // Filter by OpenAI: should include only OpenAI tokens and also code changes
+        let provider = Some("OpenAI".to_string());
+        let stats = aggregate_statistics(&sessions, &range, &provider, &[]);
+        assert_eq!(stats.sessions, 1);
+        assert_eq!(stats.tokens.input, 3); // only OpenAI tokens
+        assert_eq!(stats.tokens.output, 4);
+        assert_eq!(stats.cost_usd, 0.5);
+        assert_eq!(stats.code_changes.total.additions, 10);
+        assert_eq!(stats.code_changes.total.deletions, 3);
+        assert_eq!(stats.code_changes.total.files, 1);
     }
 }
