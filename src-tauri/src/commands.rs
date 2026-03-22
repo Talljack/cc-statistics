@@ -73,8 +73,10 @@ fn strip_routing_prefix(model: &str) -> &str {
     let provider_org_prefixes = [
         "x-ai/", "anthropic/", "google/", "meta-llama/", "meta/", "mistralai/",
         "cohere/", "deepseek/", "qwen/", "microsoft/", "nvidia/", "01-ai/",
-        "databricks/", "amazon/", "ai21/", "zhipu/", "moonshot/", "baichuan/",
+        "databricks/", "amazon/", "ai21/", "zhipu/", "zai/", "moonshot/", "baichuan/",
         "bytedance/", "minimax/", "sensetime/", "cloudflare/", "aihubmix/",
+        "fireworks/", "cerebras/", "sambanova/", "stepfun/", "baidu/", "tencent/",
+        "iflytek/", "internlm/", "reka/", "nousresearch/",
         "custom-proxy/",
     ];
     for prefix in &provider_org_prefixes {
@@ -101,8 +103,8 @@ fn match_known_provider(m: &str) -> Option<String> {
     if m.starts_with("deepseek") { return Some("DeepSeek".to_string()); }
     // Moonshot (Kimi)
     if m.starts_with("kimi") || m.starts_with("moonshot") { return Some("Moonshot".to_string()); }
-    // Zhipu (GLM)
-    if m.starts_with("glm") { return Some("Zhipu".to_string()); }
+    // Z.AI (GLM)
+    if m.starts_with("glm") { return Some("Z.AI".to_string()); }
     // Mistral
     if m.starts_with("mistral") || m.starts_with("codestral") || m.starts_with("pixtral") || m.starts_with("ministral") {
         return Some("Mistral".to_string());
@@ -143,16 +145,36 @@ fn match_known_provider(m: &str) -> Option<String> {
     if m.starts_with("together") { return Some("Together".to_string()); }
     // Groq
     if m.starts_with("groq") { return Some("Groq".to_string()); }
+    // Fireworks AI
+    if m.starts_with("fireworks") || m.starts_with("accounts/fireworks") { return Some("Fireworks AI".to_string()); }
+    // Amazon Bedrock
+    if m.starts_with("bedrock") { return Some("Amazon Bedrock".to_string()); }
+    // AI21 Labs
+    if m.starts_with("jamba") || m.starts_with("j2-") { return Some("AI21 Labs".to_string()); }
+    // Cerebras
+    if m.starts_with("cerebras") { return Some("Cerebras".to_string()); }
+    // SambaNova
+    if m.starts_with("samba") { return Some("SambaNova".to_string()); }
+    // Stepfun (阶跃星辰)
+    if m.starts_with("step-") { return Some("Stepfun".to_string()); }
+    // Baidu (百度文心)
+    if m.starts_with("ernie") || m.starts_with("wenxin") { return Some("Baidu".to_string()); }
+    // Tencent (腾讯混元)
+    if m.starts_with("hunyuan") { return Some("Tencent".to_string()); }
+    // iFlytek (讯飞星火)
+    if m.starts_with("spark") || m.starts_with("iflytek") { return Some("iFlytek".to_string()); }
+    // Shanghai AI Lab (书生·浦语)
+    if m.starts_with("internlm") { return Some("InternLM".to_string()); }
+    // NVIDIA
+    if m.starts_with("nemotron") || m.starts_with("nvidia") { return Some("NVIDIA".to_string()); }
+    // Reka
+    if m.starts_with("reka") { return Some("Reka".to_string()); }
+    // Nous Research
+    if m.starts_with("nous") || m.starts_with("hermes") { return Some("Nous Research".to_string()); }
 
-    // Fallback: use first segment before '-' as provider name
-    if let Some(pos) = m.find('-') {
-        let provider = &m[..pos];
-        if !provider.is_empty() && provider != "unknown" {
-            return Some(provider.to_string());
-        }
-    }
-
-    // Single-word model name with no dash — return None to filter out garbage
+    // No known provider matched — return None instead of guessing from model name
+    // All mainstream providers are handled above; unknown models should not
+    // generate garbage provider names like "delivery", "custom", etc.
     None
 }
 
@@ -470,6 +492,15 @@ fn collect_project_stats(
             if ext == "jsonl" {
                 match parse_session_file(&path, time_filter) {
                     Ok(session_stats) if session_stats.has_activity => {
+                        // Skip empty sessions with no meaningful data
+                        let total_tokens = session_stats.tokens.input
+                            + session_stats.tokens.output
+                            + session_stats.tokens.cache_read
+                            + session_stats.tokens.cache_creation;
+                        if total_tokens == 0 && session_stats.instructions == 0 && session_stats.duration_ms == 0 {
+                            continue;
+                        }
+
                         if let Some(ref provider) = provider_filter {
                             let matches = session_stats
                                 .tokens
@@ -553,6 +584,11 @@ pub fn get_sessions(
                             + session_stats.tokens.output
                             + session_stats.tokens.cache_read
                             + session_stats.tokens.cache_creation;
+
+                        // Skip empty sessions (no tokens, no instructions, no duration)
+                        if total_tokens == 0 && session_stats.instructions == 0 && session_stats.duration_ms == 0 {
+                            continue;
+                        }
 
                         sessions.push(SessionInfo {
                             session_id: session_stats.session_id.unwrap_or_else(|| "unknown".to_string()),
@@ -690,7 +726,7 @@ pub fn get_available_providers(
     let config = enabled_sources.unwrap_or_default();
     let mut providers: HashSet<String> = HashSet::new();
 
-    // Claude Code providers
+    // Claude Code: scan first 20 lines of each JSONL for model field (lightweight)
     if config.claude_code {
         if let Ok(name_map) = build_project_name_map() {
             for dirs in name_map.values() {
@@ -702,11 +738,15 @@ pub fn get_available_providers(
                     for entry in entries.flatten() {
                         let path = entry.path();
                         if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") { continue; }
-                        if let Ok(session_stats) = parse_session_file(&path, &TimeFilter::All) {
-                            if session_stats.has_activity {
-                                for model_key in session_stats.tokens.by_model.keys() {
-                                    if let Some(provider) = model_to_provider(model_key, &cps) {
-                                        providers.insert(provider);
+                        // Lightweight: read first 50 lines to find model
+                        if let Ok(file) = fs::File::open(&path) {
+                            let reader = BufReader::new(file);
+                            for line in reader.lines().take(50).flatten() {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                                    if let Some(model) = v.pointer("/message/model").and_then(|m| m.as_str()) {
+                                        if let Some(p) = model_to_provider(model, &cps) {
+                                            providers.insert(p);
+                                        }
                                     }
                                 }
                             }
@@ -717,19 +757,114 @@ pub fn get_available_providers(
         }
     }
 
-    // Other sources: get providers from their sessions
-    let other_sessions_fns: Vec<(bool, fn(Option<&str>, &TimeFilter, &Option<String>, &[CustomProviderDef]) -> Vec<SessionInfo>)> = vec![
-        (config.codex, sources::codex::collect_sessions),
-        (config.gemini, sources::gemini::collect_sessions),
-        (config.opencode, sources::opencode::collect_sessions),
-        (config.openclaw, sources::openclaw::collect_sessions),
-    ];
+    // Codex: use SQLite for fast model lookup
+    if config.codex {
+        if let Some(home) = dirs::home_dir() {
+            let db_path = home.join(".codex").join("state_5.sqlite");
+            if let Ok(conn) = rusqlite::Connection::open_with_flags(
+                &db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            ) {
+                if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT model FROM threads WHERE model IS NOT NULL AND tokens_used > 0") {
+                    if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                        for model in rows.flatten() {
+                            if let Some(p) = model_to_provider(&model, &cps) {
+                                providers.insert(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-    for (enabled, collect_fn) in other_sessions_fns {
-        if enabled {
-            for session in collect_fn(None, &TimeFilter::All, &None, &cps) {
-                if let Some(provider) = model_to_provider(&session.model, &cps) {
-                    providers.insert(provider);
+    // Opencode: use SQLite for fast model lookup
+    if config.opencode {
+        if let Some(home) = dirs::home_dir() {
+            let db_path = home.join(".local/share/opencode/opencode.db");
+            if let Ok(conn) = rusqlite::Connection::open_with_flags(
+                &db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            ) {
+                // Extract distinct modelID from message JSON data
+                if let Ok(mut stmt) = conn.prepare(
+                    "SELECT DISTINCT json_extract(data, '$.modelID') FROM message WHERE json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.modelID') IS NOT NULL LIMIT 200"
+                ) {
+                    if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                        for model in rows.flatten() {
+                            if let Some(p) = model_to_provider(&model, &cps) {
+                                providers.insert(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Gemini: scan session JSON files for model field (lightweight)
+    if config.gemini {
+        if let Some(home) = dirs::home_dir() {
+            let gemini_tmp = home.join(".gemini").join("tmp");
+            if gemini_tmp.exists() {
+                if let Ok(entries) = fs::read_dir(&gemini_tmp) {
+                    for entry in entries.flatten() {
+                        let chats_dir = entry.path().join("chats");
+                        if !chats_dir.is_dir() { continue; }
+                        if let Ok(files) = fs::read_dir(&chats_dir) {
+                            for file in files.flatten() {
+                                let path = file.path();
+                                if path.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
+                                if let Ok(content) = fs::read_to_string(&path) {
+                                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                                        if let Some(msgs) = v.get("messages").and_then(|m| m.as_array()) {
+                                            for msg in msgs {
+                                                if let Some(model) = msg.get("model").and_then(|m| m.as_str()) {
+                                                    if let Some(p) = model_to_provider(model, &cps) {
+                                                        providers.insert(p);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Openclaw: scan first few lines of each session JSONL for model_change/message events
+    if config.openclaw {
+        if let Some(home) = dirs::home_dir() {
+            let sessions_dir = home.join(".openclaw/agents/main/sessions");
+            if sessions_dir.exists() {
+                if let Ok(entries) = fs::read_dir(&sessions_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") { continue; }
+                        if let Ok(file) = fs::File::open(&path) {
+                            let reader = BufReader::new(file);
+                            for line in reader.lines().take(100).flatten() {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                                    // model_change event
+                                    if let Some(model_id) = v.get("modelId").and_then(|m| m.as_str()) {
+                                        if let Some(p) = model_to_provider(model_id, &cps) {
+                                            providers.insert(p);
+                                        }
+                                    }
+                                    // message with model
+                                    if let Some(model) = v.pointer("/message/model").and_then(|m| m.as_str()) {
+                                        if let Some(p) = model_to_provider(model, &cps) {
+                                            providers.insert(p);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -743,4 +878,39 @@ pub fn get_available_providers(
 #[tauri::command]
 pub fn detect_sources() -> Vec<(String, bool)> {
     crate::sources::detect_installed_sources()
+}
+
+/// Read preset model IDs from ~/.claude/cc-statistics-models.json
+/// If file doesn't exist, create it with defaults and return them.
+#[tauri::command]
+pub fn get_preset_models() -> Vec<String> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return default_preset_models(),
+    };
+    let config_path = home.join(".claude").join("cc-statistics-models.json");
+
+    if config_path.exists() {
+        if let Ok(content) = fs::read_to_string(&config_path) {
+            if let Ok(models) = serde_json::from_str::<Vec<String>>(&content) {
+                if !models.is_empty() {
+                    return models;
+                }
+            }
+        }
+    }
+
+    let defaults = default_preset_models();
+    if let Ok(json) = serde_json::to_string_pretty(&defaults) {
+        let _ = fs::write(&config_path, json);
+    }
+    defaults
+}
+
+fn default_preset_models() -> Vec<String> {
+    vec![
+        "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4", "o3",
+        "gemini-3-pro-preview", "deepseek-r1", "grok-4", "glm-5",
+        "kimi-k2.5", "minimax-m2.7", "llama-4-maverick",
+    ].into_iter().map(String::from).collect()
 }

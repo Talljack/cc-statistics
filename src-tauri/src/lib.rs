@@ -22,6 +22,7 @@ pub fn run() {
             get_available_providers,
             update_tray_stats,
             detect_sources,
+            get_preset_models,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

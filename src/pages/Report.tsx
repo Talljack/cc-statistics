@@ -4,7 +4,7 @@ import { useFilterStore } from '../stores/filterStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useStatistics, useSessions } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
-import { formatTokens, formatNumber, formatCost, formatDuration, calculateCustomCost } from '../lib/utils';
+import { formatTokens, formatNumber, formatCost, formatDuration } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 import {
   ArrowLeft,
@@ -28,20 +28,17 @@ interface DailyBucket {
 export function Report() {
   const { t } = useTranslation();
   const { selectedProject, activeTimeRange } = useFilterStore();
-  const { showCost, customPricingEnabled, customPricing } = useSettingsStore();
+  const { showCost } = useSettingsStore();
   const navigate = useNavigate();
   const { data: stats, isLoading: statsLoading } = useStatistics(selectedProject, activeTimeRange);
   const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedProject, activeTimeRange);
 
   const isLoading = statsLoading || sessionsLoading;
 
-  // Cost calculation
   const displayCost = useMemo(() => {
     if (!stats) return 0;
-    return customPricingEnabled
-      ? calculateCustomCost(stats.tokens, customPricing)
-      : stats.cost_usd;
-  }, [stats, customPricingEnabled, customPricing]);
+    return stats.cost_usd;
+  }, [stats]);
 
   // Project leaderboard
   const projectRankings = useMemo(() => {
@@ -135,7 +132,7 @@ export function Report() {
           </section>
 
           {/* Daily Trend */}
-          {dailyTrend.length > 1 && (
+          {dailyTrend.length > 0 && (
             <section className="mb-8">
               <h3 className="text-sm font-semibold text-[#a0a0a0] uppercase tracking-wider mb-3">{t('report.dailyActivity')}</h3>
               <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-5">

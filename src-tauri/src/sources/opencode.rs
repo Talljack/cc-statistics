@@ -189,6 +189,11 @@ pub fn collect_sessions(
             + session_stats.tokens.cache_read
             + session_stats.tokens.cache_creation;
 
+        // Skip empty sessions
+        if total_tokens == 0 && session_stats.instructions == 0 && session_stats.duration_ms == 0 {
+            continue;
+        }
+
         // Convert time_created ms to a readable timestamp string
         let timestamp = DateTime::from_timestamp_millis(sess.time_created)
             .map(|dt| dt.with_timezone(&Local).to_rfc3339())
@@ -478,6 +483,13 @@ fn parse_assistant_message(value: &serde_json::Value, stats: &mut SessionStats) 
         if cost > 0.0 {
             model_tokens.cost_usd += cost;
             stats.cost_usd += cost;
+        } else {
+            // Fallback: calculate cost from model name + tokens
+            let calc_cost = crate::parser::calculate_cost(
+                model_id, input, output, cache_read, cache_creation,
+            );
+            model_tokens.cost_usd += calc_cost;
+            stats.cost_usd += calc_cost;
         }
 
         if stats.primary_model.is_none() {

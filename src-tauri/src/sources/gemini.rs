@@ -73,6 +73,12 @@ pub fn collect_stats(
         if !session_matches_time(time_filter, &session) {
             continue;
         }
+        // Skip empty sessions
+        let total_tok = session.tokens.input + session.tokens.output
+            + session.tokens.cache_read + session.tokens.cache_creation;
+        if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
+            continue;
+        }
         if !matches_project(project, &session) {
             continue;
         }
@@ -103,6 +109,12 @@ pub fn collect_sessions(
             continue;
         }
         if !session_matches_time(time_filter, &session) {
+            continue;
+        }
+        // Skip empty sessions
+        let total_tok = session.tokens.input + session.tokens.output
+            + session.tokens.cache_read + session.tokens.cache_creation;
+        if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
             continue;
         }
         if !matches_project(project, &session) {
@@ -253,11 +265,11 @@ fn session_matches_time(time_filter: &TimeFilter, session: &SessionStats) -> boo
     }
     let ts_str = match session.first_timestamp.as_deref() {
         Some(ts) => ts,
-        None => return true, // no timestamp → don't exclude
+        None => return false, // no timestamp → exclude for time-specific filters
     };
     let record_time = match DateTime::parse_from_rfc3339(ts_str) {
         Ok(dt) => dt.with_timezone(&Local),
-        Err(_) => return true,
+        Err(_) => return false, // invalid timestamp → exclude
     };
     let now = Local::now();
     match time_filter {
@@ -346,11 +358,17 @@ fn parse_gemini_session(path: &std::path::Path) -> Option<SessionStats> {
         }
     }
 
-    // Cost: set to 0.0, frontend handles via dynamic pricing
-    stats.cost_usd = 0.0;
-    // Also zero out per-model cost
-    for mt in stats.tokens.by_model.values_mut() {
-        mt.cost_usd = 0.0;
+    // Calculate cost using model name and token counts
+    for (model, mt) in stats.tokens.by_model.iter_mut() {
+        let cost = crate::parser::calculate_cost(
+            model,
+            mt.input,
+            mt.output,
+            mt.cache_read,
+            mt.cache_creation,
+        );
+        mt.cost_usd = cost;
+        stats.cost_usd += cost;
     }
 
     Some(stats)
@@ -409,8 +427,6 @@ fn parse_gemini_response(msg: &serde_json::Value, stats: &mut SessionStats) {
             model_tokens.input += input;
             model_tokens.output += output;
             model_tokens.cache_read += cached;
-            model_tokens.cache_creation = 0;
-            model_tokens.cost_usd = 0.0;
         }
     }
 

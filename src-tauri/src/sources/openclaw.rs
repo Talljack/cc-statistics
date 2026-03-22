@@ -136,7 +136,7 @@ fn record_passes_time_filter(timestamp: &str, time_filter: &TimeFilter) -> bool 
 
     let record_time = match DateTime::parse_from_rfc3339(timestamp) {
         Ok(t) => t.with_timezone(&Local),
-        Err(_) => return true, // keep records we can't parse
+        Err(_) => return false, // skip records with invalid timestamps for time-specific filters
     };
 
     let now = Local::now();
@@ -280,6 +280,11 @@ pub fn collect_sessions(
             + session.tokens.output
             + session.tokens.cache_read
             + session.tokens.cache_creation;
+
+        // Skip empty sessions
+        if total_tokens == 0 && session.instructions == 0 && session.duration_ms == 0 {
+            continue;
+        }
 
         sessions.push(SessionInfo {
             session_id: session.session_id.unwrap_or_else(|| "unknown".to_string()),
@@ -454,15 +459,23 @@ fn parse_assistant_message(
         model_tokens.cache_read += cache_read;
         model_tokens.cache_creation += cache_write;
 
-        // Extract cost directly from usage.cost.total
+        // Extract cost directly from usage.cost.total, fallback to calculate_cost
         let cost = usage
             .get("cost")
             .and_then(|c| c.get("total"))
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
-        model_tokens.cost_usd += cost;
-        stats.cost_usd += cost;
+        if cost > 0.0 {
+            model_tokens.cost_usd += cost;
+            stats.cost_usd += cost;
+        } else {
+            let calc_cost = crate::parser::calculate_cost(
+                model_str, input, output, cache_read, cache_write,
+            );
+            model_tokens.cost_usd += calc_cost;
+            stats.cost_usd += calc_cost;
+        }
     }
 
     // Extract tool usage from content blocks

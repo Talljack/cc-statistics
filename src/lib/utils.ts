@@ -65,53 +65,39 @@ export function formatCost(usd: number): string {
   return '$0.00';
 }
 
-import type { CustomPricing, ModelPricing } from '../stores/settingsStore';
+import type { ModelPricing } from '../stores/settingsStore';
 import { usePricingStore } from '../stores/pricingStore';
 import type { TokenUsage } from '../types/statistics';
 
 /**
- * Get pricing for a model name. Tries dynamic OpenRouter data first,
- * then falls back to hardcoded custom pricing tiers.
+ * Calculate cost using custom per-model pricing overrides.
+ * For models without a custom override, tries OpenRouter dynamic pricing.
  */
-function getPricingForModel(model: string, customPricing: CustomPricing): ModelPricing {
-  // 1. Try dynamic pricing from OpenRouter cache
-  const dynamicEntry = usePricingStore.getState().getPricingForModel(model);
-  if (dynamicEntry) {
-    return {
-      input: dynamicEntry.input,
-      output: dynamicEntry.output,
-      cacheRead: dynamicEntry.cacheRead,
-      cacheCreation: dynamicEntry.cacheWrite,
-    };
-  }
-
-  // 2. Fallback to hardcoded custom pricing tiers
-  const m = model.toLowerCase();
-  if (m.includes('opus')) return customPricing.opus;
-  if (m.includes('haiku')) return customPricing.haiku;
-  if (m.includes('sonnet') || m.includes('claude')) return customPricing.sonnet;
-  if (m.includes('o3')) return customPricing.o3;
-  if (m.includes('o4-mini') || m.includes('o4_mini')) return customPricing.o4mini;
-  if (m.includes('codex')) return customPricing.gpt41;
-  if (m.includes('gpt-4.1') || m.includes('gpt-4-1') || m.includes('gpt_4_1')) return customPricing.gpt41;
-  if (m.includes('gpt-4o') || m.includes('gpt_4o') || m.includes('gpt4o')) return customPricing.gpt4o;
-  if (m.includes('gemini') && m.includes('flash')) return customPricing.gemini25flash;
-  if (m.includes('gemini') && m.includes('pro')) return customPricing.gemini25pro;
-  if (m.includes('gemini')) return customPricing.gemini25flash;
-  if (m.includes('deepseek') && m.includes('r1')) return customPricing.deepseekR1;
-  if (m.includes('deepseek')) return customPricing.deepseekV3;
-  if (m.includes('kimi') || m.includes('moonshot')) return customPricing.kimiK2;
-  if (m.includes('glm')) return customPricing.glm4;
-  return customPricing.default;
-}
-
 export function calculateCustomCost(
   tokens: TokenUsage,
-  customPricing: CustomPricing
+  customPricing: Record<string, ModelPricing>
 ): number {
   let total = 0;
   for (const [model, t] of Object.entries(tokens.by_model)) {
-    const p = getPricingForModel(model, customPricing);
+    // 1. Check custom pricing override for this exact model
+    let p = customPricing[model];
+
+    // 2. Fallback: try dynamic OpenRouter pricing
+    if (!p) {
+      const dynamicEntry = usePricingStore.getState().getPricingForModel(model);
+      if (dynamicEntry) {
+        p = {
+          input: dynamicEntry.input,
+          output: dynamicEntry.output,
+          cacheRead: dynamicEntry.cacheRead,
+          cacheCreation: dynamicEntry.cacheWrite,
+        };
+      }
+    }
+
+    // 3. Skip if no pricing found (use backend cost_usd)
+    if (!p) continue;
+
     const m = 1_000_000;
     total +=
       (t.input / m) * p.input +

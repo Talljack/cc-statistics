@@ -75,6 +75,12 @@ pub fn collect_stats(
             if !session.has_activity {
                 continue;
             }
+            // Skip empty sessions
+            let total_tok = session.tokens.input + session.tokens.output
+                + session.tokens.cache_read + session.tokens.cache_creation;
+            if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
+                continue;
+            }
             if !matches_project(project, &session) {
                 continue;
             }
@@ -127,6 +133,12 @@ pub fn collect_sessions(
                 None => continue,
             };
             if !session.has_activity {
+                continue;
+            }
+            // Skip empty sessions
+            let total_tok = session.tokens.input + session.tokens.output
+                + session.tokens.cache_read + session.tokens.cache_creation;
+            if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
                 continue;
             }
             if !matches_project(project, &session) {
@@ -366,15 +378,21 @@ fn parse_codex_jsonl(path: &Path) -> Option<SessionStats> {
 
     // Populate by_model with the primary model
     if let Some(ref model) = stats.primary_model {
+        let cost = crate::parser::calculate_cost(
+            model,
+            stats.tokens.input,
+            stats.tokens.output,
+            stats.tokens.cache_read,
+            stats.tokens.cache_creation,
+        );
         let model_tokens = stats.tokens.by_model.entry(model.clone()).or_default();
         model_tokens.input = stats.tokens.input;
         model_tokens.output = stats.tokens.output;
         model_tokens.cache_read = stats.tokens.cache_read;
         model_tokens.cache_creation = 0;
-        // Cost set to 0 -- frontend recalculates via dynamic pricing
-        model_tokens.cost_usd = 0.0;
+        model_tokens.cost_usd = cost;
+        stats.cost_usd = cost;
     }
-    stats.cost_usd = 0.0;
 
     // Estimate duration from first/last timestamp
     if let (Some(first), Some(last)) = (first_ts, last_ts) {
@@ -672,13 +690,14 @@ fn query_sqlite_sessions(
         stats.has_activity = tokens_total > 0;
         stats.tokens.input = input_tokens;
         stats.tokens.output = output_tokens;
-        stats.cost_usd = 0.0;
 
         if let Some(ref m) = model {
+            let cost = crate::parser::calculate_cost(m, input_tokens, output_tokens, 0, 0);
+            stats.cost_usd = cost;
             let mt = stats.tokens.by_model.entry(m.clone()).or_default();
             mt.input = input_tokens;
             mt.output = output_tokens;
-            mt.cost_usd = 0.0;
+            mt.cost_usd = cost;
         }
 
         // Timestamp

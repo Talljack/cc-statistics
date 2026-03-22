@@ -162,9 +162,8 @@ export function Dashboard() {
     stats.tokens.cache_read +
     stats.tokens.cache_creation;
 
-  // Calculate cost (custom pricing or backend default)
   const displayCost = customPricingEnabled
-    ? calculateCustomCost(stats.tokens, customPricing)
+    ? calculateCustomCost(stats.tokens, customPricing as never)
     : stats.cost_usd;
 
   // Collect visible cards

@@ -93,3 +93,11 @@ export function useDetectSources() {
     staleTime: 60 * 60 * 1000,
   });
 }
+
+export function usePresetModels() {
+  return useQuery<string[]>({
+    queryKey: ['preset-models'],
+    queryFn: () => invoke<string[]>('get_preset_models'),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+}

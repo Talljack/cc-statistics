@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   useSettingsStore,
-  providerGroups,
   type Language,
-  type CustomPricing,
 } from '../../stores/settingsStore';
 import { usePricingStore } from '../../stores/pricingStore';
 import { useUpdateStore } from '../../stores/updateStore';
+import { useDetectSources, usePresetModels } from '../../hooks/useStatistics';
 import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
@@ -155,34 +154,6 @@ function ExpandableSection({
           <div className="pt-4">{children}</div>
         </div>
       )}
-    </div>
-  );
-}
-
-function PricingInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-[#808080]">{label}</span>
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-[#606060]">$</span>
-        <input
-          type="number"
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          step="0.01"
-          min="0"
-          className="w-20 bg-[#2a2a2a] border border-[#333] rounded-md px-2 py-1 text-xs text-right focus:outline-none focus:border-[#3b82f6] font-mono"
-        />
-        <span className="text-xs text-[#606060]">/M</span>
-      </div>
     </div>
   );
 }
@@ -416,28 +387,57 @@ function GeneralTab() {
   );
 }
 
-function ModelPricingSection({
-  label,
-  model,
-  pricing,
-}: {
-  label: string;
-  model: keyof CustomPricing;
-  pricing: CustomPricing;
-}) {
+const SOURCE_ITEMS: {
+  key: 'claude_code' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
+  labelKey: string;
+  path: string;
+  color: string;
+}[] = [
+  { key: 'claude_code', labelKey: 'settings.dataSource.claudeCode', path: '~/.claude/projects/', color: '#3b82f6' },
+  { key: 'codex', labelKey: 'settings.dataSource.codex', path: '~/.codex/', color: '#22c55e' },
+  { key: 'gemini', labelKey: 'settings.dataSource.gemini', path: '~/.gemini/', color: '#f59e0b' },
+  { key: 'opencode', labelKey: 'settings.dataSource.opencode', path: '~/.local/share/opencode/', color: '#a855f7' },
+  { key: 'openclaw', labelKey: 'settings.dataSource.openclaw', path: '~/.openclaw/', color: '#06b6d4' },
+];
+
+function DataSourceList() {
   const { t } = useTranslation();
-  const { updateModelPricing } = useSettingsStore();
-  const p = pricing[model];
+  const { enabledSources, toggleSource } = useSettingsStore();
+  const { data: detected } = useDetectSources();
+
+  const detectedMap = new Map(detected ?? []);
 
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium text-white">{label}</div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 pl-2">
-        <PricingInput label="Input" value={p.input} onChange={(v) => updateModelPricing(model, { input: v })} />
-        <PricingInput label="Output" value={p.output} onChange={(v) => updateModelPricing(model, { output: v })} />
-        <PricingInput label={t('settings.pricing.cacheRead')} value={p.cacheRead} onChange={(v) => updateModelPricing(model, { cacheRead: v })} />
-        <PricingInput label={t('settings.pricing.cacheWrite')} value={p.cacheCreation} onChange={(v) => updateModelPricing(model, { cacheCreation: v })} />
-      </div>
+      {SOURCE_ITEMS.map((item) => {
+        const isDetected = detectedMap.get(item.key) ?? false;
+        const isEnabled = enabledSources[item.key];
+
+        return (
+          <div
+            key={item.key}
+            className="flex items-center gap-3 bg-[#222] rounded-lg px-3 py-2.5"
+          >
+            <div
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: isDetected ? item.color : '#333' }}
+              title={isDetected ? t('settings.dataSource.detected') : t('settings.dataSource.notDetected')}
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{t(item.labelKey)}</span>
+                {!isDetected && (
+                  <span className="text-[10px] text-[#606060] uppercase tracking-wider">
+                    {t('settings.dataSource.notDetected')}
+                  </span>
+                )}
+              </div>
+              <code className="text-xs text-[#606060] font-mono">{item.path}</code>
+            </div>
+            <Toggle checked={isEnabled} onChange={() => toggleSource(item.key)} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -447,8 +447,10 @@ function AdvancedTab() {
   const {
     customPricingEnabled,
     customPricing,
+    customPricingModels,
     customProviders,
     setCustomPricingEnabled,
+    updateModelPricing,
     addCustomProvider,
     removeCustomProvider,
     resetSettings,
@@ -458,10 +460,38 @@ function AdvancedTab() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [newProviderName, setNewProviderName] = useState('');
   const [newProviderKeyword, setNewProviderKeyword] = useState('');
+  const [newPricingModel, setNewPricingModel] = useState('');
+  const { data: presetModels } = usePresetModels();
+
+  // Auto-load preset models on first use (when customPricingModels is empty)
+  useEffect(() => {
+    if (presetModels && presetModels.length > 0 && customPricingModels.length === 0) {
+      useSettingsStore.setState({ customPricingModels: presetModels });
+    }
+  }, [presetModels, customPricingModels.length]);
 
   const handleRefreshPricing = () => {
     usePricingStore.setState({ lastFetched: null });
     fetchPricing();
+  };
+
+  const handleAddPricing = () => {
+    const model = newPricingModel.trim();
+    if (!model || customPricingModels.includes(model)) return;
+    // Add to model list
+    useSettingsStore.setState((s) => ({
+      customPricingModels: [...s.customPricingModels, model],
+    }));
+    setNewPricingModel('');
+  };
+
+  const handleRemovePricing = (model: string) => {
+    const updated = { ...customPricing };
+    delete updated[model];
+    useSettingsStore.setState((s) => ({
+      customPricing: updated,
+      customPricingModels: s.customPricingModels.filter((m) => m !== model),
+    }));
   };
 
   const handleAddProvider = () => {
@@ -535,24 +565,101 @@ function AdvancedTab() {
           {customPricingEnabled && (
             <div className="space-y-4 pt-2 border-t border-[#2a2a2a]">
               <p className="text-xs text-[#606060]">{t('settings.pricing.unit')}</p>
-              {providerGroups.map((group, gi) => (
-                <div key={group.provider || 'default'}>
-                  {gi > 0 && <div className="border-t border-[#2a2a2a] my-3" />}
-                  {group.provider && (
-                    <div className="text-xs font-semibold text-[#3b82f6] uppercase tracking-wider mb-3">
-                      {group.provider}
-                    </div>
-                  )}
-                  {group.models.map((m) => (
-                    <ModelPricingSection
-                      key={m.key}
-                      label={m.label}
-                      model={m.key}
-                      pricing={customPricing}
-                    />
-                  ))}
+
+              {/* Add new model pricing */}
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="text-xs text-[#808080] mb-1 block">{t('sessions.model')}</label>
+                  <input
+                    type="text"
+                    placeholder="e.g., claude-opus-4-6"
+                    value={newPricingModel}
+                    onChange={(e) => setNewPricingModel(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddPricing()}
+                    className="w-full bg-[#2a2a2a] border border-[#333] rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#3b82f6] placeholder-[#555] transition-colors"
+                  />
                 </div>
-              ))}
+                <button
+                  onClick={handleAddPricing}
+                  disabled={!newPricingModel.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[#3b82f6] text-white rounded-md text-sm font-medium hover:bg-[#2563eb] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  {t('settings.customProviders.add')}
+                </button>
+              </div>
+
+              {/* Model pricing list — from presets + user-added */}
+              {customPricingModels.length > 0 && (
+                <div className="space-y-3 pt-2 border-t border-[#2a2a2a]">
+                  {customPricingModels.map((modelName) => {
+                    // User override > OpenRouter dynamic > zeros
+                    const userOverride = customPricing[modelName];
+                    const dynamic = usePricingStore.getState().getPricingForModel(modelName);
+                    const p = userOverride || (dynamic ? {
+                      input: dynamic.input, output: dynamic.output,
+                      cacheRead: dynamic.cacheRead, cacheCreation: dynamic.cacheWrite,
+                    } : { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
+                    const isFromApi = !userOverride && !!dynamic;
+
+                    return (
+                      <div key={modelName} className="bg-[#222] rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-white font-mono">{modelName}</span>
+                            {isFromApi && (
+                              <span className="text-[10px] text-[#22c55e] bg-[#22c55e]/10 px-1.5 py-0.5 rounded">API</span>
+                            )}
+                            {userOverride && (
+                              <span className="text-[10px] text-[#f59e0b] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">{t('settings.customRanges.custom')}</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleRemovePricing(modelName)}
+                            className="p-1 rounded hover:bg-[#333] text-[#808080] hover:text-red-400 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-[#808080]">Input</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-[#606060]">$</span>
+                              <input type="number" value={p.input} onChange={(e) => updateModelPricing(modelName, { input: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-20 bg-[#2a2a2a] border border-[#333] rounded-md px-2 py-1 text-xs text-right focus:outline-none focus:border-[#3b82f6] font-mono" />
+                              <span className="text-xs text-[#606060]">/M</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-[#808080]">Output</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-[#606060]">$</span>
+                              <input type="number" value={p.output} onChange={(e) => updateModelPricing(modelName, { output: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-20 bg-[#2a2a2a] border border-[#333] rounded-md px-2 py-1 text-xs text-right focus:outline-none focus:border-[#3b82f6] font-mono" />
+                              <span className="text-xs text-[#606060]">/M</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-[#808080]">{t('settings.pricing.cacheRead')}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-[#606060]">$</span>
+                              <input type="number" value={p.cacheRead} onChange={(e) => updateModelPricing(modelName, { cacheRead: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-20 bg-[#2a2a2a] border border-[#333] rounded-md px-2 py-1 text-xs text-right focus:outline-none focus:border-[#3b82f6] font-mono" />
+                              <span className="text-xs text-[#606060]">/M</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-[#808080]">{t('settings.pricing.cacheWrite')}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-[#606060]">$</span>
+                              <input type="number" value={p.cacheCreation} onChange={(e) => updateModelPricing(modelName, { cacheCreation: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-20 bg-[#2a2a2a] border border-[#333] rounded-md px-2 py-1 text-xs text-right focus:outline-none focus:border-[#3b82f6] font-mono" />
+                              <span className="text-xs text-[#606060]">/M</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -642,15 +749,7 @@ function AdvancedTab() {
         title={t('settings.dataSource.title')}
         description={t('settings.dataSource.desc')}
       >
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-[#a0a0a0]">{t('settings.dataSource.scanPath')}</span>
-            <code className="text-sm bg-[#2a2a2a] px-3 py-1.5 rounded-lg text-[#a0a0a0] font-mono">
-              ~/.claude/projects/
-            </code>
-          </div>
-          <p className="text-xs text-[#606060]">{t('settings.dataSource.defaultOnly')}</p>
-        </div>
+        <DataSourceList />
       </ExpandableSection>
 
       {/* Data Management */}

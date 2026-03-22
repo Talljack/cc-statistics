@@ -86,11 +86,11 @@ export function CodeChanges({ codeChanges }: CodeChangesProps) {
             );
           })}
         </div>
-      ) : (
+      ) : total.files === 0 ? (
         <div className="h-[120px] flex items-center justify-center text-[#a0a0a0]">
           {t('chart.noCodeChanges')}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

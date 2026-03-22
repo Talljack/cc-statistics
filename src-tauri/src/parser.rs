@@ -28,7 +28,8 @@ pub fn parse_session_file(path: &Path, time_filter: &TimeFilter) -> Result<Sessi
             Err(_) => continue,
         };
 
-        // Extract metadata from early records
+        // Extract metadata from early records (before time filter)
+        // These are session-level metadata that should be available regardless of time filter
         if stats.cwd.is_none() {
             if let Some(cwd) = value.get("cwd").and_then(|v| v.as_str()) {
                 stats.cwd = Some(cwd.to_string());
@@ -39,14 +40,27 @@ pub fn parse_session_file(path: &Path, time_filter: &TimeFilter) -> Result<Sessi
                 stats.version = Some(version.to_string());
             }
         }
-        if stats.first_timestamp.is_none() {
-            if let Some(ts) = value.get("timestamp").and_then(|v| v.as_str()) {
-                stats.first_timestamp = Some(ts.to_string());
+        // Extract git branch from system init records (before time filter)
+        if stats.git_branch.is_none() {
+            if let Some(branch) = value
+                .pointer("/gitBranch")
+                .or_else(|| value.pointer("/git_branch"))
+                .and_then(|v| v.as_str())
+            {
+                stats.git_branch = Some(branch.to_string());
             }
         }
 
         if !matches_time_filter(&value, time_filter) {
             continue;
+        }
+
+        // Set first_timestamp from the first record that passes the time filter
+        // so that "Today" filter shows today's timestamp, not the session start date
+        if stats.first_timestamp.is_none() {
+            if let Some(ts) = value.get("timestamp").and_then(|v| v.as_str()) {
+                stats.first_timestamp = Some(ts.to_string());
+            }
         }
 
         stats.has_activity = true;
@@ -421,16 +435,7 @@ fn parse_user_record(value: &Value, stats: &mut SessionStats) {
 }
 
 fn parse_system_record(value: &Value, stats: &mut SessionStats) {
-    // Extract git branch from system init records
-    if stats.git_branch.is_none() {
-        if let Some(branch) = value
-            .pointer("/gitBranch")
-            .or_else(|| value.pointer("/git_branch"))
-            .and_then(|v| v.as_str())
-        {
-            stats.git_branch = Some(branch.to_string());
-        }
-    }
+    // git_branch is now extracted before the time filter in parse_session_file
 
     if value.get("subtype").and_then(|value| value.as_str()) != Some("turn_duration") {
         return;
@@ -448,12 +453,14 @@ fn matches_time_filter(value: &Value, time_filter: &TimeFilter) -> bool {
 
     let timestamp = match value.get("timestamp").and_then(|value| value.as_str()) {
         Some(timestamp) => timestamp,
-        None => return true,
+        // Records without timestamps: skip for time-specific filters
+        None => return false,
     };
 
     let record_time = match DateTime::parse_from_rfc3339(timestamp) {
         Ok(record_time) => record_time.with_timezone(&Local),
-        Err(_) => return true,
+        // Records with invalid timestamps: skip for time-specific filters
+        Err(_) => return false,
     };
 
     let now = Local::now();
