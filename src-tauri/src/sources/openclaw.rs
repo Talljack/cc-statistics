@@ -1,11 +1,14 @@
 use crate::models::*;
+use crate::normalized::{InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord, ToolRecord};
+use crate::classification::{classify_tool_call, ToolCallChain};
 use crate::parser::{ProjectStats, SessionStats, format_duration};
-use crate::commands::{model_matches_provider, CustomProviderDef};
-use chrono::{DateTime, Local, Duration, TimeZone};
+use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
+use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::io::{BufRead, BufReader};
 use std::fs;
+use serde_json::Value;
 
 /// Return the base sessions directory: ~/.openclaw/agents/main/sessions
 fn sessions_dir() -> Option<PathBuf> {
@@ -48,6 +51,60 @@ pub fn discover_projects() -> Vec<(String, String)> {
     let mut results: Vec<(String, String)> = seen.into_iter().collect();
     results.sort_by(|a, b| a.0.cmp(&b.0));
     results
+}
+
+pub fn collect_normalized_sessions(
+    project: Option<&str>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let dir = match sessions_dir() {
+        Some(dir) => dir,
+        None => return Vec::new(),
+    };
+
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut sessions = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+
+        if !crate::time_ranges::filter_by_query_range(query_range, &path) {
+            continue;
+        }
+
+        if let Some(session) = parse_normalized_openclaw_session(&path) {
+            let session_project = session.project_name.clone();
+            if let Some(wanted) = project {
+                if session_project != wanted {
+                    continue;
+                }
+            }
+            sessions.push(session);
+        }
+    }
+
+    sessions.sort_by(|a, b| {
+        let a_ts = a
+            .records
+            .first()
+            .map(|record| record.timestamp().to_rfc3339())
+            .unwrap_or_default();
+        let b_ts = b
+            .records
+            .first()
+            .map(|record| record.timestamp().to_rfc3339())
+            .unwrap_or_default();
+        b_ts.cmp(&a_ts)
+    });
+
+    sessions
 }
 
 /// Read the first few lines of a JSONL file and extract (project_name, cwd).
@@ -298,11 +355,214 @@ pub fn collect_sessions(
             git_branch: session.git_branch.unwrap_or_default(),
             cost_usd: session.cost_usd,
             source: "openclaw".to_string(),
+            input: session.tokens.input,
+            output: session.tokens.output,
+            cache_read: session.tokens.cache_read,
+            cache_creation: session.tokens.cache_creation,
+            tokens_by_model: session.tokens.by_model.clone(),
         });
     }
 
     sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     sessions
+}
+
+/// Parse a single Openclaw JSONL session file into SessionStats.
+fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession> {
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
+
+    let mut source_session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+    let mut project_name = "unknown".to_string();
+    let mut current_model: Option<String> = None;
+    let mut records: Vec<NormalizedRecord> = Vec::new();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let record_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let timestamp = match value.get("timestamp").and_then(|v| v.as_str()).and_then(parse_fixed_offset_timestamp) {
+            Some(ts) => ts,
+            None => continue,
+        };
+
+        match record_type {
+            "session" => {
+                if let Some(id) = value.get("id").and_then(|v| v.as_str()) {
+                    source_session_id = id.to_string();
+                }
+                if let Some(session_cwd) = value.get("cwd").and_then(|v| v.as_str()) {
+                    project_name = find_project_name(&PathBuf::from(session_cwd));
+                }
+            }
+            "model_change" => {
+                if let Some(model_id) = value.get("modelId").and_then(|v| v.as_str()) {
+                    current_model = Some(model_id.to_string());
+                }
+            }
+            "message" => {
+                let message = match value.get("message") {
+                    Some(message) => message,
+                    None => continue,
+                };
+
+                let role = message.get("role").and_then(|v| v.as_str()).unwrap_or("");
+
+                match role {
+                    "user" => {
+                        if let Some(content) = openclaw_user_content(message) {
+                            if !content.trim().is_empty() {
+                                records.push(NormalizedRecord::Instruction(InstructionRecord {
+                                    timestamp,
+                                    content,
+                                }));
+                            }
+                        }
+                    }
+                    "assistant" => {
+                        let model = message
+                            .get("model")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| current_model.clone())
+                            .unwrap_or_else(|| "unknown".to_string());
+
+                        let usage = match message.get("usage") {
+                            Some(usage) => usage,
+                            None => continue,
+                        };
+
+                        let input = usage.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let output = usage.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cache_read = usage.get("cacheRead").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cache_write = usage.get("cacheWrite").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cost = usage
+                            .get("cost")
+                            .and_then(|c| c.get("total"))
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+
+                        records.push(NormalizedRecord::Token(TokenRecord {
+                            timestamp,
+                            model: model.clone(),
+                            input,
+                            output,
+                            cache_read,
+                            cache_creation: cache_write,
+                            cost_usd: if cost > 0.0 {
+                                cost
+                            } else {
+                                crate::parser::calculate_cost(&model, input, output, cache_read, cache_write)
+                            },
+                        }));
+
+                        if let Some(content) = message.get("content").and_then(|v| v.as_array()) {
+                            for block in content {
+                                if block.get("type").and_then(|v| v.as_str()) != Some("toolCall") {
+                                    continue;
+                                }
+                                let name = match block.get("name").and_then(|v| v.as_str()) {
+                                    Some(name) => name,
+                                    None => continue,
+                                };
+
+                                let classification = classify_tool_call(
+                                    "openclaw",
+                                    name,
+                                    block.get("input"),
+                                    ToolCallChain::Direct,
+                                );
+
+                                records.push(NormalizedRecord::Tool(ToolRecord {
+                                    timestamp,
+                                    name: name.to_string(),
+                                    skill_name: classification.skill_name,
+                                    mcp_name: classification.mcp_name,
+                                }));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if records.is_empty() {
+        return None;
+    }
+
+    let primary_model = records.iter().find_map(|record| match record {
+        NormalizedRecord::Token(token) if token.model != "unknown" => Some(token.model.clone()),
+        _ => None,
+    }).or(current_model);
+
+    let provider = primary_model
+        .as_deref()
+        .and_then(|model| model_to_provider(model, &[]));
+
+    Some(NormalizedSession {
+        source: "openclaw".to_string(),
+        session_id: source_session_id,
+        project_name,
+        git_branch: None,
+        primary_model,
+        provider,
+        records,
+    })
+}
+
+fn parse_fixed_offset_timestamp(value: &str) -> Option<DateTime<FixedOffset>> {
+    DateTime::parse_from_rfc3339(value).ok()
+}
+
+fn openclaw_user_content(message: &Value) -> Option<String> {
+    let content = message.get("content")?;
+
+    match content {
+        Value::String(text) => {
+            if text.starts_with("[Request interrupted") {
+                None
+            } else {
+                Some(text.clone())
+            }
+        }
+        Value::Array(items) => {
+            let mut text = String::new();
+            for item in items {
+                if item.get("type").and_then(|v| v.as_str()) != Some("text") {
+                    continue;
+                }
+                if let Some(part) = item.get("text").and_then(|v| v.as_str()) {
+                    if part.starts_with("[Request interrupted") {
+                        continue;
+                    }
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(part);
+                }
+            }
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        }
+        _ => None,
+    }
 }
 
 /// Parse a single Openclaw JSONL session file into SessionStats.

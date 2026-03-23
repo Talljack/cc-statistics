@@ -1,8 +1,11 @@
-mod commands;
-mod models;
+pub mod aggregation;
+pub mod classification;
+pub mod commands;
+pub mod models;
+pub mod normalized;
 mod parser;
-mod sources;
-mod time_ranges;
+pub mod sources;
+pub mod time_ranges;
 mod tray;
 
 use commands::*;

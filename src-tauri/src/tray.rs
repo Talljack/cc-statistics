@@ -6,7 +6,7 @@ use tauri::{
     App, AppHandle, Manager, Wry,
 };
 
-use crate::commands::{get_statistics_internal};
+use crate::commands::{get_statistics_internal, TrayDisplayStats};
 
 pub struct TrayState {
     pub cost_item: MenuItem<Wry>,
@@ -72,10 +72,32 @@ pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn update_tray(app: &AppHandle) {
-    let stats = match get_statistics_internal(None, "today".to_string(), None, None, &[], &Default::default()) {
-        Ok(s) => s,
-        Err(_) => return,
+pub fn update_tray(app: &AppHandle, override_stats: Option<TrayDisplayStats>) {
+    let stats = match override_stats {
+        Some(stats) => stats,
+        None => {
+            let fallback_stats = match get_statistics_internal(
+                None,
+                "today".to_string(),
+                None,
+                None,
+                &[],
+                &Default::default(),
+            ) {
+                Ok(stats) => stats,
+                Err(_) => return,
+            };
+
+            TrayDisplayStats {
+                cost_usd: fallback_stats.cost_usd,
+                sessions: fallback_stats.sessions as usize,
+                instructions: fallback_stats.instructions as u64,
+                total_tokens: fallback_stats.tokens.input
+                    + fallback_stats.tokens.output
+                    + fallback_stats.tokens.cache_read
+                    + fallback_stats.tokens.cache_creation,
+            }
+        }
     };
 
     let state = match app.try_state::<Mutex<TrayState>>() {
@@ -88,11 +110,6 @@ pub fn update_tray(app: &AppHandle) {
         Err(_) => return,
     };
 
-    let total_tokens = stats.tokens.input
-        + stats.tokens.output
-        + stats.tokens.cache_read
-        + stats.tokens.cache_creation;
-
     let cost_text = if stats.cost_usd >= 1.0 {
         format!("Today: ${:.2}", stats.cost_usd)
     } else if stats.cost_usd > 0.0 {
@@ -101,12 +118,12 @@ pub fn update_tray(app: &AppHandle) {
         "Today: $0.00".to_string()
     };
 
-    let tokens_text = if total_tokens >= 1_000_000 {
-        format!("Tokens: {:.1}M", total_tokens as f64 / 1_000_000.0)
-    } else if total_tokens >= 1_000 {
-        format!("Tokens: {:.1}K", total_tokens as f64 / 1_000.0)
+    let tokens_text = if stats.total_tokens >= 1_000_000 {
+        format!("Tokens: {:.1}M", stats.total_tokens as f64 / 1_000_000.0)
+    } else if stats.total_tokens >= 1_000 {
+        format!("Tokens: {:.1}K", stats.total_tokens as f64 / 1_000.0)
     } else {
-        format!("Tokens: {}", total_tokens)
+        format!("Tokens: {}", stats.total_tokens)
     };
 
     let sessions_text = format!(

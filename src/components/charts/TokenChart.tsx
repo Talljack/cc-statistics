@@ -4,6 +4,7 @@ import { useTranslation } from '../../lib/i18n';
 
 interface TokenChartProps {
   tokens: TokenUsage;
+  costByModel: Record<string, number>;
 }
 
 const tokenCategories = [
@@ -13,7 +14,7 @@ const tokenCategories = [
   { key: 'cache_creation' as const, labelKey: 'cost.cacheCreation', color: '#f59e0b' },
 ];
 
-export function TokenChart({ tokens }: TokenChartProps) {
+export function TokenChart({ tokens, costByModel }: TokenChartProps) {
   const { t } = useTranslation();
   const totalTokens = tokens.input + tokens.output + tokens.cache_read + tokens.cache_creation;
   const byModel = Object.entries(tokens.by_model);
@@ -124,7 +125,7 @@ export function TokenChart({ tokens }: TokenChartProps) {
                       </span>
                     </div>
                     <div className="flex items-center gap-3 shrink-0 ml-3">
-                      <span className="text-xs text-[#ef4444]">{formatCost(model.cost_usd)}</span>
+                      <span className="text-xs text-[#ef4444]">{formatCost(costByModel[model.model] ?? 0)}</span>
                       <span className="text-sm font-semibold" style={{ color }}>{formatTokens(model.total)}</span>
                     </div>
                   </div>

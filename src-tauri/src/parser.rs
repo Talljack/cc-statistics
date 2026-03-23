@@ -1,4 +1,9 @@
+use crate::classification::{classify_tool_call, ToolCallChain};
 use crate::models::*;
+use crate::normalized::{
+    CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord,
+    ToolRecord,
+};
 use chrono::{DateTime, Duration, Local, TimeZone};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -74,6 +79,58 @@ pub fn parse_session_file(path: &Path, time_filter: &TimeFilter) -> Result<Sessi
     }
 
     Ok(stats)
+}
+
+pub fn parse_normalized_session_file(
+    path: &Path,
+    project_name: &str,
+) -> Result<NormalizedSession, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let reader = BufReader::new(file);
+
+    let mut session = NormalizedSession {
+        source: "claude_code".to_string(),
+        session_id: path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        project_name: project_name.to_string(),
+        git_branch: None,
+        primary_model: None,
+        provider: None,
+        records: Vec::new(),
+    };
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if session.git_branch.is_none() {
+            if let Some(branch) = value
+                .pointer("/gitBranch")
+                .or_else(|| value.pointer("/git_branch"))
+                .and_then(|v| v.as_str())
+            {
+                session.git_branch = Some(branch.to_string());
+            }
+        }
+
+        match value.get("type").and_then(|value| value.as_str()) {
+            Some("assistant") => parse_normalized_assistant_record(&value, &mut session),
+            Some("user") => parse_normalized_user_record(&value, &mut session),
+            _ => {}
+        }
+    }
+
+    Ok(session)
 }
 
 fn parse_assistant_record(value: &Value, stats: &mut SessionStats) {
@@ -156,6 +213,84 @@ fn parse_assistant_record(value: &Value, stats: &mut SessionStats) {
             if name.starts_with("mcp__") {
                 *stats.mcp_usage.entry(name.to_string()).or_insert(0) += 1;
             }
+        }
+    }
+}
+
+fn parse_normalized_assistant_record(value: &Value, session: &mut NormalizedSession) {
+    let message = match value.get("message") {
+        Some(message) => message,
+        None => return,
+    };
+    let timestamp = match parse_record_timestamp(value) {
+        Some(timestamp) => timestamp,
+        None => return,
+    };
+
+    let model = message
+        .get("model")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string());
+
+    if session.primary_model.is_none() {
+        session.primary_model = model.clone();
+    }
+
+    if let Some(usage) = message.get("usage") {
+        let input = usage
+            .get("input_tokens")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        let output = usage
+            .get("output_tokens")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        let cache_read = usage
+            .get("cache_read_input_tokens")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        let cache_creation = usage
+            .get("cache_creation_input_tokens")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+
+        if (input + output + cache_read + cache_creation) > 0 {
+            let model_name = model.clone().unwrap_or_else(|| "unknown".to_string());
+            session.records.push(NormalizedRecord::Token(TokenRecord {
+                timestamp,
+                model: model_name,
+                input,
+                output,
+                cache_read,
+                cache_creation,
+                cost_usd: model
+                    .as_deref()
+                    .map(|model| calculate_cost(model, input, output, cache_read, cache_creation))
+                    .unwrap_or(0.0),
+            }));
+        }
+    }
+
+    if let Some(content) = message.get("content").and_then(|v| v.as_array()) {
+        for block in content {
+            if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+                continue;
+            }
+            let Some(name) = block.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let classification = classify_tool_call(
+                "claude_code",
+                name,
+                block.get("input"),
+                ToolCallChain::Direct,
+            );
+            session.records.push(NormalizedRecord::Tool(ToolRecord {
+                timestamp,
+                name: name.to_string(),
+                skill_name: classification.skill_name,
+                mcp_name: classification.mcp_name,
+            }));
         }
     }
 }
@@ -434,6 +569,47 @@ fn parse_user_record(value: &Value, stats: &mut SessionStats) {
     }
 }
 
+fn parse_normalized_user_record(value: &Value, session: &mut NormalizedSession) {
+    let timestamp = match parse_record_timestamp(value) {
+        Some(timestamp) => timestamp,
+        None => return,
+    };
+
+    if let Some(tool_use_result) = value.get("toolUseResult") {
+        if let Some((file_path, extension, additions, deletions)) =
+            extract_tool_result_code_changes(tool_use_result)
+        {
+            session
+                .records
+                .push(NormalizedRecord::CodeChange(CodeChangeRecord {
+                    timestamp,
+                    file_path,
+                    extension,
+                    additions,
+                    deletions,
+                    files: 1,
+                }));
+        }
+        return;
+    }
+
+    if !is_user_instruction(value) {
+        return;
+    }
+
+    let content = extract_user_content(value);
+    if content.is_empty() {
+        return;
+    }
+
+    session
+        .records
+        .push(NormalizedRecord::Instruction(InstructionRecord {
+            timestamp,
+            content: truncate_preview(&content),
+        }));
+}
+
 fn parse_system_record(value: &Value, stats: &mut SessionStats) {
     // git_branch is now extracted before the time filter in parse_session_file
 
@@ -475,6 +651,13 @@ fn matches_time_filter(value: &Value, time_filter: &TimeFilter) -> bool {
         TimeFilter::Days(d) => record_time >= now - Duration::days(*d as i64),
         TimeFilter::All => true,
     }
+}
+
+fn parse_record_timestamp(value: &Value) -> Option<DateTime<chrono::FixedOffset>> {
+    value
+        .get("timestamp")
+        .and_then(|value| value.as_str())
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
 }
 
 fn is_user_instruction(value: &Value) -> bool {
@@ -607,6 +790,19 @@ fn file_extension(file_path: &str) -> String {
         .and_then(|value| value.to_str())
         .unwrap_or("unknown")
         .to_ascii_lowercase()
+}
+
+fn truncate_preview(content: &str) -> String {
+    if content.len() <= 200 {
+        return content.to_string();
+    }
+
+    let cutoff = content
+        .char_indices()
+        .nth(200)
+        .map(|(idx, _)| idx)
+        .unwrap_or(content.len());
+    format!("{}...", &content[..cutoff])
 }
 
 /// Extract user instructions from a session file
