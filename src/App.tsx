@@ -12,7 +12,15 @@ import { UpdateDialog } from './components/UpdateDialog';
 import { usePricingStore } from './stores/pricingStore';
 import { useUpdateStore } from './stores/updateStore';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  },
+});
 
 function PricingLoader() {
   const fetchPricing = usePricingStore((s) => s.fetchPricing);

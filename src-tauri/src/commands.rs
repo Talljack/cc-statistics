@@ -361,48 +361,52 @@ fn build_project_name_map() -> Result<HashMap<String, Vec<PathBuf>>, String> {
 }
 
 #[tauri::command]
-pub fn get_projects(
+pub async fn get_projects(
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Vec<ProjectInfo>, String> {
-    let config = enabled_sources.unwrap_or_default();
-    let name_map = build_project_name_map()?;
-    let mut projects_map: HashMap<String, ProjectInfo> = HashMap::new();
+    tokio::task::spawn_blocking(move || {
+        let config = enabled_sources.unwrap_or_default();
+        let name_map = build_project_name_map()?;
+        let mut projects_map: HashMap<String, ProjectInfo> = HashMap::new();
 
-    // Claude Code projects
-    if config.claude_code {
-        for (name, dirs) in &name_map {
-            let active = dirs.iter().any(|dir| has_any_activity(dir));
-            if !active { continue; }
-            projects_map.entry(name.clone()).or_insert_with(|| ProjectInfo {
-                name: name.clone(),
-                path: name.clone(),
-            });
-        }
-    }
-
-    // Other sources
-    let other_sources: Vec<(bool, fn() -> Vec<(String, String)>)> = vec![
-        (config.codex, sources::codex::discover_projects),
-        (config.gemini, sources::gemini::discover_projects),
-        (config.opencode, sources::opencode::discover_projects),
-        (config.openclaw, sources::openclaw::discover_projects),
-    ];
-
-    for (enabled, discover_fn) in other_sources {
-        if enabled {
-            for (name, path) in discover_fn() {
-                projects_map.entry(name.clone()).or_insert_with(|| ProjectInfo { name, path });
+        // Claude Code projects
+        if config.claude_code {
+            for (name, dirs) in &name_map {
+                let active = dirs.iter().any(|dir| has_any_activity(dir));
+                if !active { continue; }
+                projects_map.entry(name.clone()).or_insert_with(|| ProjectInfo {
+                    name: name.clone(),
+                    path: name.clone(),
+                });
             }
         }
-    }
 
-    let mut projects: Vec<ProjectInfo> = projects_map.into_values().collect();
-    projects.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(projects)
+        // Other sources
+        let other_sources: Vec<(bool, fn() -> Vec<(String, String)>)> = vec![
+            (config.codex, sources::codex::discover_projects),
+            (config.gemini, sources::gemini::discover_projects),
+            (config.opencode, sources::opencode::discover_projects),
+            (config.openclaw, sources::openclaw::discover_projects),
+        ];
+
+        for (enabled, discover_fn) in other_sources {
+            if enabled {
+                for (name, path) in discover_fn() {
+                    projects_map.entry(name.clone()).or_insert_with(|| ProjectInfo { name, path });
+                }
+            }
+        }
+
+        let mut projects: Vec<ProjectInfo> = projects_map.into_values().collect();
+        projects.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(projects)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
-pub fn get_statistics(
+pub async fn get_statistics(
     project: Option<String>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
@@ -410,9 +414,13 @@ pub fn get_statistics(
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Statistics, String> {
-    let cps = custom_providers.unwrap_or_default();
-    let config = enabled_sources.unwrap_or_default();
-    get_statistics_internal(project, time_filter, time_range, provider_filter, &cps, &config)
+    tokio::task::spawn_blocking(move || {
+        let cps = custom_providers.unwrap_or_default();
+        let config = enabled_sources.unwrap_or_default();
+        get_statistics_internal(project, time_filter, time_range, provider_filter, &cps, &config)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 pub fn get_statistics_internal(
@@ -440,7 +448,7 @@ pub fn get_statistics_internal(
 }
 
 #[tauri::command]
-pub fn get_sessions(
+pub async fn get_sessions(
     project: Option<String>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
@@ -448,26 +456,30 @@ pub fn get_sessions(
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Vec<SessionInfo>, String> {
-    let filter = match time_range {
-        Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
-        None => parse_time_filter(time_filter.as_str()),
-    };
-    let cps = custom_providers.unwrap_or_default();
-    let config = enabled_sources.unwrap_or_default();
-    let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
-    let sessions =
-        sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
+    tokio::task::spawn_blocking(move || {
+        let filter = match time_range {
+            Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
+            None => parse_time_filter(time_filter.as_str()),
+        };
+        let cps = custom_providers.unwrap_or_default();
+        let config = enabled_sources.unwrap_or_default();
+        let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
+        let sessions =
+            sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
 
-    Ok(aggregation::aggregate_sessions(
-        &sessions,
-        &effective_range,
-        &provider_filter,
-        &cps,
-    ))
+        Ok(aggregation::aggregate_sessions(
+            &sessions,
+            &effective_range,
+            &provider_filter,
+            &cps,
+        ))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
-pub fn get_instructions(
+pub async fn get_instructions(
     project: Option<String>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
@@ -475,22 +487,26 @@ pub fn get_instructions(
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Vec<InstructionInfo>, String> {
-    let filter = match time_range {
-        Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
-        None => parse_time_filter(time_filter.as_str()),
-    };
-    let cps = custom_providers.unwrap_or_default();
-    let config = enabled_sources.unwrap_or_default();
-    let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
-    let sessions =
-        sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
+    tokio::task::spawn_blocking(move || {
+        let filter = match time_range {
+            Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
+            None => parse_time_filter(time_filter.as_str()),
+        };
+        let cps = custom_providers.unwrap_or_default();
+        let config = enabled_sources.unwrap_or_default();
+        let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
+        let sessions =
+            sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
 
-    Ok(aggregation::aggregate_instructions(
-        &sessions,
-        &effective_range,
-        &provider_filter,
-        &cps,
-    ))
+        Ok(aggregation::aggregate_instructions(
+            &sessions,
+            &effective_range,
+            &provider_filter,
+            &cps,
+        ))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -499,17 +515,21 @@ pub fn update_tray_stats(app: tauri::AppHandle, stats: Option<TrayDisplayStats>)
 }
 
 #[tauri::command]
-pub fn get_available_providers(
+pub async fn get_available_providers(
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Vec<String>, String> {
-    let cps = custom_providers.unwrap_or_default();
-    let config = enabled_sources.unwrap_or_default();
-    let all_range = QueryTimeRange::BuiltIn {
-        key: BuiltInTimeRangeKey::All,
-    };
-    let sessions = sources::collect_all_normalized_sessions(None, &all_range, &config);
-    Ok(aggregation::aggregate_available_providers(&sessions, &cps))
+    tokio::task::spawn_blocking(move || {
+        let cps = custom_providers.unwrap_or_default();
+        let config = enabled_sources.unwrap_or_default();
+        let all_range = QueryTimeRange::BuiltIn {
+            key: BuiltInTimeRangeKey::All,
+        };
+        let sessions = sources::collect_all_normalized_sessions(None, &all_range, &config);
+        Ok(aggregation::aggregate_available_providers(&sessions, &cps))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]

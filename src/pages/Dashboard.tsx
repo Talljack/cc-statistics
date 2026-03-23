@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
@@ -83,79 +83,74 @@ export function Dashboard() {
     }
   }, [sessions, stats]);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Use refs for values that change reference on rehydration but don't need to re-trigger the effect
+  const dynamicPricingRef = useRef(dynamicPricing);
+  dynamicPricingRef.current = dynamicPricing;
+  const customPricingRef = useRef(customPricing);
+  customPricingRef.current = customPricing;
+  const customPricingEnabledRef = useRef(customPricingEnabled);
+  customPricingEnabledRef.current = customPricingEnabled;
 
-    async function syncTrayTodayStats() {
-      try {
-        const [todayStats, todaySessions] = await Promise.all([
-          invoke<Statistics>('get_statistics', {
-            project: null,
-            timeFilter: 'today',
-            timeRange: { kind: 'built_in', key: 'today' },
-            providerFilter: null,
-            customProviders: customProviders.length > 0 ? customProviders : null,
-            enabledSources,
-          }),
-          invoke<SessionInfo[]>('get_sessions', {
-            project: null,
-            timeFilter: 'today',
-            timeRange: { kind: 'built_in', key: 'today' },
-            providerFilter: null,
-            customProviders: customProviders.length > 0 ? customProviders : null,
-            enabledSources,
-          }),
-        ]);
+  const syncTrayTodayStats = useCallback(async () => {
+    try {
+      const [todayStats, todaySessions] = await Promise.all([
+        invoke<Statistics>('get_statistics', {
+          project: null,
+          timeFilter: 'today',
+          timeRange: { kind: 'built_in', key: 'today' },
+          providerFilter: null,
+          customProviders: customProviders.length > 0 ? customProviders : null,
+          enabledSources,
+        }),
+        invoke<SessionInfo[]>('get_sessions', {
+          project: null,
+          timeFilter: 'today',
+          timeRange: { kind: 'built_in', key: 'today' },
+          providerFilter: null,
+          customProviders: customProviders.length > 0 ? customProviders : null,
+          enabledSources,
+        }),
+      ]);
 
-        if (cancelled) {
-          return;
-        }
+      const totalTokens =
+        todayStats.tokens.input +
+        todayStats.tokens.output +
+        todayStats.tokens.cache_read +
+        todayStats.tokens.cache_creation;
 
-        const totalTokens =
-          todayStats.tokens.input +
-          todayStats.tokens.output +
-          todayStats.tokens.cache_read +
-          todayStats.tokens.cache_creation;
+      const derivedTodayCost = deriveCostMetrics(todaySessions, {
+        customPricingEnabled: customPricingEnabledRef.current,
+        customPricing: customPricingRef.current,
+        dynamicPricing: dynamicPricingRef.current.map((model) => ({
+          id: model.id,
+          input: model.input,
+          output: model.output,
+          cacheRead: model.cacheRead,
+          cacheCreation: model.cacheWrite,
+        })),
+      }).totalCost;
 
-        const derivedTodayCost = deriveCostMetrics(todaySessions, {
-          customPricingEnabled,
-          customPricing,
-          dynamicPricing: dynamicPricing.map((model) => ({
-            id: model.id,
-            input: model.input,
-            output: model.output,
-            cacheRead: model.cacheRead,
-            cacheCreation: model.cacheWrite,
-          })),
-        }).totalCost;
-
-        await invoke('update_tray_stats', {
-          stats: {
-            costUsd: derivedTodayCost,
-            sessions: todayStats.sessions,
-            instructions: todayStats.instructions,
-            totalTokens,
-          },
-        });
-      } catch {
-        // ignore tray sync errors
-      }
+      await invoke('update_tray_stats', {
+        stats: {
+          costUsd: derivedTodayCost,
+          sessions: todayStats.sessions,
+          instructions: todayStats.instructions,
+          totalTokens,
+        },
+      });
+    } catch {
+      // ignore tray sync errors
     }
+  }, [customProviders, enabledSources]);
 
-    syncTrayTodayStats();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    customPricing,
-    customPricingEnabled,
-    customProviders,
-    dynamicPricing,
-    enabledSources,
-    sessions,
-    stats,
-  ]);
+  // Sync tray stats once after initial data loads, then on refresh
+  const traySyncedRef = useRef(false);
+  useEffect(() => {
+    if (stats && sessions && !traySyncedRef.current) {
+      traySyncedRef.current = true;
+      syncTrayTodayStats();
+    }
+  }, [stats, sessions, syncTrayTodayStats]);
 
   const handleRefresh = async () => {
     setIsAnimating(true);
@@ -166,6 +161,8 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       await Promise.all([refetch(), refetchSessions(), minDelay]);
       setLastUpdated(new Date().toISOString());
+      // Sync tray after refresh
+      syncTrayTodayStats();
     } catch {
       // ignore refresh errors
     } finally {
