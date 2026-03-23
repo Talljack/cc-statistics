@@ -153,7 +153,7 @@ export function Report() {
                     const tokenH = (day.tokens / maxDailyTokens) * 100;
                     const sessionH = (day.sessions / maxDailySessions) * 100;
                     return (
-                      <div key={day.date} className="flex-1 flex flex-col items-center gap-0.5 group relative">
+                      <div key={day.date} className="flex-1 flex flex-col items-center justify-end h-full group relative">
                         {/* Tooltip */}
                         <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
                           <div className="bg-[#333] rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-xl">
@@ -164,7 +164,7 @@ export function Report() {
                           </div>
                         </div>
                         {/* Bars */}
-                        <div className="w-full flex gap-px" style={{ height: `${Math.max(tokenH, 4)}%` }}>
+                        <div className="w-full flex gap-px" style={{ height: Math.max((day.tokens / maxDailyTokens) * 120, 4) }}>
                           <div
                             className="flex-1 rounded-t-sm bg-[#f59e0b]/70 transition-all group-hover:bg-[#f59e0b]"
                             style={{ height: '100%' }}
