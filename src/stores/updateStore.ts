@@ -64,7 +64,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
       }
     } catch (e) {
       console.error('Update check failed:', e);
-      set({ status: 'idle', error: String(e) });
+      set({ status: 'error', error: String(e) });
     }
   },
 
