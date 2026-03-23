@@ -206,6 +206,11 @@ pub fn collect_normalized_sessions_from_home(
             continue;
         }
 
+        // Skip files whose modification time falls outside the query range
+        if !crate::time_ranges::filter_by_query_range(query_range, &path.to_path_buf()) {
+            continue;
+        }
+
         if let Some(session) = parse_normalized_codex_session(path, project, query_range) {
             sessions.push(session);
         }
@@ -1031,6 +1036,11 @@ fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionIn
         git_branch: session.git_branch.unwrap_or_default(),
         cost_usd: session.cost_usd,
         source: "codex".to_string(),
+        input: session.tokens.input,
+        output: session.tokens.output,
+        cache_read: session.tokens.cache_read,
+        cache_creation: session.tokens.cache_creation,
+        tokens_by_model: session.tokens.by_model.clone(),
     }
 }
 

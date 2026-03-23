@@ -9,6 +9,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+extern crate filetime;
+
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -35,6 +37,17 @@ fn write_jsonl(path: &Path, lines: &[serde_json::Value]) {
     for line in lines {
         writeln!(file, "{}", line).unwrap();
     }
+    // Set mtime to a fixed date so file-level time filtering doesn't skip it
+    let mtime = filetime::FileTime::from_unix_time(
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 11)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp(),
+        0,
+    );
+    filetime::set_file_mtime(path, mtime).unwrap();
 }
 
 #[test]
@@ -221,7 +234,13 @@ fn gemini_shared_pipeline_extracts_instructions_tokens_and_zero_other_signals() 
             }
         ]
     });
-    fs::write(chats_dir.join("session-1.json"), session.to_string()).unwrap();
+    let gemini_path = chats_dir.join("session-1.json");
+    fs::write(&gemini_path, session.to_string()).unwrap();
+    let mtime = filetime::FileTime::from_unix_time(
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 11).unwrap()
+            .and_hms_opt(12, 0, 0).unwrap().and_utc().timestamp(), 0,
+    );
+    filetime::set_file_mtime(&gemini_path, mtime).unwrap();
 
     let sessions = gemini::collect_normalized_sessions_from_home(
         &home,

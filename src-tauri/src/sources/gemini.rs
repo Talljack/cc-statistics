@@ -163,6 +163,9 @@ pub fn collect_normalized_sessions_from_home(
         if !is_gemini_session(path) {
             continue;
         }
+        if !crate::time_ranges::filter_by_query_range(query_range, &path.to_path_buf()) {
+            continue;
+        }
         let Some(session) = parse_normalized_gemini_session(&path, project, query_range) else {
             continue;
         };
@@ -725,5 +728,10 @@ fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionIn
         git_branch: session.git_branch.unwrap_or_default(),
         cost_usd: session.cost_usd,
         source: "gemini".to_string(),
+        input: session.tokens.input,
+        output: session.tokens.output,
+        cache_read: session.tokens.cache_read,
+        cache_creation: session.tokens.cache_creation,
+        tokens_by_model: session.tokens.by_model.clone(),
     }
 }

@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+extern crate filetime;
+
 static HOME_LOCK: Mutex<()> = Mutex::new(());
 
 struct HomeGuard {
@@ -330,6 +332,13 @@ fn openclaw_instruction_tokens_tool_and_mcp_without_skill() {
         })
     )
     .unwrap();
+
+    // Set mtime so file-level time filtering matches the Absolute range
+    let mtime = filetime::FileTime::from_unix_time(
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 10).unwrap()
+            .and_hms_opt(12, 0, 0).unwrap().and_utc().timestamp(), 0,
+    );
+    filetime::set_file_mtime(&session_path, mtime).unwrap();
 
     let _guard = HomeGuard::set(&home);
     let sessions = openclaw::collect_normalized_sessions(Some("openclaw-demo"), &absolute_same_day());

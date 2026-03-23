@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useFilterStore } from '../stores/filterStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useStatistics, useSessions } from '../hooks/useStatistics';
+import { useCostMetrics } from '../hooks/useCostMetrics';
 import { Header } from '../components/layout/Header';
 import { formatTokens, formatNumber, formatCost, formatDuration } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
@@ -40,13 +41,11 @@ export function Report() {
     activeTimeRange,
     selectedProvider,
   );
+  const costMetrics = useCostMetrics(sessions);
 
   const isLoading = statsLoading || sessionsLoading;
 
-  const displayCost = useMemo(() => {
-    if (!stats) return 0;
-    return stats.cost_usd;
-  }, [stats]);
+  const displayCost = costMetrics.totalCost;
 
   // Project leaderboard
   const projectRankings = useMemo(() => {
@@ -56,14 +55,14 @@ export function Report() {
       const existing = map.get(s.project_name) || { sessions: 0, tokens: 0, cost: 0, duration: 0 };
       existing.sessions += 1;
       existing.tokens += s.total_tokens;
-      existing.cost += s.cost_usd;
+      existing.cost += costMetrics.getSessionCost(s);
       existing.duration += s.duration_ms;
       map.set(s.project_name, existing);
     }
     return Array.from(map.entries())
       .map(([name, data]) => ({ name, ...data }))
       .sort((a, b) => b.tokens - a.tokens);
-  }, [sessions]);
+  }, [costMetrics, sessions]);
 
   // Daily trend
   const dailyTrend = useMemo(() => {
@@ -75,7 +74,7 @@ export function Report() {
       const existing = map.get(date) || { date, label: '', sessions: 0, tokens: 0, cost: 0, duration: 0 };
       existing.sessions += 1;
       existing.tokens += s.total_tokens;
-      existing.cost += s.cost_usd;
+      existing.cost += costMetrics.getSessionCost(s);
       existing.duration += s.duration_ms;
       map.set(date, existing);
     }
@@ -86,7 +85,7 @@ export function Report() {
       bucket.label = `${d.getMonth() + 1}/${d.getDate()}`;
     }
     return sorted;
-  }, [sessions]);
+  }, [costMetrics, sessions]);
 
   const maxDailyTokens = Math.max(...dailyTrend.map((d) => d.tokens), 1);
   const maxDailySessions = Math.max(...dailyTrend.map((d) => d.sessions), 1);

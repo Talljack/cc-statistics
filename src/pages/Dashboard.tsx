@@ -5,7 +5,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useFilterStore } from '../stores/filterStore';
 import { useAppStore } from '../stores/appStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { useStatistics } from '../hooks/useStatistics';
+import { usePricingStore } from '../stores/pricingStore';
+import { useStatistics, useSessions } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { Footer } from '../components/layout/Footer';
 import { SettingsPage } from '../components/pages/SettingsPage';
@@ -16,9 +17,12 @@ import { CodeChanges } from '../components/charts/CodeChanges';
 import { ToolUsageChart } from '../components/charts/ToolUsageChart';
 import { SkillUsageChart } from '../components/charts/SkillUsageChart';
 import { McpUsageChart } from '../components/charts/McpUsageChart';
-import { formatTokens, formatNumber, formatCost, calculateCustomCost } from '../lib/utils';
+import { formatTokens, formatNumber, formatCost } from '../lib/utils';
+import { useCostMetrics } from '../hooks/useCostMetrics';
+import { deriveCostMetrics } from '../lib/costing';
 import { MessageSquare, FileText, Clock, Cpu, DollarSign, Zap, Plug } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
+import type { SessionInfo, Statistics } from '../types/statistics';
 
 export function Dashboard() {
   const { t } = useTranslation();
@@ -40,30 +44,118 @@ export function Dashboard() {
     showMcpCard,
     customPricingEnabled,
     customPricing,
+    customProviders,
+    enabledSources,
   } = useSettingsStore();
+  const dynamicPricing = usePricingStore((state) => state.models);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { data: stats, isLoading, refetch, isRefetching } = useStatistics(
+  const { data: stats, isLoading: statsLoading, refetch, isRefetching } = useStatistics(
     selectedProject,
     activeTimeRange,
     selectedProvider
   );
+  const {
+    data: sessions,
+    isLoading: sessionsLoading,
+    refetch: refetchSessions,
+    isRefetching: isSessionsRefetching,
+  } = useSessions(
+    selectedProject,
+    activeTimeRange,
+    selectedProvider
+  );
+  const costMetrics = useCostMetrics(sessions);
 
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initialLoadRef = useRef(false);
 
-  const isRefreshing = isRefetching || isAnimating;
+  const isRefreshing = isRefetching || isSessionsRefetching || isAnimating;
+  const isLoading = statsLoading || sessionsLoading;
 
   // Set lastUpdated on initial data load
   useEffect(() => {
-    if (stats && !initialLoadRef.current) {
+    if (stats && sessions && !initialLoadRef.current) {
       initialLoadRef.current = true;
       setLastUpdated(new Date().toISOString());
-      invoke('update_tray_stats').catch(() => {});
     }
-  }, [stats]);
+  }, [sessions, stats]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncTrayTodayStats() {
+      try {
+        const [todayStats, todaySessions] = await Promise.all([
+          invoke<Statistics>('get_statistics', {
+            project: null,
+            timeFilter: 'today',
+            timeRange: { kind: 'built_in', key: 'today' },
+            providerFilter: null,
+            customProviders: customProviders.length > 0 ? customProviders : null,
+            enabledSources,
+          }),
+          invoke<SessionInfo[]>('get_sessions', {
+            project: null,
+            timeFilter: 'today',
+            timeRange: { kind: 'built_in', key: 'today' },
+            providerFilter: null,
+            customProviders: customProviders.length > 0 ? customProviders : null,
+            enabledSources,
+          }),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        const totalTokens =
+          todayStats.tokens.input +
+          todayStats.tokens.output +
+          todayStats.tokens.cache_read +
+          todayStats.tokens.cache_creation;
+
+        const derivedTodayCost = deriveCostMetrics(todaySessions, {
+          customPricingEnabled,
+          customPricing,
+          dynamicPricing: dynamicPricing.map((model) => ({
+            id: model.id,
+            input: model.input,
+            output: model.output,
+            cacheRead: model.cacheRead,
+            cacheCreation: model.cacheWrite,
+          })),
+        }).totalCost;
+
+        await invoke('update_tray_stats', {
+          stats: {
+            costUsd: derivedTodayCost,
+            sessions: todayStats.sessions,
+            instructions: todayStats.instructions,
+            totalTokens,
+          },
+        });
+      } catch {
+        // ignore tray sync errors
+      }
+    }
+
+    syncTrayTodayStats();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    customPricing,
+    customPricingEnabled,
+    customProviders,
+    dynamicPricing,
+    enabledSources,
+    sessions,
+    stats,
+  ]);
 
   const handleRefresh = async () => {
     setIsAnimating(true);
@@ -72,9 +164,8 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['statistics'] });
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      await Promise.all([refetch(), minDelay]);
+      await Promise.all([refetch(), refetchSessions(), minDelay]);
       setLastUpdated(new Date().toISOString());
-      invoke('update_tray_stats').catch(() => {});
     } catch {
       // ignore refresh errors
     } finally {
@@ -162,9 +253,7 @@ export function Dashboard() {
     stats.tokens.cache_read +
     stats.tokens.cache_creation;
 
-  const displayCost = customPricingEnabled
-    ? calculateCustomCost(stats.tokens, customPricing as never)
-    : stats.cost_usd;
+  const displayCost = costMetrics.totalCost;
 
   // Collect visible cards
   const cards: React.ReactNode[] = [];
@@ -284,7 +373,7 @@ export function Dashboard() {
 
         {/* Token Chart */}
         <div className="mb-6">
-          <TokenChart tokens={stats.tokens} />
+          <TokenChart tokens={stats.tokens} costByModel={costMetrics.costByModel} />
         </div>
 
         {/* Tool/MCP Usage Charts (conditional) */}

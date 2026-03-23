@@ -55,7 +55,7 @@ pub fn discover_projects() -> Vec<(String, String)> {
 
 pub fn collect_normalized_sessions(
     project: Option<&str>,
-    _query_range: &QueryTimeRange,
+    query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let dir = match sessions_dir() {
         Some(dir) => dir,
@@ -72,6 +72,10 @@ pub fn collect_normalized_sessions(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+
+        if !crate::time_ranges::filter_by_query_range(query_range, &path) {
             continue;
         }
 
@@ -351,6 +355,11 @@ pub fn collect_sessions(
             git_branch: session.git_branch.unwrap_or_default(),
             cost_usd: session.cost_usd,
             source: "openclaw".to_string(),
+            input: session.tokens.input,
+            output: session.tokens.output,
+            cache_read: session.tokens.cache_read,
+            cache_creation: session.tokens.cache_creation,
+            tokens_by_model: session.tokens.by_model.clone(),
         });
     }
 

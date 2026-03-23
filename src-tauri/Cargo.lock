@@ -432,6 +432,7 @@ version = "0.2.1"
 dependencies = [
  "chrono",
  "dirs",
+ "filetime",
  "rusqlite",
  "serde",
  "serde_json",

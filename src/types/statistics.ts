@@ -58,6 +58,11 @@ export interface SessionInfo {
   git_branch: string;
   cost_usd: number;
   source: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_creation: number;
+  tokens_by_model: Record<string, ModelTokens>;
 }
 
 export interface InstructionInfo {

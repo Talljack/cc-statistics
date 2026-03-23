@@ -1,5 +1,9 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { type ClassValue, clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+import type { ModelPricing } from '../stores/settingsStore';
+import { usePricingStore } from '../stores/pricingStore';
+import { deriveCostFromTokenUsage, type CostingSnapshot } from './costing';
+import type { TokenUsage } from '../types/statistics';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -65,45 +69,27 @@ export function formatCost(usd: number): string {
   return '$0.00';
 }
 
-import type { ModelPricing } from '../stores/settingsStore';
-import { usePricingStore } from '../stores/pricingStore';
-import type { TokenUsage } from '../types/statistics';
-
 /**
- * Calculate cost using custom per-model pricing overrides.
- * For models without a custom override, tries OpenRouter dynamic pricing.
+ * Compatibility wrapper for legacy callers.
+ * Uses the shared pricing resolver and excludes cache token cost.
  */
 export function calculateCustomCost(
   tokens: TokenUsage,
   customPricing: Record<string, ModelPricing>
 ): number {
-  let total = 0;
-  for (const [model, t] of Object.entries(tokens.by_model)) {
-    // 1. Check custom pricing override for this exact model
-    let p = customPricing[model];
+  const dynamicPricing = usePricingStore.getState().models.map((model) => ({
+    id: model.id,
+    input: model.input,
+    output: model.output,
+    cacheRead: model.cacheRead,
+    cacheCreation: model.cacheWrite,
+  }));
 
-    // 2. Fallback: try dynamic OpenRouter pricing
-    if (!p) {
-      const dynamicEntry = usePricingStore.getState().getPricingForModel(model);
-      if (dynamicEntry) {
-        p = {
-          input: dynamicEntry.input,
-          output: dynamicEntry.output,
-          cacheRead: dynamicEntry.cacheRead,
-          cacheCreation: dynamicEntry.cacheWrite,
-        };
-      }
-    }
+  const snapshot: CostingSnapshot = {
+    customPricingEnabled: Object.keys(customPricing).length > 0,
+    customPricing,
+    dynamicPricing,
+  };
 
-    // 3. Skip if no pricing found (use backend cost_usd)
-    if (!p) continue;
-
-    const m = 1_000_000;
-    total +=
-      (t.input / m) * p.input +
-      (t.output / m) * p.output +
-      (t.cache_read / m) * p.cacheRead +
-      (t.cache_creation / m) * p.cacheCreation;
-  }
-  return total;
+  return deriveCostFromTokenUsage(tokens, snapshot);
 }

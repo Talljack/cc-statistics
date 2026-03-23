@@ -111,6 +111,11 @@ pub fn aggregate_sessions(
             git_branch: aggregate.git_branch,
             cost_usd: aggregate.cost_usd,
             source: aggregate.source,
+            input: aggregate.tokens.input,
+            output: aggregate.tokens.output,
+            cache_read: aggregate.tokens.cache_read,
+            cache_creation: aggregate.tokens.cache_creation,
+            tokens_by_model: aggregate.tokens.by_model,
         })
         .collect::<Vec<_>>();
 
@@ -503,6 +508,21 @@ mod tests {
         assert_eq!(stats.code_changes.total.additions, 4);
         assert_eq!(stats.code_changes.total.deletions, 1);
         assert_eq!(stats.code_changes.total.files, 1);
+
+        let sessions = aggregate_sessions(&sessions, &range, &None, &[]);
+        assert_eq!(sessions.len(), 1);
+        let session = &sessions[0];
+        assert_eq!(session.input, 10);
+        assert_eq!(session.output, 20);
+        assert_eq!(session.cache_read, 5);
+        assert_eq!(session.cache_creation, 2);
+        assert_eq!(session.tokens_by_model.len(), 1);
+        let model_tokens = session.tokens_by_model.get("claude-sonnet-4-5").unwrap();
+        assert_eq!(model_tokens.input, 10);
+        assert_eq!(model_tokens.output, 20);
+        assert_eq!(model_tokens.cache_read, 5);
+        assert_eq!(model_tokens.cache_creation, 2);
+        assert_eq!(model_tokens.cost_usd, 1.25);
     }
 
     #[test]
@@ -575,5 +595,20 @@ mod tests {
         assert_eq!(stats.code_changes.total.additions, 10);
         assert_eq!(stats.code_changes.total.deletions, 3);
         assert_eq!(stats.code_changes.total.files, 1);
+
+        let sessions = aggregate_sessions(&sessions, &range, &provider, &[]);
+        assert_eq!(sessions.len(), 1);
+        let session = &sessions[0];
+        assert_eq!(session.input, 3);
+        assert_eq!(session.output, 4);
+        assert_eq!(session.cache_read, 0);
+        assert_eq!(session.cache_creation, 0);
+        assert_eq!(session.tokens_by_model.len(), 1);
+        let model_tokens = session.tokens_by_model.get("gpt-5.4").unwrap();
+        assert_eq!(model_tokens.input, 3);
+        assert_eq!(model_tokens.output, 4);
+        assert_eq!(model_tokens.cache_read, 0);
+        assert_eq!(model_tokens.cache_creation, 0);
+        assert_eq!(model_tokens.cost_usd, 0.5);
     }
 }

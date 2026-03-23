@@ -297,6 +297,11 @@ pub fn collect_sessions(
                     git_branch: session_stats.git_branch.unwrap_or_default(),
                     cost_usd: session_stats.cost_usd,
                     source: "claude_code".to_string(),
+                    input: session_stats.tokens.input,
+                    output: session_stats.tokens.output,
+                    cache_read: session_stats.tokens.cache_read,
+                    cache_creation: session_stats.tokens.cache_creation,
+                    tokens_by_model: session_stats.tokens.by_model.clone(),
                 });
             }
         }

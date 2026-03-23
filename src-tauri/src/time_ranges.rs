@@ -152,15 +152,28 @@ pub fn matches_absolute_range(file_path: &PathBuf, start_date: &str, end_date: &
     file_date >= start && file_date <= end
 }
 
-/// Unified coarse file filter that dispatches to the appropriate strategy for
-/// scan-time pruning. Record-level inclusion must still use
-/// `record_matches_query_range`.
+/// Unified **coarse** file filter for scan-time pruning.
+/// Record-level inclusion must still use `record_matches_query_range`.
+/// For `Absolute` ranges we widen the window by 1 day on each side because
+/// a file's mtime may not perfectly align with its records' timestamps.
 pub fn filter_by_query_range(range: &QueryTimeRange, file_path: &PathBuf) -> bool {
     match range {
         QueryTimeRange::Absolute {
             start_date,
             end_date,
-        } => matches_absolute_range(file_path, start_date, end_date),
+        } => {
+            // Widen by 1 day on each side for coarse filtering
+            let start = chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+                .map(|d| d - chrono::Duration::days(1))
+                .map(|d| d.format("%Y-%m-%d").to_string());
+            let end = chrono::NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
+                .map(|d| d + chrono::Duration::days(1))
+                .map(|d| d.format("%Y-%m-%d").to_string());
+            match (start, end) {
+                (Ok(s), Ok(e)) => matches_absolute_range(file_path, &s, &e),
+                _ => true, // Can't parse dates; let record-level filter handle it
+            }
+        }
         _ => {
             let filter = query_time_range_to_filter(range);
             crate::commands::filter_by_time(&filter, file_path)

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useFilterStore } from '../stores/filterStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useSessions } from '../hooks/useStatistics';
+import { useCostMetrics } from '../hooks/useCostMetrics';
 import { Header } from '../components/layout/Header';
 import { formatTokens, formatNumber, formatCost } from '../lib/utils';
 import { ArrowLeft } from 'lucide-react';
@@ -14,18 +15,21 @@ export function Sessions() {
   const { showCost, sessionSortField, sessionSortOrder } = useSettingsStore();
   const navigate = useNavigate();
   const { data: sessions, isLoading } = useSessions(selectedProject, activeTimeRange, selectedProvider);
+  const costMetrics = useCostMetrics(sessions);
 
   const sortedSessions = useMemo(() => {
     if (!sessions) return [];
     const sorted = [...sessions];
     sorted.sort((a, b) => {
+      const aCost = costMetrics.getSessionCost(a);
+      const bCost = costMetrics.getSessionCost(b);
       let cmp = 0;
       switch (sessionSortField) {
         case 'timestamp':
           cmp = a.timestamp.localeCompare(b.timestamp);
           break;
         case 'cost_usd':
-          cmp = a.cost_usd - b.cost_usd;
+          cmp = aCost - bCost;
           break;
         case 'total_tokens':
           cmp = a.total_tokens - b.total_tokens;
@@ -37,7 +41,7 @@ export function Sessions() {
       return sessionSortOrder === 'desc' ? -cmp : cmp;
     });
     return sorted;
-  }, [sessions, sessionSortField, sessionSortOrder]);
+  }, [costMetrics, sessions, sessionSortField, sessionSortOrder]);
 
   const handleRefresh = () => {};
 
@@ -116,7 +120,7 @@ export function Sessions() {
                       </td>
                       {showCost && (
                         <td className="px-4 py-3 text-right font-mono text-[#ef4444]">
-                          {formatCost(session.cost_usd)}
+                          {formatCost(costMetrics.getSessionCost(session))}
                         </td>
                       )}
                       <td className="px-4 py-3 text-right font-mono">

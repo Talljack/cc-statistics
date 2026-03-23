@@ -15,6 +15,15 @@ pub struct CustomProviderDef {
     pub keyword: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrayDisplayStats {
+    pub cost_usd: f64,
+    pub sessions: usize,
+    pub instructions: u64,
+    pub total_tokens: u64,
+}
+
 /// Extract provider name from a model string.
 /// Handles various formats: bare model names, slash-prefixed (openrouter/x-ai/grok-4),
 /// antigravity proxy models, and custom provider keywords.
@@ -485,8 +494,8 @@ pub fn get_instructions(
 }
 
 #[tauri::command]
-pub fn update_tray_stats(app: tauri::AppHandle) {
-    crate::tray::update_tray(&app);
+pub fn update_tray_stats(app: tauri::AppHandle, stats: Option<TrayDisplayStats>) {
+    crate::tray::update_tray(&app, stats);
 }
 
 #[tauri::command]

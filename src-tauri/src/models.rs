@@ -87,6 +87,11 @@ pub struct SessionInfo {
     pub git_branch: String,
     pub cost_usd: f64,
     pub source: String,
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_creation: u64,
+    pub tokens_by_model: HashMap<String, ModelTokens>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
