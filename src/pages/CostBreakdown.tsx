@@ -1,10 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { useFilterStore } from '../stores/filterStore';
-import { useSettingsStore } from '../stores/settingsStore';
 import { useStatistics, useSessions } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { formatCost, formatTokens } from '../lib/utils';
-import { usePricingStore, FALLBACK_PRICING } from '../stores/pricingStore';
+import { useCostMetrics } from '../hooks/useCostMetrics';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 
@@ -15,34 +14,13 @@ const costCategories = [
   { key: 'cache_creation' as const, labelKey: 'cost.cacheCreation', color: '#f59e0b' },
 ];
 
-/**
- * Get pricing for a model from dynamic sources (custom overrides → OpenRouter → fallback).
- * Never hardcoded — always reads from remote-fetched pricingStore.
- */
-function getDynamicModelPricing(model: string, customPricingEnabled: boolean, customPricing: Record<string, { input: number; output: number; cacheRead: number; cacheCreation: number }>) {
-  // 1. Custom pricing override (user-defined, highest priority)
-  if (customPricingEnabled && customPricing[model]) {
-    const p = customPricing[model];
-    return { input: p.input, output: p.output, cache_read: p.cacheRead, cache_creation: p.cacheCreation };
-  }
-
-  // 2. OpenRouter dynamic pricing (fetched from API)
-  const dynamic = usePricingStore.getState().getPricingForModel(model);
-  if (dynamic) {
-    return { input: dynamic.input, output: dynamic.output, cache_read: dynamic.cacheRead, cache_creation: dynamic.cacheWrite };
-  }
-
-  // 3. Fallback (Sonnet pricing from pricingStore)
-  return { input: FALLBACK_PRICING.input, output: FALLBACK_PRICING.output, cache_read: FALLBACK_PRICING.cacheRead, cache_creation: FALLBACK_PRICING.cacheWrite };
-}
-
 export function CostBreakdown() {
   const { t } = useTranslation();
   const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
-  const { customPricingEnabled, customPricing } = useSettingsStore();
   const navigate = useNavigate();
   const { data: stats, isLoading: statsLoading } = useStatistics(selectedProject, activeTimeRange, selectedProvider);
   const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedProject, activeTimeRange, selectedProvider);
+  const costMetrics = useCostMetrics(sessions);
 
   if (statsLoading || sessionsLoading) {
     return (
@@ -60,30 +38,32 @@ export function CostBreakdown() {
     );
   }
 
-  const displayCost = stats.cost_usd;
-
-  // Calculate cost by category using dynamic pricing
-  const costByCategory = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
-  const M = 1_000_000;
-  for (const [model, tk] of Object.entries(stats.tokens.by_model)) {
-    const p = getDynamicModelPricing(model, customPricingEnabled, customPricing as never);
-    costByCategory.input += (tk.input / M) * p.input;
-    costByCategory.output += (tk.output / M) * p.output;
-    costByCategory.cache_read += (tk.cache_read / M) * p.cache_read;
-    costByCategory.cache_creation += (tk.cache_creation / M) * p.cache_creation;
-  }
-  const totalCategoryCost = costByCategory.input + costByCategory.output + costByCategory.cache_read + costByCategory.cache_creation;
+  const displayCost = costMetrics.totalCost;
+  const costByCategory = costMetrics.costByType;
+  const totalCategoryCost = displayCost;
 
   // Models sorted by cost
-  const modelCosts = Object.entries(stats.tokens.by_model)
-    .map(([model, tk]) => ({ model, cost: tk.cost_usd, total: tk.input + tk.output + tk.cache_read + tk.cache_creation }))
-    .filter(m => m.cost > 0)
+  const modelCosts = Object.entries(costMetrics.costByModel)
+    .map(([model, cost]) => {
+      const tokens = stats.tokens.by_model[model];
+      const total = tokens
+        ? tokens.input + tokens.output + tokens.cache_read + tokens.cache_creation
+        : 0;
+      return { model, cost, total };
+    })
+    .filter((modelCost) => modelCost.cost > 0)
     .sort((a, b) => b.cost - a.cost);
   const maxModelCost = modelCosts.length > 0 ? modelCosts[0].cost : 0;
   const modelColors = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#ec4899'];
 
   // Sessions sorted by cost
-  const sortedSessions = [...(sessions ?? [])].filter(s => s.cost_usd > 0).sort((a, b) => b.cost_usd - a.cost_usd);
+  const sortedSessions = [...(sessions ?? [])]
+    .map((session) => ({
+      ...session,
+      derivedCost: costMetrics.getSessionCost(session),
+    }))
+    .filter((session) => session.derivedCost > 0)
+    .sort((a, b) => b.derivedCost - a.derivedCost);
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
@@ -219,7 +199,7 @@ export function CostBreakdown() {
                 <tbody>
                   {sortedSessions.map((session) => (
                     <tr
-                      key={session.session_id}
+                      key={`${session.source}:${session.session_id}`}
                       className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors"
                     >
                       <td className="px-4 py-3 whitespace-nowrap text-[#a0a0a0]">
@@ -238,7 +218,7 @@ export function CostBreakdown() {
                         {session.duration_formatted}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[#ef4444] font-semibold">
-                        {formatCost(session.cost_usd)}
+                        {formatCost(session.derivedCost)}
                       </td>
                     </tr>
                   ))}

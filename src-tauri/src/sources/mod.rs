@@ -1,3 +1,4 @@
+use crate::normalized::NormalizedSession;
 pub mod claude;
 pub mod codex;
 pub mod gemini;
@@ -57,6 +58,32 @@ pub fn collect_all_projects(config: &SourceConfig) -> Vec<ProjectInfo> {
     let mut projects: Vec<ProjectInfo> = project_map.into_values().collect();
     projects.sort_by(|a, b| a.name.cmp(&b.name));
     projects
+}
+
+pub fn collect_all_normalized_sessions(
+    project: Option<&str>,
+    query_range: &QueryTimeRange,
+    config: &SourceConfig,
+) -> Vec<NormalizedSession> {
+    let mut sessions = Vec::new();
+
+    if config.claude_code {
+        sessions.extend(claude::collect_normalized_sessions(project, query_range));
+    }
+    if config.codex {
+        sessions.extend(codex::collect_normalized_sessions(project, query_range));
+    }
+    if config.gemini {
+        sessions.extend(gemini::collect_normalized_sessions(project, query_range));
+    }
+    if config.opencode {
+        sessions.extend(opencode::collect_normalized_sessions(project, query_range));
+    }
+    if config.openclaw {
+        sessions.extend(openclaw::collect_normalized_sessions(project, query_range));
+    }
+
+    sessions
 }
 
 /// Collect aggregated statistics from all enabled sources

@@ -47,12 +47,13 @@ export function Instructions() {
           <div className="space-y-3">
             {instructions.map((item, index) => (
               <div
-                key={`${item.session_id}-${index}`}
+                key={`${item.source}-${item.session_id}-${index}`}
                 className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-4 hover:border-[#333] transition-colors"
               >
                 <div className="flex items-center gap-3 mb-2 text-xs text-[#606060]">
                   <span>{formatTimestamp(item.timestamp)}</span>
                   <span className="text-[#3b82f6]">{item.project_name}</span>
+                  <span className="rounded bg-[#262626] px-2 py-0.5 text-[#9ca3af]">{item.source}</span>
                   <span className="font-mono">{item.session_id.slice(0, 8)}</span>
                 </div>
                 <p className="text-sm text-[#d0d0d0] whitespace-pre-wrap break-words leading-relaxed">

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { FALLBACK_PRICING as SHARED_FALLBACK_PRICING, resolveModelPricing } from '../lib/modelPricing';
 
 // Per-model pricing data from OpenRouter
 export interface ModelPricingEntry {
@@ -25,15 +26,14 @@ interface PricingStore {
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const OPENROUTER_API = 'https://openrouter.ai/api/v1/models';
 
-// Sonnet fallback pricing
 const FALLBACK: ModelPricingEntry = {
-  id: 'fallback',
+  id: SHARED_FALLBACK_PRICING.id,
   name: 'Default (Sonnet)',
   provider: 'anthropic',
-  input: 3,
-  output: 15,
-  cacheRead: 0.30,
-  cacheWrite: 3.75,
+  input: SHARED_FALLBACK_PRICING.input,
+  output: SHARED_FALLBACK_PRICING.output,
+  cacheRead: SHARED_FALLBACK_PRICING.cacheRead,
+  cacheWrite: SHARED_FALLBACK_PRICING.cacheCreation,
 };
 
 function parseOpenRouterResponse(data: OpenRouterModel[]): ModelPricingEntry[] {
@@ -75,16 +75,6 @@ interface OpenRouterModel {
   };
 }
 
-// Fuzzy match: strip provider prefix, version suffixes, brackets
-function normalizeModelName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\[.*?\]/g, '')          // [1m] etc
-    .replace(/-\d{8}$/, '')           // -20241022
-    .replace(/[:@].*$/, '')           // :version or @version
-    .trim();
-}
-
 export const usePricingStore = create<PricingStore>()(
   persist(
     (set, get) => ({
@@ -124,38 +114,24 @@ export const usePricingStore = create<PricingStore>()(
       getPricingForModel: (modelName: string): ModelPricingEntry | null => {
         const { models } = get();
         if (models.length === 0) return null;
-
-        const normalized = normalizeModelName(modelName);
-
-        // 1. Exact id match
-        const exact = models.find((m) => m.id === modelName);
-        if (exact) return exact;
-
-        // 2. Normalized id match
-        const normalizedMatch = models.find(
-          (m) => normalizeModelName(m.id) === normalized
-        );
-        if (normalizedMatch) return normalizedMatch;
-
-        // 3. Best substring match — find the model whose id contains the query
-        //    or whose query contains the model's short name
-        const candidates = models.filter((m) => {
-          const mNorm = normalizeModelName(m.id);
-          const mShort = mNorm.split('/').pop() || mNorm;
-          return (
-            mNorm.includes(normalized) ||
-            normalized.includes(mShort) ||
-            mShort.includes(normalized)
-          );
+        const resolved = resolveModelPricing(modelName, {
+          customPricingEnabled: false,
+          customPricing: {},
+          dynamicPricing: models.map((model) => ({
+            id: model.id,
+            input: model.input,
+            output: model.output,
+            cacheRead: model.cacheRead,
+            cacheCreation: model.cacheWrite,
+          })),
+          fallbackPricing: SHARED_FALLBACK_PRICING,
         });
 
-        if (candidates.length > 0) {
-          // Prefer the one with shortest id (most specific match)
-          candidates.sort((a, b) => a.id.length - b.id.length);
-          return candidates[0];
+        if (resolved.source === 'dynamic' && resolved.matchedModel) {
+          return models.find((model) => model.id === resolved.matchedModel) ?? null;
         }
 
-        return null;
+        return resolved.source === 'fallback' ? FALLBACK : null;
       },
     }),
     {

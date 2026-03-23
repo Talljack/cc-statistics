@@ -1,11 +1,10 @@
-use crate::models::{QueryTimeRange, TimeFilter};
-use chrono::{DateTime, Local, NaiveDate};
+use crate::models::{BuiltInTimeRangeKey, QueryTimeRange, TimeFilter};
+use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, TimeZone};
 use std::path::PathBuf;
 
 /// Convert a structured `QueryTimeRange` into the legacy `TimeFilter` enum.
-/// For `Absolute` ranges there is no direct `TimeFilter` equivalent, so we
-/// return `TimeFilter::All` and rely on the separate file-level filter
-/// (`matches_absolute_range`) to narrow the results.
+/// Legacy parsers still rely on this path until every source has been moved
+/// to the normalized record pipeline.
 pub fn query_time_range_to_filter(range: &QueryTimeRange) -> TimeFilter {
     match range {
         QueryTimeRange::BuiltIn { key } => TimeFilter::from(key),
@@ -14,22 +13,119 @@ pub fn query_time_range_to_filter(range: &QueryTimeRange) -> TimeFilter {
             include_today,
         } => {
             if *include_today {
-                // +1 so that "last N days including today" covers today as well
                 TimeFilter::Days(*days + 1)
             } else {
                 TimeFilter::Days(*days)
             }
         }
-        // Absolute ranges are handled at the file level; return All so that
-        // the record-level filter inside `parse_session_file` lets everything
-        // through.
         QueryTimeRange::Absolute { .. } => TimeFilter::All,
     }
 }
 
+pub fn effective_query_range(
+    time_filter: &TimeFilter,
+    query_range: Option<&QueryTimeRange>,
+) -> QueryTimeRange {
+    query_range
+        .cloned()
+        .unwrap_or_else(|| time_filter_to_query_range(time_filter))
+}
+
+pub fn time_filter_to_query_range(filter: &TimeFilter) -> QueryTimeRange {
+    match filter {
+        TimeFilter::Today => QueryTimeRange::BuiltIn {
+            key: BuiltInTimeRangeKey::Today,
+        },
+        TimeFilter::Week => QueryTimeRange::BuiltIn {
+            key: BuiltInTimeRangeKey::Week,
+        },
+        TimeFilter::Month => QueryTimeRange::BuiltIn {
+            key: BuiltInTimeRangeKey::Month,
+        },
+        TimeFilter::All => QueryTimeRange::BuiltIn {
+            key: BuiltInTimeRangeKey::All,
+        },
+        TimeFilter::Days(days) => QueryTimeRange::Relative {
+            days: *days,
+            include_today: false,
+        },
+    }
+}
+
+pub fn record_matches_query_range(
+    range: &QueryTimeRange,
+    timestamp: &DateTime<FixedOffset>,
+) -> bool {
+    match range {
+        QueryTimeRange::BuiltIn { key } => match key {
+            BuiltInTimeRangeKey::Today => {
+                record_matches_time_filter(&TimeFilter::Today, timestamp)
+            }
+            BuiltInTimeRangeKey::Week => record_matches_time_filter(&TimeFilter::Week, timestamp),
+            BuiltInTimeRangeKey::Month => {
+                record_matches_time_filter(&TimeFilter::Month, timestamp)
+            }
+            BuiltInTimeRangeKey::All => true,
+        },
+        QueryTimeRange::Relative {
+            days,
+            include_today,
+        } => {
+            let normalized_days = if *include_today { *days + 1 } else { *days };
+            record_matches_time_filter(&TimeFilter::Days(normalized_days), timestamp)
+        }
+        QueryTimeRange::Absolute {
+            start_date,
+            end_date,
+        } => matches_absolute_dates(timestamp, start_date, end_date),
+    }
+}
+
+pub fn record_matches_time_filter(
+    time_filter: &TimeFilter,
+    timestamp: &DateTime<FixedOffset>,
+) -> bool {
+    if matches!(time_filter, TimeFilter::All) {
+        return true;
+    }
+
+    let record_time = timestamp.with_timezone(&Local);
+    let now = Local::now();
+
+    match time_filter {
+        TimeFilter::Today => {
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+            let today_start_local = Local.from_local_datetime(&today_start).unwrap();
+            record_time >= today_start_local
+        }
+        TimeFilter::Week => record_time >= now - Duration::days(7),
+        TimeFilter::Month => record_time >= now - Duration::days(30),
+        TimeFilter::Days(days) => record_time >= now - Duration::days(*days as i64),
+        TimeFilter::All => true,
+    }
+}
+
+fn matches_absolute_dates(
+    timestamp: &DateTime<FixedOffset>,
+    start_date: &str,
+    end_date: &str,
+) -> bool {
+    let start = match NaiveDate::parse_from_str(start_date, "%Y-%m-%d") {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    let end = match NaiveDate::parse_from_str(end_date, "%Y-%m-%d") {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    let record_date = timestamp.with_timezone(&Local).date_naive();
+    record_date >= start && record_date <= end
+}
+
 /// Check whether a file's modification time falls within the inclusive
-/// absolute date range `[start_date, end_date]`.  Dates are expected in
-/// `YYYY-MM-DD` format and are interpreted in the local timezone.
+/// absolute date range `[start_date, end_date]`. This remains a coarse scan
+/// optimization only; final inclusion must be decided at the record level.
 pub fn matches_absolute_range(file_path: &PathBuf, start_date: &str, end_date: &str) -> bool {
     let start = match NaiveDate::parse_from_str(start_date, "%Y-%m-%d") {
         Ok(d) => d,
@@ -56,19 +152,28 @@ pub fn matches_absolute_range(file_path: &PathBuf, start_date: &str, end_date: &
     file_date >= start && file_date <= end
 }
 
-/// Unified file-level filter that dispatches to the appropriate strategy
-/// depending on the `QueryTimeRange` variant.
-///
-/// - `BuiltIn` / `Relative` – delegates to the existing `filter_by_time` via
-///   conversion to `TimeFilter`.
-/// - `Absolute` – uses `matches_absolute_range` to check the file's mtime
-///   against the start/end dates.
+/// Unified **coarse** file filter for scan-time pruning.
+/// Record-level inclusion must still use `record_matches_query_range`.
+/// For `Absolute` ranges we widen the window by 1 day on each side because
+/// a file's mtime may not perfectly align with its records' timestamps.
 pub fn filter_by_query_range(range: &QueryTimeRange, file_path: &PathBuf) -> bool {
     match range {
         QueryTimeRange::Absolute {
             start_date,
             end_date,
-        } => matches_absolute_range(file_path, start_date, end_date),
+        } => {
+            // Widen by 1 day on each side for coarse filtering
+            let start = chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+                .map(|d| d - chrono::Duration::days(1))
+                .map(|d| d.format("%Y-%m-%d").to_string());
+            let end = chrono::NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
+                .map(|d| d + chrono::Duration::days(1))
+                .map(|d| d.format("%Y-%m-%d").to_string());
+            match (start, end) {
+                (Ok(s), Ok(e)) => matches_absolute_range(file_path, &s, &e),
+                _ => true, // Can't parse dates; let record-level filter handle it
+            }
+        }
         _ => {
             let filter = query_time_range_to_filter(range);
             crate::commands::filter_by_time(&filter, file_path)
@@ -80,84 +185,55 @@ pub fn filter_by_query_range(range: &QueryTimeRange, file_path: &PathBuf) -> boo
 mod tests {
     use super::*;
     use crate::models::{BuiltInTimeRangeKey, QueryTimeRange, TimeFilter};
+    use chrono::Offset;
+
+    fn ts(value: &str) -> DateTime<FixedOffset> {
+        DateTime::parse_from_rfc3339(value).unwrap()
+    }
 
     #[test]
-    fn test_relative_range_with_include_today() {
+    fn relative_range_with_include_today_maps_to_legacy_days_plus_one() {
         let range = QueryTimeRange::Relative {
             days: 7,
             include_today: true,
         };
-        let filter = query_time_range_to_filter(&range);
-        assert_eq!(filter, TimeFilter::Days(8)); // 7 + 1
+        assert_eq!(query_time_range_to_filter(&range), TimeFilter::Days(8));
     }
 
     #[test]
-    fn test_relative_range_without_include_today() {
-        let range = QueryTimeRange::Relative {
-            days: 14,
-            include_today: false,
+    fn absolute_range_includes_only_matching_record_dates() {
+        let record = ts("2026-03-10T08:00:00+08:00");
+        let before = ts("2026-03-09T23:59:59+08:00");
+        let after = ts("2026-03-11T00:00:01+08:00");
+        let range = QueryTimeRange::Absolute {
+            start_date: "2026-03-10".to_string(),
+            end_date: "2026-03-10".to_string(),
         };
-        let filter = query_time_range_to_filter(&range);
-        assert_eq!(filter, TimeFilter::Days(14));
+
+        assert!(record_matches_query_range(&range, &record));
+        assert!(!record_matches_query_range(&range, &before));
+        assert!(!record_matches_query_range(&range, &after));
     }
 
     #[test]
-    fn test_built_in_range_today() {
-        let range = QueryTimeRange::BuiltIn {
-            key: BuiltInTimeRangeKey::Today,
-        };
-        let filter = query_time_range_to_filter(&range);
-        assert_eq!(filter, TimeFilter::Today);
-    }
-
-    #[test]
-    fn test_built_in_range_week() {
-        let range = QueryTimeRange::BuiltIn {
+    fn effective_query_range_prefers_explicit_query_range() {
+        let explicit = QueryTimeRange::BuiltIn {
             key: BuiltInTimeRangeKey::Week,
         };
-        let filter = query_time_range_to_filter(&range);
-        assert_eq!(filter, TimeFilter::Week);
+
+        let result = effective_query_range(&TimeFilter::Today, Some(&explicit));
+        assert_eq!(result, explicit);
     }
 
     #[test]
-    fn test_built_in_range_month() {
-        let range = QueryTimeRange::BuiltIn {
-            key: BuiltInTimeRangeKey::Month,
-        };
-        let filter = query_time_range_to_filter(&range);
-        assert_eq!(filter, TimeFilter::Month);
-    }
+    fn days_filter_uses_record_timestamp_not_file_time() {
+        let now = Local::now();
+        let in_range = now - Duration::days(1);
+        let out_of_range = now - Duration::days(10);
+        let in_range = in_range.with_timezone(&in_range.offset().fix());
+        let out_of_range = out_of_range.with_timezone(&out_of_range.offset().fix());
 
-    #[test]
-    fn test_built_in_range_all() {
-        let range = QueryTimeRange::BuiltIn {
-            key: BuiltInTimeRangeKey::All,
-        };
-        let filter = query_time_range_to_filter(&range);
-        assert_eq!(filter, TimeFilter::All);
-    }
-
-    #[test]
-    fn test_absolute_range_returns_all_filter() {
-        let range = QueryTimeRange::Absolute {
-            start_date: "2026-03-01".to_string(),
-            end_date: "2026-03-15".to_string(),
-        };
-        let filter = query_time_range_to_filter(&range);
-        assert_eq!(filter, TimeFilter::All);
-    }
-
-    #[test]
-    fn test_function_signatures_compile() {
-        // Verify that the public API compiles with the expected types.
-        let range = QueryTimeRange::BuiltIn {
-            key: BuiltInTimeRangeKey::Today,
-        };
-        let _filter: TimeFilter = query_time_range_to_filter(&range);
-
-        let path = PathBuf::from("/tmp/nonexistent_file.jsonl");
-        // These should compile; the result will be false for a missing file.
-        let _: bool = matches_absolute_range(&path, "2026-01-01", "2026-12-31");
-        let _: bool = filter_by_query_range(&range, &path);
+        assert!(record_matches_time_filter(&TimeFilter::Days(2), &in_range));
+        assert!(!record_matches_time_filter(&TimeFilter::Days(2), &out_of_range));
     }
 }
