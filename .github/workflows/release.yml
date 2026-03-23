@@ -73,24 +73,6 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'CC Statistics v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-
-  cleanup:
-    needs: release
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Remove .sig and latest.json from release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          for asset in $(gh release view "$TAG" --json assets --jq '.assets[] | select(.name | endswith(".sig") or .name == "latest.json") | .name' 2>/dev/null || true); do
-            echo "Removing $asset"
-            gh release delete-asset "$TAG" "$asset" -y 2>/dev/null || true
-          done

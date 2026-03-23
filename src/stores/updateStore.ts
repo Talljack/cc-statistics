@@ -57,6 +57,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
           newVersion: update.version,
           changelog: update.body || '',
           update,
+          dialogOpen: true,
         });
       } else {
         set({ status: 'idle' });
