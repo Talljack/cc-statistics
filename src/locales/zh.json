@@ -291,5 +291,21 @@
   "codeChanges.deletions": "删除",
   "codeChanges.net": "净变更",
   "codeChanges.loading": "加载代码变更中...",
-  "codeChanges.noData": "未找到代码变更"
+  "codeChanges.noData": "未找到代码变更",
+
+  "account.title": "账号用量",
+  "account.loading": "加载账号用量中...",
+  "account.providers": "个服务",
+  "account.noData": "暂无用量数据",
+  "account.noDataDesc": "开始使用 AI CLI 工具后可查看配额用量",
+  "account.sessionWindow": "会话窗口 (5小时)",
+  "account.weeklyWindow": "周配额 (7天)",
+  "account.tokens5h": "Token (5h)",
+  "account.tokens7d": "Token (7d)",
+  "account.cost7d": "费用 (7d)",
+  "account.nearLimit": "接近上限",
+  "account.moderate": "适度使用",
+  "account.healthy": "正常",
+  "account.autoDetected": "自动检测",
+  "account.infoNote": "用量基于本地日志文件估算。实际配额因订阅计划而异，请选择您的计划以查看准确百分比。"
 }

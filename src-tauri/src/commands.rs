@@ -595,6 +595,259 @@ pub fn get_preset_models() -> Vec<String> {
     defaults
 }
 
+/// Detect Codex subscription plan from ~/.codex/auth.json JWT token
+fn detect_codex_plan() -> String {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return "unknown".to_string(),
+    };
+    let auth_path = home.join(".codex").join("auth.json");
+    if !auth_path.exists() {
+        return "unknown".to_string();
+    }
+    let content = match fs::read_to_string(&auth_path) {
+        Ok(c) => c,
+        Err(_) => return "unknown".to_string(),
+    };
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return "unknown".to_string(),
+    };
+    // Try to decode the JWT id_token to get chatgpt_plan_type
+    if let Some(id_token) = json.get("tokens").and_then(|t| t.get("id_token")).and_then(|t| t.as_str()) {
+        // JWT has 3 parts separated by '.', payload is the second part
+        let parts: Vec<&str> = id_token.split('.').collect();
+        if parts.len() >= 2 {
+            // Base64 decode the payload (URL-safe base64, no padding)
+            let payload = parts[1];
+            let padded = match payload.len() % 4 {
+                2 => format!("{}==", payload),
+                3 => format!("{}=", payload),
+                _ => payload.to_string(),
+            };
+            let decoded = padded.replace('-', "+").replace('_', "/");
+            if let Ok(bytes) = base64_decode(&decoded) {
+                if let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(plan) = claims
+                        .get("https://api.openai.com/auth")
+                        .and_then(|auth| auth.get("chatgpt_plan_type"))
+                        .and_then(|p| p.as_str())
+                    {
+                        return plan.to_string();
+                    }
+                }
+            }
+        }
+    }
+    "unknown".to_string()
+}
+
+/// Simple base64 decoder (standard alphabet)
+fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = Vec::new();
+    let mut buf: u32 = 0;
+    let mut bits: u32 = 0;
+    for &b in input.as_bytes() {
+        if b == b'=' { break; }
+        let val = TABLE.iter().position(|&c| c == b)
+            .ok_or_else(|| "invalid base64".to_string())? as u32;
+        buf = (buf << 6) | val;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((buf >> bits) as u8);
+            buf &= (1 << bits) - 1;
+        }
+    }
+    Ok(output)
+}
+
+/// Detect Claude subscription plan from settings
+fn detect_claude_plan() -> String {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return "unknown".to_string(),
+    };
+    let settings_path = home.join(".claude").join("settings.json");
+    if !settings_path.exists() {
+        return "unknown".to_string();
+    }
+    let content = match fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(_) => return "unknown".to_string(),
+    };
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return "unknown".to_string(),
+    };
+    // Check if using custom API endpoint (proxy/router user)
+    if let Some(env) = json.get("env").and_then(|e| e.as_object()) {
+        if let Some(base_url) = env.get("ANTHROPIC_BASE_URL").and_then(|u| u.as_str()) {
+            if !base_url.contains("anthropic.com") {
+                return "api_key".to_string();
+            }
+        }
+        if env.contains_key("ANTHROPIC_API_KEY") || env.contains_key("ANTHROPIC_AUTH_TOKEN") {
+            return "api_key".to_string();
+        }
+    }
+    // Default: assume Pro (most common for OAuth users)
+    "pro".to_string()
+}
+
+#[tauri::command]
+pub async fn get_account_usage(
+    enabled_sources: Option<SourceConfig>,
+) -> Result<AccountUsageResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let config = enabled_sources.unwrap_or_default();
+        let now = Local::now();
+
+        // 5-hour sliding window
+        let session_start = now - Duration::hours(5);
+        let session_range = QueryTimeRange::Absolute {
+            start_date: session_start.format("%Y-%m-%d").to_string(),
+            end_date: now.format("%Y-%m-%d").to_string(),
+        };
+
+        // 7-day weekly window
+        let weekly_start = now - Duration::days(7);
+        let weekly_range = QueryTimeRange::Absolute {
+            start_date: weekly_start.format("%Y-%m-%d").to_string(),
+            end_date: now.format("%Y-%m-%d").to_string(),
+        };
+
+        let session_sessions =
+            sources::collect_all_normalized_sessions(None, &session_range, &config);
+        let weekly_sessions =
+            sources::collect_all_normalized_sessions(None, &weekly_range, &config);
+
+        // Detect plans
+        let codex_plan = detect_codex_plan();
+        let claude_plan = detect_claude_plan();
+
+        let source_names: Vec<(&str, bool, &str)> = vec![
+            ("claude_code", config.claude_code, claude_plan.as_str()),
+            ("codex", config.codex, codex_plan.as_str()),
+            ("gemini", config.gemini, "unknown"),
+        ];
+
+        let mut providers = Vec::new();
+
+        for (source_name, enabled, detected_plan) in &source_names {
+            if !*enabled {
+                continue;
+            }
+
+            let mut s_requests: u32 = 0;
+            let mut s_tokens: u64 = 0;
+            let mut s_cost: f64 = 0.0;
+            let mut s_earliest: Option<DateTime<Local>> = None;
+
+            for sess in &session_sessions {
+                if !sess.source.eq_ignore_ascii_case(source_name) {
+                    continue;
+                }
+                for rec in &sess.records {
+                    match rec {
+                        crate::normalized::NormalizedRecord::Instruction(ir) => {
+                            let ts = ir.timestamp.with_timezone(&Local);
+                            if ts >= session_start {
+                                s_requests += 1;
+                                s_earliest = Some(match s_earliest {
+                                    Some(prev) => if ts < prev { ts } else { prev },
+                                    None => ts,
+                                });
+                            }
+                        }
+                        crate::normalized::NormalizedRecord::Token(tr) => {
+                            let ts = tr.timestamp.with_timezone(&Local);
+                            if ts >= session_start {
+                                s_tokens += tr.input + tr.output + tr.cache_read + tr.cache_creation;
+                                s_cost += tr.cost_usd;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let mut w_requests: u32 = 0;
+            let mut w_tokens: u64 = 0;
+            let mut w_cost: f64 = 0.0;
+            let mut w_earliest: Option<DateTime<Local>> = None;
+
+            for sess in &weekly_sessions {
+                if !sess.source.eq_ignore_ascii_case(source_name) {
+                    continue;
+                }
+                for rec in &sess.records {
+                    match rec {
+                        crate::normalized::NormalizedRecord::Instruction(ir) => {
+                            let ts = ir.timestamp.with_timezone(&Local);
+                            if ts >= weekly_start {
+                                w_requests += 1;
+                                w_earliest = Some(match w_earliest {
+                                    Some(prev) => if ts < prev { ts } else { prev },
+                                    None => ts,
+                                });
+                            }
+                        }
+                        crate::normalized::NormalizedRecord::Token(tr) => {
+                            let ts = tr.timestamp.with_timezone(&Local);
+                            if ts >= weekly_start {
+                                w_tokens += tr.input + tr.output + tr.cache_read + tr.cache_creation;
+                                w_cost += tr.cost_usd;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if s_requests == 0 && w_requests == 0 {
+                continue;
+            }
+
+            // Reset = earliest request + window duration
+            let session_reset_ms = match s_earliest {
+                Some(earliest) => {
+                    let reset_at = earliest + Duration::hours(5);
+                    (reset_at - now).num_milliseconds().max(0)
+                }
+                None => 0,
+            };
+            let weekly_reset_ms = match w_earliest {
+                Some(earliest) => {
+                    let reset_at = earliest + Duration::days(7);
+                    (reset_at - now).num_milliseconds().max(0)
+                }
+                None => 0,
+            };
+
+            providers.push(ProviderUsage {
+                source: source_name.to_string(),
+                detected_plan: detected_plan.to_string(),
+                session_requests: s_requests,
+                session_tokens: s_tokens,
+                session_cost_usd: s_cost,
+                session_earliest_ts: s_earliest.map(|t| t.to_rfc3339()),
+                session_reset_ms,
+                weekly_requests: w_requests,
+                weekly_tokens: w_tokens,
+                weekly_cost_usd: w_cost,
+                weekly_earliest_ts: w_earliest.map(|t| t.to_rfc3339()),
+                weekly_reset_ms,
+            });
+        }
+
+        Ok(AccountUsageResult { providers })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 fn default_preset_models() -> Vec<String> {
     vec![
         "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4", "o3",

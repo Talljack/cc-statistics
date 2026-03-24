@@ -9,6 +9,7 @@ import { Skills } from './pages/Skills';
 import { McpServers } from './pages/McpServers';
 import { Report } from './pages/Report';
 import { CodeChangesDetail } from './pages/CodeChangesDetail';
+import { AccountUsage } from './pages/AccountUsage';
 import { UpdateDialog } from './components/UpdateDialog';
 import { usePricingStore } from './stores/pricingStore';
 import { useUpdateStore } from './stores/updateStore';
@@ -57,6 +58,7 @@ function App() {
         <Route path="/mcp" element={<McpServers />} />
         <Route path="/report" element={<Report />} />
         <Route path="/code-changes" element={<CodeChangesDetail />} />
+        <Route path="/account" element={<AccountUsage />} />
       </Routes>
     </QueryClientProvider>
   );

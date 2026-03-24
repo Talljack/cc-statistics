@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo, FileChange } from '../types/statistics';
+import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo, FileChange, AccountUsageResult } from '../types/statistics';
 import { useSettingsStore } from '../stores/settingsStore';
 import { serializeTimeRangeForQuery, type ActiveTimeRange } from '../lib/timeRanges';
 
@@ -119,5 +119,15 @@ export function useCodeChangesDetail(project: string | null, activeRange: Active
       enabledSources,
     }),
     staleTime: 60 * 1000,
+  });
+}
+
+export function useAccountUsage() {
+  const enabledSources = useSettingsStore((s) => s.enabledSources);
+  return useQuery<AccountUsageResult>({
+    queryKey: ['account-usage', enabledSources],
+    queryFn: () => invoke<AccountUsageResult>('get_account_usage', { enabledSources }),
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
   });
 }

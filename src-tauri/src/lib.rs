@@ -27,6 +27,7 @@ pub fn run() {
             update_tray_stats,
             detect_sources,
             get_preset_models,
+            get_account_usage,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

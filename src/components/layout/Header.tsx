@@ -3,7 +3,7 @@ import { useAppStore } from '../../stores/appStore';
 import { useProjects, useAvailableProviders } from '../../hooks/useStatistics';
 import { useTranslation } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
-import { ArrowLeft, ChevronDown, RefreshCw, Settings, BarChart3, ArrowDownCircle } from 'lucide-react';
+import { ArrowLeft, ChevronDown, RefreshCw, Settings, BarChart3, ArrowDownCircle, User } from 'lucide-react';
 import { useUpdateStore } from '../../stores/updateStore';
 import { HeaderTimeRangeControl } from '../time-ranges/HeaderTimeRangeControl';
 
@@ -106,6 +106,15 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
             title={t('common.report')}
           >
             <BarChart3 className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
+          </button>
+
+          {/* Account Usage Button */}
+          <button
+            onClick={() => { window.location.hash = '#/account'; }}
+            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            title={t('account.title')}
+          >
+            <User className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
           </button>
 
           {/* Update Badge */}

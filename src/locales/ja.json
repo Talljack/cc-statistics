@@ -291,5 +291,21 @@
   "codeChanges.deletions": "削除",
   "codeChanges.net": "差引",
   "codeChanges.loading": "コード変更を読み込み中...",
-  "codeChanges.noData": "コード変更が見つかりません"
+  "codeChanges.noData": "コード変更が見つかりません",
+
+  "account.title": "アカウント使用量",
+  "account.loading": "アカウント使用量を読み込み中...",
+  "account.providers": "プロバイダー",
+  "account.noData": "使用量データがありません",
+  "account.noDataDesc": "AI CLIツールを使い始めると使用量が表示されます",
+  "account.sessionWindow": "セッション (5時間)",
+  "account.weeklyWindow": "週間 (7日間)",
+  "account.tokens5h": "トークン (5h)",
+  "account.tokens7d": "トークン (7d)",
+  "account.cost7d": "費用 (7d)",
+  "account.nearLimit": "制限に近い",
+  "account.moderate": "適度な使用",
+  "account.healthy": "正常",
+  "account.autoDetected": "自動検出",
+  "account.infoNote": "使用量はローカルログファイルから推定されています。実際のクォータはプランにより異なります。正確な割合を確認するにはプランを選択してください。"
 }

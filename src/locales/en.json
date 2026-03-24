@@ -291,5 +291,21 @@
   "codeChanges.deletions": "Deletions",
   "codeChanges.net": "Net",
   "codeChanges.loading": "Loading code changes...",
-  "codeChanges.noData": "No code changes found"
+  "codeChanges.noData": "No code changes found",
+
+  "account.title": "Account Usage",
+  "account.loading": "Loading account usage...",
+  "account.providers": "providers",
+  "account.noData": "No usage data available",
+  "account.noDataDesc": "Start using AI CLI tools to see usage quotas",
+  "account.sessionWindow": "Session (5h window)",
+  "account.weeklyWindow": "Weekly (7 days)",
+  "account.tokens5h": "Tokens (5h)",
+  "account.tokens7d": "Tokens (7d)",
+  "account.cost7d": "Cost (7d)",
+  "account.nearLimit": "Near limit",
+  "account.moderate": "Moderate usage",
+  "account.healthy": "Healthy",
+  "account.autoDetected": "auto",
+  "account.infoNote": "Usage is estimated from local log files. Actual quotas may vary by plan. Select your plan to see accurate percentages."
 }
