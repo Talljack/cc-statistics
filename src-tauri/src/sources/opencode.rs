@@ -5,8 +5,10 @@ use crate::commands::{model_to_provider, model_matches_provider, CustomProviderD
 use crate::time_ranges::record_matches_query_range;
 use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone, Utc};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
+
+const MAX_DIFF_TEXT_BYTES: usize = 50 * 1024;
 
 /// Return the path to the opencode SQLite database.
 fn db_path() -> Option<PathBuf> {
@@ -415,6 +417,7 @@ fn build_normalized_session(
 ) -> Option<NormalizedSession> {
     let mut records: Vec<NormalizedRecord> = Vec::new();
     let mut primary_model: Option<String> = None;
+    let mut has_detailed_code_changes = false;
 
     let mut stmt = match conn.prepare(
         "SELECT time_created, data FROM message WHERE session_id = ?1 ORDER BY time_created ASC",
@@ -449,6 +452,15 @@ fn build_normalized_session(
 
         match role {
             "user" => {
+                let detailed_changes = extract_summary_code_changes(&value, timestamp);
+                if !detailed_changes.is_empty() {
+                    has_detailed_code_changes = true;
+                    records.extend(
+                        detailed_changes
+                            .into_iter()
+                            .map(NormalizedRecord::CodeChange),
+                    );
+                }
                 if let Some(content) = user_message_content(&value) {
                     if !content.trim().is_empty() {
                         records.push(NormalizedRecord::Instruction(InstructionRecord {
@@ -519,7 +531,7 @@ fn build_normalized_session(
         }
     }
 
-    if summary_code_changes_fit_range(sess, query_range) {
+    if !has_detailed_code_changes && summary_code_changes_fit_range(sess, query_range) {
         if sess.summary_additions > 0 || sess.summary_deletions > 0 || sess.summary_files > 0 {
             if let Some(timestamp) = fixed_offset_timestamp_ms(sess.time_created) {
                 records.push(NormalizedRecord::CodeChange(CodeChangeRecord {
@@ -529,6 +541,7 @@ fn build_normalized_session(
                     additions: sess.summary_additions,
                     deletions: sess.summary_deletions,
                     files: sess.summary_files,
+                    diff_content: None,
                 }));
             }
         }
@@ -572,6 +585,68 @@ fn summary_code_changes_fit_range(sess: &SessionRow, query_range: &QueryTimeRang
         && record_matches_query_range(query_range, &end)
 }
 
+fn extract_summary_code_changes(
+    value: &Value,
+    timestamp: DateTime<FixedOffset>,
+) -> Vec<CodeChangeRecord> {
+    let Some(diffs) = value
+        .pointer("/summary/diffs")
+        .and_then(|v| v.as_array())
+    else {
+        return Vec::new();
+    };
+
+    let mut records = Vec::new();
+
+    for diff in diffs {
+        let Some(file_path) = diff
+            .get("file")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        else {
+            continue;
+        };
+
+        let before = diff.get("before").and_then(|v| v.as_str()).unwrap_or("");
+        let after = diff.get("after").and_then(|v| v.as_str()).unwrap_or("");
+
+        if before == after {
+            continue;
+        }
+
+        let (additions, deletions) = crate::parser::count_replacement_changes(before, after);
+        let diff_content = if before.is_empty() && !after.is_empty() {
+            if after.len() > MAX_DIFF_TEXT_BYTES {
+                None
+            } else {
+                Some(DiffContent::Created {
+                    content: after.to_string(),
+                })
+            }
+        } else if before.len() > MAX_DIFF_TEXT_BYTES || after.len() > MAX_DIFF_TEXT_BYTES {
+            None
+        } else {
+            Some(DiffContent::TextPair {
+                old: before.to_string(),
+                new: after.to_string(),
+            })
+        };
+
+        records.push(CodeChangeRecord {
+            timestamp,
+            file_path: file_path.to_string(),
+            extension: file_extension(file_path),
+            additions,
+            deletions,
+            files: 1,
+            diff_content,
+        });
+    }
+
+    records
+}
+
 fn fixed_offset_timestamp_ms(ms: i64) -> Option<DateTime<FixedOffset>> {
     DateTime::<Utc>::from_timestamp_millis(ms)
         .map(|dt| dt.with_timezone(&FixedOffset::east_opt(0).unwrap()))
@@ -610,6 +685,14 @@ fn user_message_content(value: &Value) -> Option<String> {
         .get("text")
         .and_then(|v| v.as_str())
         .map(|text| text.to_string())
+}
+
+fn file_extension(file_path: &str) -> String {
+    Path::new(file_path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown")
+        .to_ascii_lowercase()
 }
 
 /// Build SessionStats for a single session by reading its messages.

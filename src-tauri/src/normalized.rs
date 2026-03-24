@@ -1,3 +1,4 @@
+use crate::models::DiffContent;
 use chrono::{DateTime, FixedOffset, Local};
 
 #[derive(Debug, Clone)]
@@ -73,4 +74,5 @@ pub struct CodeChangeRecord {
     pub additions: u32,
     pub deletions: u32,
     pub files: u32,
+    pub diff_content: Option<DiffContent>,
 }

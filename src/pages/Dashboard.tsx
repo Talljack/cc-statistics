@@ -365,7 +365,7 @@ export function Dashboard() {
         {/* Charts Row */}
         <div className="grid grid-cols-1 gap-6 mb-6 xl:grid-cols-2">
           <DevTimeChart devTime={stats.dev_time} />
-          <CodeChanges codeChanges={stats.code_changes} />
+          <CodeChanges codeChanges={stats.code_changes} onClick={() => navigate('/code-changes')} />
         </div>
 
         {/* Token Chart */}

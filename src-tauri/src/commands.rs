@@ -533,6 +533,37 @@ pub async fn get_available_providers(
 }
 
 #[tauri::command]
+pub async fn get_code_changes_detail(
+    project: Option<String>,
+    time_filter: String,
+    time_range: Option<QueryTimeRange>,
+    provider_filter: Option<String>,
+    custom_providers: Option<Vec<CustomProviderDef>>,
+    enabled_sources: Option<SourceConfig>,
+) -> Result<Vec<FileChange>, String> {
+    tokio::task::spawn_blocking(move || {
+        let filter = match time_range {
+            Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
+            None => parse_time_filter(time_filter.as_str()),
+        };
+        let cps = custom_providers.unwrap_or_default();
+        let config = enabled_sources.unwrap_or_default();
+        let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
+        let sessions =
+            sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
+
+        Ok(aggregation::aggregate_code_changes_detail(
+            &sessions,
+            &effective_range,
+            &provider_filter,
+            &cps,
+        ))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
 pub fn detect_sources() -> Vec<(String, bool)> {
     crate::sources::detect_installed_sources()
 }

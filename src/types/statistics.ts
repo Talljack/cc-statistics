@@ -78,6 +78,38 @@ export interface ProjectInfo {
   path: string;
 }
 
+export interface DiffLine {
+  kind: 'add' | 'remove' | 'context';
+  content: string;
+}
+
+export interface DiffContentPatch {
+  type: 'Patch';
+  lines: DiffLine[];
+}
+
+export interface DiffContentTextPair {
+  type: 'TextPair';
+  old: string;
+  new: string;
+}
+
+export interface DiffContentCreated {
+  type: 'Created';
+  content: string;
+}
+
+export type DiffContent = DiffContentPatch | DiffContentTextPair | DiffContentCreated;
+
+export interface FileChange {
+  file_path: string;
+  extension: string;
+  change_type: string;
+  additions: number;
+  deletions: number;
+  diff_content: DiffContent | null;
+}
+
 export type TimeFilter = 'today' | 'week' | 'month' | 'all' | string;
 
 export interface SourceConfig {
