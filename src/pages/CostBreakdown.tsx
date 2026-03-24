@@ -7,11 +7,9 @@ import { useCostMetrics } from '../hooks/useCostMetrics';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 
-const costCategories = [
+const billableCategories = [
   { key: 'input' as const, labelKey: 'cost.input', color: '#3b82f6' },
   { key: 'output' as const, labelKey: 'cost.output', color: '#22c55e' },
-  { key: 'cache_read' as const, labelKey: 'cost.cacheRead', color: '#a855f7' },
-  { key: 'cache_creation' as const, labelKey: 'cost.cacheCreation', color: '#f59e0b' },
 ];
 
 export function CostBreakdown() {
@@ -41,6 +39,23 @@ export function CostBreakdown() {
   const displayCost = costMetrics.totalCost;
   const costByCategory = costMetrics.costByType;
   const totalCategoryCost = displayCost;
+  const cacheRows = [
+    {
+      key: 'cache_read' as const,
+      labelKey: 'cost.cacheRead',
+      color: '#a855f7',
+      tokens: costMetrics.cacheTokens.read,
+      cost: costMetrics.cacheCost.read,
+    },
+    {
+      key: 'cache_creation' as const,
+      labelKey: 'cost.cacheCreation',
+      color: '#f59e0b',
+      tokens: costMetrics.cacheTokens.creation,
+      cost: costMetrics.cacheCost.creation,
+    },
+  ];
+  const hasCacheUsage = cacheRows.some((row) => row.tokens > 0 || row.cost > 0);
 
   // Models sorted by cost
   const modelCosts = Object.entries(costMetrics.costByModel)
@@ -89,21 +104,22 @@ export function CostBreakdown() {
         <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a] mb-6">
           <h3 className="text-lg font-semibold mb-4">{t('cost.byType')}</h3>
 
-          {totalCategoryCost === 0 ? (
+          {totalCategoryCost === 0 && !hasCacheUsage ? (
             <div className="h-[100px] flex items-center justify-center text-[#a0a0a0]">
               {t('cost.noTypeData')}
             </div>
           ) : (
             <>
               {/* Stacked bar */}
-              <div className="h-4 bg-[#2a2a2a] rounded-full overflow-hidden flex mb-4">
-                {costCategories.map(({ key, color }) => {
+              <div data-testid="cost-type-stacked-bar" className="h-4 bg-[#2a2a2a] rounded-full overflow-hidden flex mb-4">
+                {billableCategories.map(({ key, color }) => {
                   const value = costByCategory[key];
                   const pct = totalCategoryCost > 0 ? (value / totalCategoryCost) * 100 : 0;
                   if (pct === 0) return null;
                   return (
                     <div
                       key={key}
+                      data-testid={`cost-type-segment-${key}`}
                       className="h-full transition-all duration-500 first:rounded-l-full last:rounded-r-full"
                       style={{ width: `${pct}%`, backgroundColor: color }}
                       title={`${formatCost(value)} (${pct.toFixed(1)}%)`}
@@ -114,7 +130,7 @@ export function CostBreakdown() {
 
               {/* Legend */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                {costCategories.map(({ key, labelKey, color }) => {
+                {billableCategories.map(({ key, labelKey, color }) => {
                   const value = costByCategory[key];
                   const pct = totalCategoryCost > 0 ? (value / totalCategoryCost * 100).toFixed(1) : '0.0';
                   return (
@@ -126,6 +142,25 @@ export function CostBreakdown() {
                       <span className="text-sm font-medium" style={{ color }}>
                         {formatCost(value)} <span className="text-[#606060]">({pct}%)</span>
                       </span>
+                    </div>
+                  );
+                })}
+                {cacheRows.map(({ key, labelKey, color, tokens, cost }) => {
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                        <div className="min-w-0">
+                          <span className="text-sm text-[#a0a0a0]">{t(labelKey)}</span>
+                          <div className="text-[11px] text-[#606060]">
+                            {t('cost.cached')} {formatTokens(tokens)} {t('cost.tokens')} / {t('cost.notIncludedInTotal')}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-medium" style={{ color }}>{formatCost(cost)}</div>
+                        <div className="text-xs text-[#606060]">{t('cost.cacheValue')}</div>
+                      </div>
                     </div>
                   );
                 })}

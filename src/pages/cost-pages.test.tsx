@@ -1,6 +1,6 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Dashboard } from './Dashboard';
@@ -93,6 +93,8 @@ function makeSession(options: {
   source?: string;
   input?: number;
   output?: number;
+  cacheRead?: number;
+  cacheCreation?: number;
   totalTokens?: number;
   legacyCost?: number;
   timestamp?: string;
@@ -104,7 +106,9 @@ function makeSession(options: {
     source = 'claude_code',
     input = 0,
     output = 0,
-    totalTokens = input + output,
+    cacheRead = 0,
+    cacheCreation = 0,
+    totalTokens = input + output + cacheRead + cacheCreation,
     legacyCost = 0,
     timestamp = '2026-03-23T09:00:00+08:00',
   } = options;
@@ -123,10 +127,10 @@ function makeSession(options: {
     source,
     input,
     output,
-    cache_read: 0,
-    cache_creation: 0,
+    cache_read: cacheRead,
+    cache_creation: cacheCreation,
     tokens_by_model: {
-      [model]: makeModelTokens(input, output, 0, 0, legacyCost),
+      [model]: makeModelTokens(input, output, cacheRead, cacheCreation, legacyCost),
     },
   };
 }
@@ -250,24 +254,24 @@ beforeEach(() => {
 
 describe('cost-driven pages', () => {
   it('Dashboard shows derived cost while tray sync stays on global today totals', async () => {
-    const filteredSessions = [makeSession({ id: 'filtered', model: 'model-a', input: 10_000_000, legacyCost: 999 })];
+    const filteredSessions = [makeSession({ id: 'filtered', model: 'model-a', input: 10_000_000, cacheRead: 2_000_000, legacyCost: 999 })];
     const filteredStats = makeStatistics({
       sessions: 1,
       instructions: 1,
-      modelBuckets: { 'model-a': makeModelTokens(10_000_000, 0, 0, 0, 999) },
+      modelBuckets: { 'model-a': makeModelTokens(10_000_000, 0, 2_000_000, 0, 999) },
       legacyCost: 999,
     });
 
     const todaySessions = [
-      makeSession({ id: 'today-a', model: 'model-a', input: 1_000_000, legacyCost: 500 }),
-      makeSession({ id: 'today-b', model: 'model-b', input: 0, output: 1_000_000, legacyCost: 500 }),
+      makeSession({ id: 'today-a', model: 'model-a', input: 1_000_000, cacheRead: 500_000, legacyCost: 500 }),
+      makeSession({ id: 'today-b', model: 'model-b', input: 0, output: 1_000_000, cacheCreation: 500_000, legacyCost: 500 }),
     ];
     const todayStats = makeStatistics({
       sessions: 2,
       instructions: 2,
       modelBuckets: {
-        'model-a': makeModelTokens(1_000_000, 0, 0, 0, 500),
-        'model-b': makeModelTokens(0, 1_000_000, 0, 0, 500),
+        'model-a': makeModelTokens(1_000_000, 0, 500_000, 0, 500),
+        'model-b': makeModelTokens(0, 1_000_000, 0, 500_000, 500),
       },
       legacyCost: 999,
     });
@@ -314,17 +318,17 @@ describe('cost-driven pages', () => {
             costUsd: 3.5,
             sessions: 2,
             instructions: 2,
-            totalTokens: 2_000_000,
+            totalTokens: 3_000_000,
           }),
         })
       );
     });
   });
 
-  it('CostBreakdown renders derived totals instead of legacy stats cost', () => {
+  it('CostBreakdown renders billable totals separately from cache insight', () => {
     const sessions = [
       makeSession({ id: 's1', model: 'model-a', input: 1_000_000, legacyCost: 111 }),
-      makeSession({ id: 's2', model: 'model-b', output: 1_000_000, legacyCost: 222 }),
+      makeSession({ id: 's2', model: 'model-b', output: 1_000_000, cacheRead: 500_000, cacheCreation: 500_000, legacyCost: 222 }),
     ];
     const stats = makeStatistics({
       sessions: 2,
@@ -339,17 +343,56 @@ describe('cost-driven pages', () => {
     mockUseStatistics.mockReturnValue({ data: stats, isLoading: false });
     mockUseSessions.mockReturnValue({ data: sessions, isLoading: false });
 
-    renderWithProviders(<CostBreakdown />);
+    const { container } = renderWithProviders(<CostBreakdown />);
 
-    expect(screen.getByText((content) => content.includes('$3.50'))).toBeInTheDocument();
+    const scoped = within(container);
+    const heading = scoped.getByRole('heading', { level: 2 });
+    expect(heading.textContent).toContain('$3.50');
+    expect(heading.textContent).not.toContain('$18.50');
     expect(screen.queryByText('$999.00')).not.toBeInTheDocument();
+    expect(scoped.getAllByText(/Not included in total/)).toHaveLength(2);
+    expect(scoped.getByText('$5.00')).toBeInTheDocument();
+    expect(scoped.getByText('$10.00')).toBeInTheDocument();
+    expect(scoped.getByTestId('cost-type-segment-input')).toBeInTheDocument();
+    expect(scoped.getByTestId('cost-type-segment-output')).toBeInTheDocument();
+    expect(scoped.queryByTestId('cost-type-segment-cache_read')).not.toBeInTheDocument();
+    expect(scoped.queryByTestId('cost-type-segment-cache_creation')).not.toBeInTheDocument();
     expect(screen.getAllByText('$1.00').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('$2.50').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('CostBreakdown still shows cache insight when billable total is zero', () => {
+    const sessions = [
+      makeSession({ id: 'cache-only', model: 'model-b', cacheRead: 500_000, cacheCreation: 500_000 }),
+    ];
+    const stats = makeStatistics({
+      sessions: 1,
+      instructions: 1,
+      modelBuckets: {
+        'model-b': makeModelTokens(0, 0, 500_000, 500_000),
+      },
+      legacyCost: 999,
+    });
+
+    mockUseStatistics.mockReturnValue({ data: stats, isLoading: false });
+    mockUseSessions.mockReturnValue({ data: sessions, isLoading: false });
+
+    const { container } = renderWithProviders(<CostBreakdown />);
+
+    const scoped = within(container);
+    const heading = scoped.getByRole('heading', { level: 2 });
+    expect(heading.textContent).toContain('$0.00');
+    expect(scoped.queryByText('No cost data')).not.toBeInTheDocument();
+    expect(scoped.getAllByText(/Not included in total/)).toHaveLength(2);
+    expect(scoped.getByText('$5.00')).toBeInTheDocument();
+    expect(scoped.getByText('$10.00')).toBeInTheDocument();
+    expect(scoped.queryByTestId('cost-type-segment-input')).not.toBeInTheDocument();
+    expect(scoped.queryByTestId('cost-type-segment-output')).not.toBeInTheDocument();
+  });
+
   it('Sessions sorts and displays by derived session cost', () => {
-    const cheaper = makeSession({ id: 'cheap', project: 'cheap-project', model: 'model-a', input: 1_000_000, legacyCost: 999 });
-    const expensive = makeSession({ id: 'expensive', project: 'expensive-project', model: 'model-b', input: 2_000_000, legacyCost: 1 });
+    const cheaper = makeSession({ id: 'cheap', project: 'cheap-project', model: 'model-a', input: 1_000_000, cacheRead: 1_000_000, legacyCost: 999 });
+    const expensive = makeSession({ id: 'expensive', project: 'expensive-project', model: 'model-b', input: 2_000_000, cacheCreation: 1_000_000, legacyCost: 1 });
 
     mockUseSessions.mockReturnValue({ data: [cheaper, expensive], isLoading: false });
 
@@ -363,15 +406,15 @@ describe('cost-driven pages', () => {
 
   it('Report overview and project totals use derived costs', () => {
     const sessions = [
-      makeSession({ id: 'r1', project: 'project-a', model: 'model-a', input: 1_000_000, legacyCost: 700 }),
-      makeSession({ id: 'r2', project: 'project-a', model: 'model-b', output: 1_000_000, legacyCost: 800, timestamp: '2026-03-24T09:00:00+08:00' }),
+      makeSession({ id: 'r1', project: 'project-a', model: 'model-a', input: 1_000_000, cacheRead: 1_000_000, legacyCost: 700 }),
+      makeSession({ id: 'r2', project: 'project-a', model: 'model-b', output: 1_000_000, cacheCreation: 1_000_000, legacyCost: 800, timestamp: '2026-03-24T09:00:00+08:00' }),
     ];
     const stats = makeStatistics({
       sessions: 2,
       instructions: 2,
       modelBuckets: {
-        'model-a': makeModelTokens(1_000_000, 0, 0, 0, 700),
-        'model-b': makeModelTokens(0, 1_000_000, 0, 0, 800),
+        'model-a': makeModelTokens(1_000_000, 0, 1_000_000, 0, 700),
+        'model-b': makeModelTokens(0, 1_000_000, 0, 1_000_000, 800),
       },
       legacyCost: 999,
     });

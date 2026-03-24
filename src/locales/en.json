@@ -228,6 +228,9 @@
   "cost.time": "Time",
   "cost.project": "Project",
   "cost.tokens": "tokens",
+  "cost.cached": "Cached",
+  "cost.notIncludedInTotal": "Not included in total",
+  "cost.cacheValue": "Cache value",
 
   "skills.title": "Skills",
   "skills.loading": "Loading...",
@@ -274,5 +277,19 @@
   "chart.mcpUsage": "MCP Usage",
   "chart.more": "more",
 
-  "footer.lastUpdated": "Last updated: "
+  "footer.lastUpdated": "Last updated: ",
+
+  "codeChanges.title": "Code Changes Detail",
+  "codeChanges.unified": "Unified",
+  "codeChanges.sideBySide": "Side by Side",
+  "codeChanges.searchPlaceholder": "Search files...",
+  "codeChanges.diffUnavailable": "Diff content unavailable",
+  "codeChanges.binaryFile": "Binary file changed",
+  "codeChanges.linesShown": "Showing first {n} of {total} lines",
+  "codeChanges.files": "Files",
+  "codeChanges.additions": "Additions",
+  "codeChanges.deletions": "Deletions",
+  "codeChanges.net": "Net",
+  "codeChanges.loading": "Loading code changes...",
+  "codeChanges.noData": "No code changes found"
 }

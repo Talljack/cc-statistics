@@ -1,4 +1,4 @@
-use cc_statistics_lib::aggregation::aggregate_statistics;
+use cc_statistics_lib::aggregation::{aggregate_code_changes_detail, aggregate_statistics};
 use cc_statistics_lib::models::QueryTimeRange;
 use chrono::DateTime;
 use cc_statistics_lib::sources::{openclaw, opencode};
@@ -263,6 +263,134 @@ fn opencode_partial_range_excludes_summary_code_changes() {
     assert_eq!(stats.code_changes.total.additions, 0);
     assert_eq!(stats.code_changes.total.deletions, 0);
     assert_eq!(stats.code_changes.total.files, 0);
+}
+
+#[test]
+fn opencode_summary_diffs_produce_file_level_detail_records() {
+    let _lock = HOME_LOCK.lock().unwrap();
+    let home = unique_temp_dir("opencode-summary-diffs-home");
+    let db_dir = home.join(".local/share/opencode");
+    fs::create_dir_all(&db_dir).unwrap();
+
+    let db_path = db_dir.join("opencode.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE project (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            worktree TEXT
+        );
+        CREATE TABLE session (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            time_created INTEGER,
+            time_updated INTEGER,
+            summary_additions INTEGER,
+            summary_deletions INTEGER,
+            summary_files INTEGER
+        );
+        CREATE TABLE message (
+            session_id TEXT,
+            time_created INTEGER,
+            data TEXT
+        );
+        "#,
+    )
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO project (id, name, worktree) VALUES (?1, ?2, ?3)",
+        rusqlite::params!["project-1", "detail-demo", "/tmp/detail-demo"],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO session (id, project_id, time_created, time_updated, summary_additions, summary_deletions, summary_files) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            "session-1",
+            "project-1",
+            ts_millis("2026-03-10T09:00:00+08:00"),
+            ts_millis("2026-03-10T09:01:00+08:00"),
+            99_i64,
+            99_i64,
+            99_i64
+        ],
+    )
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO message (session_id, time_created, data) VALUES (?1, ?2, ?3)",
+        rusqlite::params![
+            "session-1",
+            ts_millis("2026-03-10T09:00:10+08:00"),
+            json!({
+                "role": "user",
+                "content": "Show me the diff",
+                "summary": {
+                    "diffs": [
+                        {
+                            "file": "src/new.ts",
+                            "before": "",
+                            "after": "export const created = true;\nconsole.log(created);"
+                        },
+                        {
+                            "file": "src/existing.ts",
+                            "before": "const value = 1;\nconsole.log(value);",
+                            "after": "const value = 2;\nconsole.log(value);"
+                        }
+                    ]
+                }
+            })
+            .to_string()
+        ],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO message (session_id, time_created, data) VALUES (?1, ?2, ?3)",
+        rusqlite::params![
+            "session-1",
+            ts_millis("2026-03-10T09:00:20+08:00"),
+            json!({
+                "role": "assistant",
+                "modelID": "codex-1",
+                "tokens": {
+                    "input": 10,
+                    "output": 20,
+                    "reasoning": 0,
+                    "cache": { "read": 0, "write": 0 }
+                },
+                "cost": 0.0,
+                "time": {
+                    "created": ts_millis("2026-03-10T09:00:20+08:00"),
+                    "completed": ts_millis("2026-03-10T09:00:30+08:00")
+                }
+            })
+            .to_string()
+        ],
+    )
+    .unwrap();
+
+    let _guard = HomeGuard::set(&home);
+    let sessions = opencode::collect_normalized_sessions(Some("detail-demo"), &absolute_same_day());
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &absolute_same_day(), &None, &[]);
+    assert_eq!(stats.code_changes.total.files, 2);
+    assert_eq!(stats.code_changes.total.additions, 3);
+    assert_eq!(stats.code_changes.total.deletions, 1);
+
+    let details = aggregate_code_changes_detail(&sessions, &absolute_same_day(), &None, &[]);
+    assert_eq!(details.len(), 2);
+    assert_eq!(details[0].file_path, "src/existing.ts");
+    assert!(matches!(
+        details[0].diff_content,
+        Some(cc_statistics_lib::models::DiffContent::TextPair { .. })
+    ));
+    assert_eq!(details[1].file_path, "src/new.ts");
+    assert!(matches!(
+        details[1].diff_content,
+        Some(cc_statistics_lib::models::DiffContent::Created { .. })
+    ));
 }
 
 #[test]

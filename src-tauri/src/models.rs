@@ -168,3 +168,27 @@ pub enum QueryTimeRange {
 fn default_include_today() -> bool {
     true
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffLine {
+    pub kind: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DiffContent {
+    Patch { lines: Vec<DiffLine> },
+    TextPair { old: String, new: String },
+    Created { content: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileChange {
+    pub file_path: String,
+    pub extension: String,
+    pub change_type: String,
+    pub additions: u32,
+    pub deletions: u32,
+    pub diff_content: Option<DiffContent>,
+}

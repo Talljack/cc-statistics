@@ -228,6 +228,9 @@
   "cost.time": "時間",
   "cost.project": "プロジェクト",
   "cost.tokens": "トークン",
+  "cost.cached": "キャッシュ済み",
+  "cost.notIncludedInTotal": "合計には含まれません",
+  "cost.cacheValue": "キャッシュ金額",
 
   "skills.title": "スキル",
   "skills.loading": "読み込み中...",
@@ -274,5 +277,19 @@
   "chart.mcpUsage": "MCP 使用",
   "chart.more": "その他",
 
-  "footer.lastUpdated": "最終更新："
+  "footer.lastUpdated": "最終更新：",
+
+  "codeChanges.title": "コード変更詳細",
+  "codeChanges.unified": "統合ビュー",
+  "codeChanges.sideBySide": "サイドバイサイド",
+  "codeChanges.searchPlaceholder": "ファイル検索...",
+  "codeChanges.diffUnavailable": "diff内容は利用できません",
+  "codeChanges.binaryFile": "バイナリファイルが変更されました",
+  "codeChanges.linesShown": "最初の{n}行を表示（全{total}行）",
+  "codeChanges.files": "ファイル",
+  "codeChanges.additions": "追加",
+  "codeChanges.deletions": "削除",
+  "codeChanges.net": "差引",
+  "codeChanges.loading": "コード変更を読み込み中...",
+  "codeChanges.noData": "コード変更が見つかりません"
 }

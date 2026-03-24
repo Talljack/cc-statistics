@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo } from '../types/statistics';
+import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo, FileChange } from '../types/statistics';
 import { useSettingsStore } from '../stores/settingsStore';
 import { serializeTimeRangeForQuery, type ActiveTimeRange } from '../lib/timeRanges';
 
@@ -99,5 +99,25 @@ export function usePresetModels() {
     queryKey: ['preset-models'],
     queryFn: () => invoke<string[]>('get_preset_models'),
     staleTime: 24 * 60 * 60 * 1000,
+  });
+}
+
+export function useCodeChangesDetail(project: string | null, activeRange: ActiveTimeRange, providerFilter?: string | null) {
+  const customProviders = useSettingsStore((s) => s.customProviders);
+  const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const savedRanges = useSettingsStore((s) => s.savedTimeRanges);
+  const { timeRange, timeFilter, queryKey } = serializeTimeRangeForQuery(activeRange, savedRanges);
+
+  return useQuery<FileChange[]>({
+    queryKey: ['code-changes-detail', project, queryKey, providerFilter ?? null, customProviders, enabledSources],
+    queryFn: () => invoke<FileChange[]>('get_code_changes_detail', {
+      project,
+      timeFilter,
+      timeRange,
+      providerFilter: providerFilter ?? null,
+      customProviders: customProviders.length > 0 ? customProviders : null,
+      enabledSources,
+    }),
+    staleTime: 60 * 1000,
   });
 }

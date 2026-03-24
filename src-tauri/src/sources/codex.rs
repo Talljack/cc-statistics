@@ -578,7 +578,7 @@ fn parse_codex_patch_records(
     timestamp: DateTime<chrono::FixedOffset>,
     patch_text: &str,
 ) -> Vec<NormalizedRecord> {
-    let mut per_file: HashMap<String, (u32, u32)> = HashMap::new();
+    let mut per_file: HashMap<String, (u32, u32, Vec<DiffLine>)> = HashMap::new();
     let mut current_file: Option<String> = None;
 
     for line in patch_text.lines() {
@@ -607,19 +607,37 @@ fn parse_codex_patch_records(
             continue;
         };
 
-        let entry = per_file.entry(file_path).or_insert((0, 0));
+        let entry = per_file.entry(file_path).or_insert((0, 0, Vec::new()));
         if line.starts_with('+') && !line.starts_with("+++") {
             entry.0 += 1;
+            entry.2.push(DiffLine {
+                kind: "add".to_string(),
+                content: line[1..].to_string(),
+            });
         } else if line.starts_with('-') && !line.starts_with("---") {
             entry.1 += 1;
+            entry.2.push(DiffLine {
+                kind: "remove".to_string(),
+                content: line[1..].to_string(),
+            });
+        } else if line.starts_with(' ') {
+            entry.2.push(DiffLine {
+                kind: "context".to_string(),
+                content: line[1..].to_string(),
+            });
         }
     }
 
     let mut records = Vec::new();
-    for (file_path, (additions, deletions)) in per_file {
+    for (file_path, (additions, deletions, diff_lines)) in per_file {
         if additions == 0 && deletions == 0 {
             continue;
         }
+        let diff_content = if diff_lines.is_empty() {
+            None
+        } else {
+            Some(DiffContent::Patch { lines: diff_lines })
+        };
         records.push(NormalizedRecord::CodeChange(CodeChangeRecord {
             timestamp,
             file_path: file_path.clone(),
@@ -627,6 +645,7 @@ fn parse_codex_patch_records(
             additions,
             deletions,
             files: 1,
+            diff_content,
         }));
     }
     records

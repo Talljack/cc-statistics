@@ -23,6 +23,7 @@ pub fn run() {
             get_sessions,
             get_instructions,
             get_available_providers,
+            get_code_changes_detail,
             update_tray_stats,
             detect_sources,
             get_preset_models,

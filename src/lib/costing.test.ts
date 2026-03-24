@@ -198,6 +198,12 @@ describe('deriveCostMetrics', () => {
     expect(result.costByType.output).toBe(0);
     expect(result.costByType.cache_read).toBe(0);
     expect(result.costByType.cache_creation).toBe(0);
+    expect(result.cacheTokens.read).toBe(500_000);
+    expect(result.cacheTokens.creation).toBe(250_000);
+    expect(result.cacheTokens.total).toBe(750_000);
+    expect(result.cacheCost.read).toBeCloseTo(15);
+    expect(result.cacheCost.creation).toBeCloseTo(10);
+    expect(result.cacheCost.total).toBeCloseTo(25);
     expect(result.costByModel['anthropic/claude-sonnet-4-5']).toBe(0);
   });
 
@@ -249,6 +255,65 @@ describe('deriveCostMetrics', () => {
     expect(result.totalCost).toBeCloseTo(50);
   });
 
+  it('keeps mixed billable and cache totals separate', () => {
+    const result = deriveCostMetrics(
+      [
+        session('session-mixed-cache', {
+          'anthropic/claude-sonnet-4-5': tokens(1_000_000, 0, 500_000, 0),
+          'anthropic/claude-sonnet-4-6': tokens(0, 1_000_000, 0, 500_000),
+        }),
+      ],
+      snapshot({
+        customPricingEnabled: true,
+        customPricing: {
+          'claude-sonnet-4-5': customPricing(10, 20, 30, 40),
+        },
+        dynamicPricing: [modelPricing('anthropic/claude-sonnet-4-6', 30, 40, 50, 60)],
+      })
+    );
+
+    expect(result.totalCost).toBeCloseTo(50);
+    expect(result.costByType.input + result.costByType.output).toBeCloseTo(result.totalCost);
+    expect(result.costByType.cache_read).toBe(0);
+    expect(result.costByType.cache_creation).toBe(0);
+    expect(result.cacheTokens.read).toBe(500_000);
+    expect(result.cacheTokens.creation).toBe(500_000);
+    expect(result.cacheTokens.total).toBe(1_000_000);
+    expect(result.cacheCost.read).toBeCloseTo(15);
+    expect(result.cacheCost.creation).toBeCloseTo(30);
+    expect(result.cacheCost.total).toBeCloseTo(45);
+    expect(result.costBySession).toEqual([
+      { key: 'claude_code:session-mixed-cache', totalCost: 50 },
+    ]);
+    expect(result.costByModel['anthropic/claude-sonnet-4-5']).toBeCloseTo(10);
+    expect(result.costByModel['anthropic/claude-sonnet-4-6']).toBeCloseTo(40);
+  });
+
+  it('keeps cache cost at zero when cache pricing is missing', () => {
+    const result = deriveCostMetrics(
+      [
+        session('session-missing-cache-pricing', {
+          'anthropic/claude-sonnet-4-5': tokens(1_000_000, 0, 500_000, 250_000),
+        }),
+      ],
+      snapshot({
+        customPricingEnabled: true,
+        customPricing: {
+          'claude-sonnet-4-5': customPricing(10, 20),
+        },
+      })
+    );
+
+    expect(result.totalCost).toBeCloseTo(10);
+    expect(result.cacheTokens.read).toBe(500_000);
+    expect(result.cacheTokens.creation).toBe(250_000);
+    expect(result.cacheTokens.total).toBe(750_000);
+    expect(result.cacheCost.read).toBe(0);
+    expect(result.cacheCost.creation).toBe(0);
+    expect(result.cacheCost.total).toBe(0);
+    expect(result.costByModel['anthropic/claude-sonnet-4-5']).toBeCloseTo(10);
+  });
+
   it('recomputes all derived outputs when the pricing snapshot changes', () => {
     const sessions = [
       session('session-recompute', {
@@ -294,7 +359,7 @@ describe('deriveCostMetrics', () => {
     const result = deriveCostMetrics(
       [
         session('session-unknown', {
-          unknown: tokens(1_000_000, 1_000_000, 500_000, 500_000),
+          unknown: tokens(0, 0, 500_000, 500_000),
         }),
       ],
       snapshot({
@@ -308,6 +373,12 @@ describe('deriveCostMetrics', () => {
 
     expect(result.totalCost).toBe(0);
     expect(result.costByModel.unknown).toBe(0);
+    expect(result.cacheTokens.read).toBe(500_000);
+    expect(result.cacheTokens.creation).toBe(500_000);
+    expect(result.cacheTokens.total).toBe(1_000_000);
+    expect(result.cacheCost.read).toBe(0);
+    expect(result.cacheCost.creation).toBe(0);
+    expect(result.cacheCost.total).toBe(0);
     expect(result.costByType.input).toBe(0);
     expect(result.costByType.output).toBe(0);
   });

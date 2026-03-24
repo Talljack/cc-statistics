@@ -4,6 +4,10 @@ use crate::normalized::{
     CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord,
     ToolRecord,
 };
+/// Maximum size (in bytes) for oldString/newString or created content before dropping diff data
+const MAX_DIFF_TEXT_BYTES: usize = 50 * 1024;
+/// Maximum total lines in structuredPatch before truncation
+const MAX_PATCH_LINES: usize = 1000;
 use chrono::{DateTime, Duration, Local, TimeZone};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -576,8 +580,8 @@ fn parse_normalized_user_record(value: &Value, session: &mut NormalizedSession) 
     };
 
     if let Some(tool_use_result) = value.get("toolUseResult") {
-        if let Some((file_path, extension, additions, deletions)) =
-            extract_tool_result_code_changes(tool_use_result)
+        if let Some((file_path, extension, additions, deletions, diff_content)) =
+            extract_tool_result_code_changes_with_diff(tool_use_result)
         {
             session
                 .records
@@ -588,6 +592,7 @@ fn parse_normalized_user_record(value: &Value, session: &mut NormalizedSession) 
                     additions,
                     deletions,
                     files: 1,
+                    diff_content,
                 }));
         }
         return;
@@ -739,6 +744,142 @@ fn extract_tool_result_code_changes(tool_use_result: &Value) -> Option<(String, 
     None
 }
 
+/// Like `extract_tool_result_code_changes` but also preserves raw diff data.
+fn extract_tool_result_code_changes_with_diff(
+    tool_use_result: &Value,
+) -> Option<(String, String, u32, u32, Option<DiffContent>)> {
+    let file_path = tool_use_result
+        .get("filePath")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            tool_use_result
+                .get("file")
+                .and_then(|value| value.get("filePath"))
+                .and_then(|value| value.as_str())
+        })?;
+
+    let file_path_owned = file_path.to_string();
+    let extension = file_extension(file_path);
+    let result_type = tool_use_result
+        .get("type")
+        .and_then(|value| value.as_str());
+
+    // Explicit "create" => count content lines as additions
+    if result_type == Some("create") {
+        let content_str = tool_use_result
+            .get("content")
+            .and_then(|value| value.as_str());
+        let additions = content_str.map(count_lines).unwrap_or(0);
+        if additions > 0 {
+            let diff_content = content_str.and_then(|c| {
+                if c.len() > MAX_DIFF_TEXT_BYTES {
+                    None
+                } else {
+                    Some(DiffContent::Created {
+                        content: c.to_string(),
+                    })
+                }
+            });
+            return Some((file_path_owned, extension, additions, 0, diff_content));
+        }
+    }
+
+    // Check structuredPatch
+    if let Some(patches) = tool_use_result
+        .get("structuredPatch")
+        .and_then(|value| value.as_array())
+    {
+        let (additions, deletions) = count_structured_patch_changes(patches);
+        if additions > 0 || deletions > 0 {
+            let diff_content = parse_structured_patch_diff(patches);
+            return Some((file_path_owned, extension, additions, deletions, diff_content));
+        }
+    }
+
+    // Fallback: oldString/newString replacement
+    let old_text = tool_use_result
+        .get("oldString")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            tool_use_result
+                .get("originalFile")
+                .and_then(|value| value.as_str())
+        });
+    let new_text = tool_use_result
+        .get("newString")
+        .and_then(|value| value.as_str());
+
+    if old_text.is_some() || new_text.is_some() {
+        let old = old_text.unwrap_or("");
+        let new = new_text.unwrap_or("");
+        let (additions, deletions) = count_replacement_changes(old, new);
+        if additions > 0 || deletions > 0 {
+            let diff_content = if old.len() > MAX_DIFF_TEXT_BYTES || new.len() > MAX_DIFF_TEXT_BYTES
+            {
+                None
+            } else {
+                Some(DiffContent::TextPair {
+                    old: old.to_string(),
+                    new: new.to_string(),
+                })
+            };
+            return Some((file_path_owned, extension, additions, deletions, diff_content));
+        }
+    }
+
+    None
+}
+
+/// Parse structuredPatch lines into DiffContent::Patch with truncation.
+fn parse_structured_patch_diff(patches: &[Value]) -> Option<DiffContent> {
+    let mut diff_lines = Vec::new();
+
+    for patch in patches {
+        let Some(lines) = patch.get("lines").and_then(|value| value.as_array()) else {
+            continue;
+        };
+
+        for line in lines {
+            let Some(line_str) = line.as_str() else {
+                continue;
+            };
+
+            if line_str.starts_with("+++") || line_str.starts_with("---") {
+                continue;
+            }
+
+            let (kind, content) = if line_str.starts_with('+') {
+                ("add", &line_str[1..])
+            } else if line_str.starts_with('-') {
+                ("remove", &line_str[1..])
+            } else if line_str.starts_with(' ') {
+                ("context", &line_str[1..])
+            } else {
+                ("context", line_str)
+            };
+
+            diff_lines.push(DiffLine {
+                kind: kind.to_string(),
+                content: content.to_string(),
+            });
+
+            if diff_lines.len() >= MAX_PATCH_LINES {
+                break;
+            }
+        }
+
+        if diff_lines.len() >= MAX_PATCH_LINES {
+            break;
+        }
+    }
+
+    if diff_lines.is_empty() {
+        None
+    } else {
+        Some(DiffContent::Patch { lines: diff_lines })
+    }
+}
+
 fn count_structured_patch_changes(patches: &[Value]) -> (u32, u32) {
     let mut additions = 0;
     let mut deletions = 0;
@@ -767,16 +908,56 @@ fn count_structured_patch_changes(patches: &[Value]) -> (u32, u32) {
     (additions, deletions)
 }
 
-fn count_replacement_changes(old_text: &str, new_text: &str) -> (u32, u32) {
-    let old_lines = count_lines(old_text);
-    let new_lines = count_lines(new_text);
+pub(crate) fn count_replacement_changes(old_text: &str, new_text: &str) -> (u32, u32) {
+    let old_lines = old_text.lines().collect::<Vec<_>>();
+    let new_lines = new_text.lines().collect::<Vec<_>>();
+    let mut additions = 0_u32;
+    let mut deletions = 0_u32;
+    let mut oi = 0_usize;
+    let mut ni = 0_usize;
 
-    if old_text.is_empty() && !new_text.is_empty() {
-        return (new_lines, 0);
+    while oi < old_lines.len() || ni < new_lines.len() {
+        if oi < old_lines.len() && ni < new_lines.len() && old_lines[oi] == new_lines[ni] {
+            oi += 1;
+            ni += 1;
+            continue;
+        }
+
+        let mut match_found = false;
+
+        for look in 1..=10 {
+            if oi + look < old_lines.len()
+                && ni < new_lines.len()
+                && old_lines[oi + look] == new_lines[ni]
+            {
+                deletions += look as u32;
+                oi += look;
+                match_found = true;
+                break;
+            }
+            if ni + look < new_lines.len()
+                && oi < old_lines.len()
+                && new_lines[ni + look] == old_lines[oi]
+            {
+                additions += look as u32;
+                ni += look;
+                match_found = true;
+                break;
+            }
+        }
+
+        if !match_found {
+            if oi < old_lines.len() {
+                deletions += 1;
+                oi += 1;
+            }
+            if ni < new_lines.len() {
+                additions += 1;
+                ni += 1;
+            }
+        }
     }
 
-    let additions = new_lines.saturating_sub(old_lines);
-    let deletions = old_lines.saturating_sub(new_lines);
     (additions, deletions)
 }
 
@@ -882,5 +1063,27 @@ fn extract_user_content(value: &Value) -> String {
                 .join("\n")
         }
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::count_replacement_changes;
+
+    #[test]
+    fn replacement_changes_count_equal_line_edits() {
+        let (additions, deletions) =
+            count_replacement_changes("one\ntwo\nthree", "one\nTWO\nthree");
+        assert_eq!((additions, deletions), (1, 1));
+    }
+
+    #[test]
+    fn replacement_changes_count_insertions_and_deletions() {
+        assert_eq!(count_replacement_changes("", "one\ntwo"), (2, 0));
+        assert_eq!(count_replacement_changes("one\ntwo", ""), (0, 2));
+        assert_eq!(
+            count_replacement_changes("one\nthree", "one\ntwo\nthree"),
+            (1, 0)
+        );
     }
 }

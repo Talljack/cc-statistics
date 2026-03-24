@@ -3,9 +3,10 @@ import { useTranslation } from '../../lib/i18n';
 
 interface CodeChangesProps {
   codeChanges: CodeChangesType;
+  onClick?: () => void;
 }
 
-export function CodeChanges({ codeChanges }: CodeChangesProps) {
+export function CodeChanges({ codeChanges, onClick }: CodeChangesProps) {
   const { t } = useTranslation();
   const { total, by_extension } = codeChanges;
   const extensions = Object.entries(by_extension);
@@ -24,7 +25,10 @@ export function CodeChanges({ codeChanges }: CodeChangesProps) {
     : 0;
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+    <div
+      className={`bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]${onClick ? ' cursor-pointer hover:border-[#3a3a3a] transition-colors' : ''}`}
+      onClick={onClick}
+    >
       <h3 className="text-lg font-semibold mb-4">{t('chart.codeChanges')}</h3>
 
       {/* Summary */}

@@ -228,6 +228,9 @@
   "cost.time": "时间",
   "cost.project": "项目",
   "cost.tokens": "tokens",
+  "cost.cached": "已缓存",
+  "cost.notIncludedInTotal": "未计入 total",
+  "cost.cacheValue": "缓存金额",
 
   "skills.title": "Skills",
   "skills.loading": "加载中...",
@@ -274,5 +277,19 @@
   "chart.mcpUsage": "MCP 使用",
   "chart.more": "更多",
 
-  "footer.lastUpdated": "最后更新："
+  "footer.lastUpdated": "最后更新：",
+
+  "codeChanges.title": "代码变更详情",
+  "codeChanges.unified": "合并视图",
+  "codeChanges.sideBySide": "并排视图",
+  "codeChanges.searchPlaceholder": "搜索文件...",
+  "codeChanges.diffUnavailable": "diff 内容不可用",
+  "codeChanges.binaryFile": "二进制文件已变更",
+  "codeChanges.linesShown": "展示前 {n} 行，共 {total} 行",
+  "codeChanges.files": "文件",
+  "codeChanges.additions": "新增",
+  "codeChanges.deletions": "删除",
+  "codeChanges.net": "净变更",
+  "codeChanges.loading": "加载代码变更中...",
+  "codeChanges.noData": "未找到代码变更"
 }
