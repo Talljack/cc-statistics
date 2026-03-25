@@ -1,3 +1,4 @@
+pub mod account_providers;
 pub mod aggregation;
 pub mod classification;
 pub mod commands;

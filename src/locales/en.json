@@ -307,5 +307,8 @@
   "account.moderate": "Moderate usage",
   "account.healthy": "Healthy",
   "account.autoDetected": "auto",
+  "account.balance": "Balance",
+  "account.localModels": "Local Models",
+  "account.configNote": "API keys for non-auto-detected providers can be set in ~/.cc-statistics/providers.json",
   "account.infoNote": "Usage data is fetched in real-time from official APIs, matching the provider dashboards."
 }

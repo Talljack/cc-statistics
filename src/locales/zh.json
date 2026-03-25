@@ -307,5 +307,8 @@
   "account.moderate": "适度使用",
   "account.healthy": "正常",
   "account.autoDetected": "自动检测",
+  "account.balance": "余额",
+  "account.localModels": "本地模型",
+  "account.configNote": "未自动检测到的提供商 API Key 可在 ~/.cc-statistics/providers.json 中配置",
   "account.infoNote": "用量数据通过官方 API 实时获取，数据与官方仪表盘一致。"
 }

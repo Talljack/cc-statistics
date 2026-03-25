@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountUsage } from '../hooks/useStatistics';
@@ -11,13 +11,51 @@ const SOURCE_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
   codex: 'Codex CLI',
   gemini: 'Gemini CLI',
+  openrouter: 'OpenRouter',
+  copilot: 'GitHub Copilot',
+  kimi_k2: 'Kimi K2',
+  zai: 'Z.AI (GLM)',
+  warp: 'Warp',
+  cursor: 'Cursor',
+  kimi: 'Kimi',
+  amp: 'Amp',
+  factory: 'Factory',
+  augment: 'Augment',
+  jetbrains_ai: 'JetBrains AI',
+  ollama_cloud: 'Ollama Cloud',
+  kiro: 'Kiro',
 };
 
 const SOURCE_COLORS: Record<string, string> = {
   claude_code: '#f97316',
   codex: '#3b82f6',
-  gemini: '#22c55e',
+  gemini: '#4285f4',
+  openrouter: '#6366f1',
+  copilot: '#238636',
+  kimi_k2: '#06b6d4',
+  zai: '#8b5cf6',
+  warp: '#ec4899',
+  cursor: '#0ea5e9',
+  kimi: '#14b8a6',
+  amp: '#f59e0b',
+  factory: '#ef4444',
+  augment: '#10b981',
+  jetbrains_ai: '#ff318c',
+  ollama_cloud: '#a3a3a3',
+  kiro: '#ff9900',
 };
+
+// Deterministic color for unknown providers
+function sourceColor(source: string): string {
+  if (SOURCE_COLORS[source]) return SOURCE_COLORS[source];
+  let hash = 0;
+  for (let i = 0; i < source.length; i++) hash = source.charCodeAt(i) + ((hash << 5) - hash);
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 65%, 55%)`;
+}
+
+// Whether a provider uses credits (no window reset) vs rate-limit windows
+const CREDITS_ONLY_SOURCES = new Set(['openrouter', 'kimi_k2', 'zai', 'kiro']);
 
 function getStatusColor(percentage: number): string {
   if (percentage >= 85) return '#ef4444';
@@ -90,10 +128,9 @@ function UsageProgressBar({ label, usedPercent, resetSeconds }: {
 function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => string }) {
   const source = usage.source;
   const label = SOURCE_LABELS[source] || source;
-  const overallUsed = Math.max(
-    usage.sessionUsedPercent,
-    usage.weeklyUsedPercent ?? 0
-  );
+  const color = sourceColor(source);
+  const isCreditsOnly = CREDITS_ONLY_SOURCES.has(source);
+  const overallUsed = Math.max(usage.sessionUsedPercent, usage.weeklyUsedPercent ?? 0);
   const statusColor = getStatusColor(overallUsed);
 
   return (
@@ -101,19 +138,19 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
       {/* Header */}
       <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: SOURCE_COLORS[source] || '#a855f7' }} />
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
           <h3 className="text-base font-semibold">{label}</h3>
-          <div
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: statusColor }}
-            title={overallUsed >= 85 ? t('account.nearLimit') : overallUsed >= 60 ? t('account.moderate') : t('account.healthy')}
-          />
+          {!isCreditsOnly && (
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: statusColor }}
+              title={overallUsed >= 85 ? t('account.nearLimit') : overallUsed >= 60 ? t('account.moderate') : t('account.healthy')}
+            />
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="px-3 py-1 rounded-lg bg-[#2a2a2a] text-sm">
-            {usage.planType}
-          </span>
-        </div>
+        <span className="px-3 py-1 rounded-lg bg-[#2a2a2a] text-sm text-[#a0a0a0]">
+          {usage.planType}
+        </span>
       </div>
 
       {/* Limit reached warning */}
@@ -124,34 +161,48 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
         </div>
       )}
 
-      {/* Usage meters */}
-      <div className="p-5 space-y-5">
-        <UsageProgressBar
-          label={t('account.sessionWindow')}
-          usedPercent={usage.sessionUsedPercent}
-          resetSeconds={usage.sessionResetSeconds}
-        />
-        {usage.weeklyUsedPercent != null && (
-          <UsageProgressBar
-            label={t('account.weeklyWindow')}
-            usedPercent={usage.weeklyUsedPercent}
-            resetSeconds={usage.weeklyResetSeconds}
-          />
+      <div className="p-5 space-y-4">
+        {/* Credits-only providers: show balance prominently */}
+        {isCreditsOnly ? (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-[#a0a0a0]">
+              {t('account.balance')}
+            </span>
+            <span className={`text-lg font-semibold ${usage.limitReached ? 'text-[#ef4444]' : 'text-[#22c55e]'}`}>
+              {usage.creditsBalance != null ? `$${usage.creditsBalance.toFixed(4)}` : '—'}
+            </span>
+          </div>
+        ) : (
+          /* Rate-limit window providers: show progress bars */
+          <>
+            <UsageProgressBar
+              label={t('account.sessionWindow')}
+              usedPercent={usage.sessionUsedPercent}
+              resetSeconds={usage.sessionResetSeconds}
+            />
+            {usage.weeklyUsedPercent != null && (
+              <UsageProgressBar
+                label={t('account.weeklyWindow')}
+                usedPercent={usage.weeklyUsedPercent}
+                resetSeconds={usage.weeklyResetSeconds}
+              />
+            )}
+          </>
         )}
 
-        {/* Info row */}
-        <div className="flex items-center gap-3 pt-2 border-t border-[#2a2a2a]">
-          {usage.email && (
-            <div className="text-xs text-[#606060] truncate">
-              {usage.email}
-            </div>
-          )}
-          {usage.creditsBalance != null && (
-            <div className="text-xs text-[#a0a0a0] ml-auto">
-              Credits: ${usage.creditsBalance.toFixed(2)}
-            </div>
-          )}
-        </div>
+        {/* Footer: email + credits (for window-based providers that also have credits) */}
+        {(usage.email || (!isCreditsOnly && usage.creditsBalance != null)) && (
+          <div className="flex items-center gap-3 pt-2 border-t border-[#2a2a2a]">
+            {usage.email && (
+              <div className="text-xs text-[#606060] truncate">{usage.email}</div>
+            )}
+            {!isCreditsOnly && usage.creditsBalance != null && (
+              <div className="text-xs text-[#a0a0a0] ml-auto">
+                Credits: ${usage.creditsBalance.toFixed(2)}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -266,8 +317,9 @@ export function AccountUsage() {
         <div className="mt-6 bg-[#1a1a1a] rounded-xl p-4 border border-[#2a2a2a]">
           <div className="flex items-start gap-3">
             <BarChart3 className="w-5 h-5 text-[#606060] mt-0.5 shrink-0" />
-            <div className="text-sm text-[#606060]">
+            <div className="text-sm text-[#606060] space-y-1">
               <p>{t('account.infoNote')}</p>
+              <p className="text-[#505050]">{t('account.configNote')}</p>
             </div>
           </div>
         </div>

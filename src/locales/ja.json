@@ -307,5 +307,8 @@
   "account.moderate": "適度な使用",
   "account.healthy": "正常",
   "account.autoDetected": "自動検出",
+  "account.balance": "残高",
+  "account.localModels": "ローカルモデル",
+  "account.configNote": "自動検出されないプロバイダーのAPIキーは ~/.cc-statistics/providers.json で設定できます",
   "account.infoNote": "使用量データは公式APIからリアルタイムで取得されており、プロバイダーのダッシュボードと一致します。"
 }
