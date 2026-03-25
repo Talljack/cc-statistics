@@ -307,5 +307,5 @@
   "account.moderate": "适度使用",
   "account.healthy": "正常",
   "account.autoDetected": "自动检测",
-  "account.infoNote": "用量基于本地日志文件估算。实际配额因订阅计划而异，请选择您的计划以查看准确百分比。"
+  "account.infoNote": "用量数据通过官方 API 实时获取，数据与官方仪表盘一致。"
 }

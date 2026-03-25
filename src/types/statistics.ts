@@ -114,17 +114,14 @@ export type TimeFilter = 'today' | 'week' | 'month' | 'all' | string;
 
 export interface ProviderUsage {
   source: string;
-  detectedPlan: string;
-  sessionRequests: number;
-  sessionTokens: number;
-  sessionCostUsd: number;
-  sessionEarliestTs: string | null;
-  sessionResetMs: number;
-  weeklyRequests: number;
-  weeklyTokens: number;
-  weeklyCostUsd: number;
-  weeklyEarliestTs: string | null;
-  weeklyResetMs: number;
+  planType: string;
+  sessionUsedPercent: number;
+  sessionResetSeconds: number;
+  weeklyUsedPercent: number | null;
+  weeklyResetSeconds: number;
+  limitReached: boolean;
+  email: string | null;
+  creditsBalance: number | null;
 }
 
 export interface AccountUsageResult {

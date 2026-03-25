@@ -197,17 +197,20 @@ pub struct FileChange {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsage {
     pub source: String,
-    pub detected_plan: String,
-    pub session_requests: u32,
-    pub session_tokens: u64,
-    pub session_cost_usd: f64,
-    pub session_earliest_ts: Option<String>,
-    pub session_reset_ms: i64,
-    pub weekly_requests: u32,
-    pub weekly_tokens: u64,
-    pub weekly_cost_usd: f64,
-    pub weekly_earliest_ts: Option<String>,
-    pub weekly_reset_ms: i64,
+    pub plan_type: String,
+    /// 5-hour window used percentage (0-100)
+    pub session_used_percent: f64,
+    /// 5-hour window reset countdown in seconds
+    pub session_reset_seconds: i64,
+    /// Weekly window used percentage (0-100), None if not available
+    pub weekly_used_percent: Option<f64>,
+    /// Weekly window reset countdown in seconds
+    pub weekly_reset_seconds: i64,
+    /// Whether the rate limit has been reached
+    pub limit_reached: bool,
+    /// Extra info like email, credits balance
+    pub email: Option<String>,
+    pub credits_balance: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

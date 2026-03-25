@@ -307,5 +307,5 @@
   "account.moderate": "Moderate usage",
   "account.healthy": "Healthy",
   "account.autoDetected": "auto",
-  "account.infoNote": "Usage is estimated from local log files. Actual quotas may vary by plan. Select your plan to see accurate percentages."
+  "account.infoNote": "Usage data is fetched in real-time from official APIs, matching the provider dashboards."
 }

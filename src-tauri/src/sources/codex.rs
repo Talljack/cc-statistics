@@ -1222,6 +1222,29 @@ fn query_sqlite_sessions(
     Ok(sessions)
 }
 
+/// Query Codex usage directly from the SQLite threads table for account usage.
+/// Returns (request_count, total_tokens, earliest_created_at_unix) for a given time window.
+pub fn query_codex_thread_usage(hours: i64) -> Option<(u32, u64, Option<i64>)> {
+    let db_path = codex_sqlite_path()?;
+    let conn = open_sqlite(&db_path)?;
+    let cutoff = Local::now().timestamp() - hours * 3600;
+    let mut stmt = conn
+        .prepare(
+            "SELECT COUNT(*), COALESCE(SUM(tokens_used), 0), MIN(created_at) \
+             FROM threads WHERE created_at >= ?1",
+        )
+        .ok()?;
+    let result = stmt
+        .query_row([cutoff], |row| {
+            let count: i64 = row.get(0)?;
+            let tokens: i64 = row.get(1)?;
+            let earliest: Option<i64> = row.get(2)?;
+            Ok((count as u32, tokens.max(0) as u64, earliest))
+        })
+        .ok()?;
+    Some(result)
+}
+
 /// Convert a TimeFilter into a Unix timestamp cutoff (seconds), or None for All.
 fn time_filter_to_unix(time_filter: &TimeFilter) -> Option<i64> {
     let now = Local::now();

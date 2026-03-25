@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountUsage } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { useTranslation } from '../lib/i18n';
-import { formatTokens, formatCost } from '../lib/utils';
-import { ArrowLeft, User, RefreshCw, Clock, BarChart3, ChevronDown } from 'lucide-react';
+import { ArrowLeft, User, RefreshCw, Clock, BarChart3, AlertTriangle } from 'lucide-react';
 import type { ProviderUsage } from '../types/statistics';
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -20,98 +19,16 @@ const SOURCE_COLORS: Record<string, string> = {
   gemini: '#22c55e',
 };
 
-// Plan definitions per source with estimated request quotas
-// Note: actual quotas are token-based and dynamic; these are approximate request equivalents
-interface PlanDef {
-  key: string;
-  label: string;
-  session: number;
-  weekly: number;
-}
-
-const CLAUDE_PLANS: PlanDef[] = [
-  { key: 'pro', label: 'Pro ($20)', session: 45, weekly: 900 },
-  { key: 'max_5x', label: 'Max 5x ($100)', session: 225, weekly: 4500 },
-  { key: 'max_20x', label: 'Max 20x ($200)', session: 900, weekly: 18000 },
-  { key: 'team', label: 'Team', session: 225, weekly: 4500 },
-  { key: 'enterprise', label: 'Enterprise', session: 450, weekly: 9000 },
-  { key: 'api_key', label: 'API Key', session: 9999, weekly: 99999 },
-];
-
-const CODEX_PLANS: PlanDef[] = [
-  { key: 'free', label: 'Free', session: 10, weekly: 50 },
-  { key: 'plus', label: 'Plus ($20)', session: 30, weekly: 500 },
-  { key: 'pro', label: 'Pro ($200)', session: 150, weekly: 3000 },
-  { key: 'team', label: 'Team ($25/user)', session: 100, weekly: 2000 },
-  { key: 'business', label: 'Business', session: 150, weekly: 3000 },
-  { key: 'enterprise', label: 'Enterprise', session: 300, weekly: 6000 },
-];
-
-const GEMINI_PLANS: PlanDef[] = [
-  { key: 'free', label: 'Free', session: 25, weekly: 300 },
-  { key: 'pro', label: 'Pro', session: 100, weekly: 2000 },
-  { key: 'enterprise', label: 'Enterprise', session: 500, weekly: 10000 },
-];
-
-const PLANS_BY_SOURCE: Record<string, PlanDef[]> = {
-  claude_code: CLAUDE_PLANS,
-  codex: CODEX_PLANS,
-  gemini: GEMINI_PLANS,
-};
-
-// Map detected plan string to plan index
-function findPlanIndex(plans: PlanDef[], detectedPlan: string): number {
-  // Direct key match
-  const idx = plans.findIndex(p => p.key === detectedPlan);
-  if (idx >= 0) return idx;
-
-  // Fuzzy match for common plan type names
-  const lower = detectedPlan.toLowerCase();
-  if (lower.includes('enterprise') || lower.includes('edu')) {
-    const i = plans.findIndex(p => p.key === 'enterprise');
-    if (i >= 0) return i;
-  }
-  if (lower.includes('business')) {
-    const i = plans.findIndex(p => p.key === 'business' || p.key === 'enterprise');
-    if (i >= 0) return i;
-  }
-  if (lower.includes('team')) {
-    const i = plans.findIndex(p => p.key === 'team');
-    if (i >= 0) return i;
-  }
-  if (lower.includes('max_20') || lower.includes('max20')) {
-    const i = plans.findIndex(p => p.key === 'max_20x');
-    if (i >= 0) return i;
-  }
-  if (lower.includes('max')) {
-    const i = plans.findIndex(p => p.key === 'max_5x');
-    if (i >= 0) return i;
-  }
-  if (lower.includes('plus')) {
-    const i = plans.findIndex(p => p.key === 'plus');
-    if (i >= 0) return i;
-  }
-  if (lower.includes('pro')) {
-    const i = plans.findIndex(p => p.key === 'pro');
-    if (i >= 0) return i;
-  }
-  if (lower === 'api_key' || lower === 'apikey') {
-    const i = plans.findIndex(p => p.key === 'api_key');
-    if (i >= 0) return i;
-  }
-  return 0; // default to first plan
-}
-
 function getStatusColor(percentage: number): string {
   if (percentage >= 85) return '#ef4444';
   if (percentage >= 60) return '#f59e0b';
   return '#22c55e';
 }
 
-function formatCountdown(ms: number): string {
-  if (ms <= 0) return '--';
-  const hours = Math.floor(ms / 3600000);
-  const mins = Math.floor((ms % 3600000) / 60000);
+function formatCountdown(seconds: number): string {
+  if (seconds <= 0) return '--';
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
   if (hours > 24) {
     const days = Math.floor(hours / 24);
     const remainHours = hours % 24;
@@ -121,40 +38,51 @@ function formatCountdown(ms: number): string {
   return `${mins}m`;
 }
 
-function UsageProgressBar({ label, current, max, resetMs }: {
+function UsageProgressBar({ label, usedPercent, resetSeconds }: {
   label: string;
-  current: number;
-  max: number;
-  resetMs: number;
+  usedPercent: number;
+  resetSeconds: number;
 }) {
-  const percentage = max > 0 ? Math.min((current / max) * 100, 100) : 0;
-  const statusColor = getStatusColor(percentage);
+  const remaining = Math.max(0, 100 - usedPercent);
+  const statusColor = getStatusColor(usedPercent);
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-sm text-[#a0a0a0]">{label}</span>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-mono" style={{ color: statusColor }}>
-            {current} / {max}
+          <span className="text-lg font-semibold" style={{ color: statusColor }}>
+            {remaining.toFixed(0)}%
           </span>
-          <span className="text-xs text-[#606060]">({percentage.toFixed(0)}%)</span>
+          <span className="text-xs text-[#606060]">remaining</span>
         </div>
       </div>
-      <div className="h-3 bg-[#2a2a2a] rounded-full overflow-hidden">
+      <div className="h-3 bg-[#2a2a2a] rounded-full overflow-hidden flex">
+        {/* Green = remaining portion */}
         <div
-          className="h-full rounded-full transition-all duration-700 ease-out"
+          className="h-full rounded-l-full transition-all duration-700 ease-out"
           style={{
-            width: `${percentage}%`,
-            backgroundColor: statusColor,
+            width: `${remaining}%`,
+            backgroundColor: '#22c55e',
             opacity: 0.85,
           }}
         />
+        {/* Gray/dark = used portion */}
+        <div
+          className="h-full rounded-r-full transition-all duration-700 ease-out"
+          style={{
+            width: `${usedPercent}%`,
+            backgroundColor: usedPercent >= 85 ? '#ef4444' : '#444',
+            opacity: 0.5,
+          }}
+        />
       </div>
-      <div className="flex items-center gap-1 text-xs text-[#606060]">
-        <Clock className="w-3 h-3" />
-        <span>Reset in {formatCountdown(resetMs)}</span>
-      </div>
+      {resetSeconds > 0 && (
+        <div className="flex items-center gap-1 text-xs text-[#606060]">
+          <Clock className="w-3 h-3" />
+          <span>Resets in {formatCountdown(resetSeconds)}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -162,21 +90,11 @@ function UsageProgressBar({ label, current, max, resetMs }: {
 function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => string }) {
   const source = usage.source;
   const label = SOURCE_LABELS[source] || source;
-  const plans = PLANS_BY_SOURCE[source] || CLAUDE_PLANS;
-
-  // Auto-detect initial plan from backend
-  const detectedIdx = findPlanIndex(plans, usage.detectedPlan);
-  const [selectedPlanIdx, setSelectedPlanIdx] = useState(detectedIdx);
-  const [showPlanSelector, setShowPlanSelector] = useState(false);
-  const plan = plans[selectedPlanIdx];
-
-  const sessionPct = plan.session > 0 ? (usage.sessionRequests / plan.session) * 100 : 0;
-  const weeklyPct = plan.weekly > 0 ? (usage.weeklyRequests / plan.weekly) * 100 : 0;
-  const overallStatus = Math.max(sessionPct, weeklyPct);
-  const statusColor = getStatusColor(overallStatus);
-
-  // Show detected plan badge
-  const isAutoDetected = usage.detectedPlan !== 'unknown';
+  const overallUsed = Math.max(
+    usage.sessionUsedPercent,
+    usage.weeklyUsedPercent ?? 0
+  );
+  const statusColor = getStatusColor(overallUsed);
 
   return (
     <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
@@ -188,69 +106,51 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
           <div
             className="w-2 h-2 rounded-full"
             style={{ backgroundColor: statusColor }}
-            title={overallStatus >= 85 ? t('account.nearLimit') : overallStatus >= 60 ? t('account.moderate') : t('account.healthy')}
+            title={overallUsed >= 85 ? t('account.nearLimit') : overallUsed >= 60 ? t('account.moderate') : t('account.healthy')}
           />
         </div>
-        <div className="relative">
-          <button
-            onClick={() => setShowPlanSelector(!showPlanSelector)}
-            className="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#2a2a2a] hover:bg-[#333] text-sm transition-colors"
-          >
-            {plan.label}
-            {isAutoDetected && selectedPlanIdx === detectedIdx && (
-              <span className="text-[10px] text-[#22c55e] ml-1">{t('account.autoDetected')}</span>
-            )}
-            <ChevronDown className="w-3 h-3" />
-          </button>
-          {showPlanSelector && (
-            <div className="absolute right-0 top-full mt-1 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg shadow-xl z-10 min-w-[180px]">
-              {plans.map((p, idx) => (
-                <button
-                  key={p.key}
-                  onClick={() => { setSelectedPlanIdx(idx); setShowPlanSelector(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[#333] transition-colors first:rounded-t-lg last:rounded-b-lg ${idx === selectedPlanIdx ? 'text-white' : 'text-[#a0a0a0]'}`}
-                >
-                  <span>{p.label}</span>
-                  {idx === detectedIdx && isAutoDetected && (
-                    <span className="text-[10px] text-[#22c55e] ml-1">{t('account.autoDetected')}</span>
-                  )}
-                  <span className="text-[#606060] ml-2 text-xs">{p.session}/{p.weekly}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <span className="px-3 py-1 rounded-lg bg-[#2a2a2a] text-sm">
+            {usage.planType}
+          </span>
         </div>
       </div>
+
+      {/* Limit reached warning */}
+      {usage.limitReached && (
+        <div className="mx-5 mt-4 px-3 py-2 rounded-lg bg-[#ef4444]/10 border border-[#ef4444]/30 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
+          <span className="text-sm text-[#ef4444]">{t('account.nearLimit')}</span>
+        </div>
+      )}
 
       {/* Usage meters */}
       <div className="p-5 space-y-5">
         <UsageProgressBar
           label={t('account.sessionWindow')}
-          current={usage.sessionRequests}
-          max={plan.session}
-          resetMs={usage.sessionResetMs}
+          usedPercent={usage.sessionUsedPercent}
+          resetSeconds={usage.sessionResetSeconds}
         />
-        <UsageProgressBar
-          label={t('account.weeklyWindow')}
-          current={usage.weeklyRequests}
-          max={plan.weekly}
-          resetMs={usage.weeklyResetMs}
-        />
+        {usage.weeklyUsedPercent != null && (
+          <UsageProgressBar
+            label={t('account.weeklyWindow')}
+            usedPercent={usage.weeklyUsedPercent}
+            resetSeconds={usage.weeklyResetSeconds}
+          />
+        )}
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3 pt-2 border-t border-[#2a2a2a]">
-          <div className="text-center">
-            <div className="text-xs text-[#606060] mb-1">{t('account.tokens5h')}</div>
-            <div className="text-sm font-mono">{formatTokens(usage.sessionTokens)}</div>
-          </div>
-          <div className="text-center">
-            <div className="text-xs text-[#606060] mb-1">{t('account.tokens7d')}</div>
-            <div className="text-sm font-mono">{formatTokens(usage.weeklyTokens)}</div>
-          </div>
-          <div className="text-center">
-            <div className="text-xs text-[#606060] mb-1">{t('account.cost7d')}</div>
-            <div className="text-sm font-mono">{formatCost(usage.weeklyCostUsd)}</div>
-          </div>
+        {/* Info row */}
+        <div className="flex items-center gap-3 pt-2 border-t border-[#2a2a2a]">
+          {usage.email && (
+            <div className="text-xs text-[#606060] truncate">
+              {usage.email}
+            </div>
+          )}
+          {usage.creditsBalance != null && (
+            <div className="text-xs text-[#a0a0a0] ml-auto">
+              Credits: ${usage.creditsBalance.toFixed(2)}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -261,7 +161,7 @@ export function AccountUsage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data, isLoading, isRefetching } = useAccountUsage();
+  const { data, isLoading, isRefetching, error } = useAccountUsage();
 
   // Live countdown timer
   const [, setTick] = useState(0);
@@ -276,8 +176,33 @@ export function AccountUsage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">{t('account.loading')}</div>
+      <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+        <Header onRefresh={() => {}} isRefreshing={false} />
+        <main className="flex-1 p-6 overflow-auto">
+          <div className="flex items-center gap-3 mb-6">
+            <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors">
+              <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+            </button>
+            <div className="flex items-center gap-2">
+              <User className="w-5 h-5 text-[#f97316]" />
+              <h2 className="text-xl font-semibold">{t('account.title')}</h2>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {[1, 2].map(i => (
+              <div key={i} className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-5 animate-pulse">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-3 h-3 rounded-full bg-[#2a2a2a]" />
+                  <div className="h-5 w-24 bg-[#2a2a2a] rounded" />
+                </div>
+                <div className="space-y-4">
+                  <div className="h-3 bg-[#2a2a2a] rounded-full" />
+                  <div className="h-3 bg-[#2a2a2a] rounded-full w-3/4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </main>
       </div>
     );
   }
@@ -316,6 +241,12 @@ export function AccountUsage() {
             {t('common.refresh')}
           </button>
         </div>
+
+        {error && (
+          <div className="mb-4 bg-[#1a1a1a] rounded-xl p-4 border border-[#ef4444]/30 text-sm text-[#ef4444]">
+            {String(error)}
+          </div>
+        )}
 
         {providers.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center">

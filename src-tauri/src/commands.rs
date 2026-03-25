@@ -595,257 +595,256 @@ pub fn get_preset_models() -> Vec<String> {
     defaults
 }
 
-/// Detect Codex subscription plan from ~/.codex/auth.json JWT token
-fn detect_codex_plan() -> String {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return "unknown".to_string(),
-    };
-    let auth_path = home.join(".codex").join("auth.json");
-    if !auth_path.exists() {
-        return "unknown".to_string();
-    }
-    let content = match fs::read_to_string(&auth_path) {
-        Ok(c) => c,
-        Err(_) => return "unknown".to_string(),
-    };
-    let json: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return "unknown".to_string(),
-    };
-    // Try to decode the JWT id_token to get chatgpt_plan_type
-    if let Some(id_token) = json.get("tokens").and_then(|t| t.get("id_token")).and_then(|t| t.as_str()) {
-        // JWT has 3 parts separated by '.', payload is the second part
-        let parts: Vec<&str> = id_token.split('.').collect();
-        if parts.len() >= 2 {
-            // Base64 decode the payload (URL-safe base64, no padding)
-            let payload = parts[1];
-            let padded = match payload.len() % 4 {
-                2 => format!("{}==", payload),
-                3 => format!("{}=", payload),
-                _ => payload.to_string(),
-            };
-            let decoded = padded.replace('-', "+").replace('_', "/");
-            if let Ok(bytes) = base64_decode(&decoded) {
-                if let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    if let Some(plan) = claims
-                        .get("https://api.openai.com/auth")
-                        .and_then(|auth| auth.get("chatgpt_plan_type"))
-                        .and_then(|p| p.as_str())
-                    {
-                        return plan.to_string();
-                    }
-                }
-            }
-        }
-    }
-    "unknown".to_string()
-}
-
-/// Simple base64 decoder (standard alphabet)
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = Vec::new();
-    let mut buf: u32 = 0;
-    let mut bits: u32 = 0;
-    for &b in input.as_bytes() {
-        if b == b'=' { break; }
-        let val = TABLE.iter().position(|&c| c == b)
-            .ok_or_else(|| "invalid base64".to_string())? as u32;
-        buf = (buf << 6) | val;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buf >> bits) as u8);
-            buf &= (1 << bits) - 1;
-        }
-    }
-    Ok(output)
-}
-
-/// Detect Claude subscription plan from settings
-fn detect_claude_plan() -> String {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return "unknown".to_string(),
-    };
-    let settings_path = home.join(".claude").join("settings.json");
-    if !settings_path.exists() {
-        return "unknown".to_string();
-    }
-    let content = match fs::read_to_string(&settings_path) {
-        Ok(c) => c,
-        Err(_) => return "unknown".to_string(),
-    };
-    let json: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return "unknown".to_string(),
-    };
-    // Check if using custom API endpoint (proxy/router user)
-    if let Some(env) = json.get("env").and_then(|e| e.as_object()) {
-        if let Some(base_url) = env.get("ANTHROPIC_BASE_URL").and_then(|u| u.as_str()) {
-            if !base_url.contains("anthropic.com") {
-                return "api_key".to_string();
-            }
-        }
-        if env.contains_key("ANTHROPIC_API_KEY") || env.contains_key("ANTHROPIC_AUTH_TOKEN") {
-            return "api_key".to_string();
-        }
-    }
-    // Default: assume Pro (most common for OAuth users)
-    "pro".to_string()
-}
 
 #[tauri::command]
 pub async fn get_account_usage(
     enabled_sources: Option<SourceConfig>,
 ) -> Result<AccountUsageResult, String> {
-    tokio::task::spawn_blocking(move || {
-        let config = enabled_sources.unwrap_or_default();
-        let now = Local::now();
+    let config = enabled_sources.unwrap_or_default();
+    let mut providers = Vec::new();
 
-        // 5-hour sliding window
-        let session_start = now - Duration::hours(5);
-        let session_range = QueryTimeRange::Absolute {
-            start_date: session_start.format("%Y-%m-%d").to_string(),
-            end_date: now.format("%Y-%m-%d").to_string(),
-        };
-
-        // 7-day weekly window
-        let weekly_start = now - Duration::days(7);
-        let weekly_range = QueryTimeRange::Absolute {
-            start_date: weekly_start.format("%Y-%m-%d").to_string(),
-            end_date: now.format("%Y-%m-%d").to_string(),
-        };
-
-        let session_sessions =
-            sources::collect_all_normalized_sessions(None, &session_range, &config);
-        let weekly_sessions =
-            sources::collect_all_normalized_sessions(None, &weekly_range, &config);
-
-        // Detect plans
-        let codex_plan = detect_codex_plan();
-        let claude_plan = detect_claude_plan();
-
-        let source_names: Vec<(&str, bool, &str)> = vec![
-            ("claude_code", config.claude_code, claude_plan.as_str()),
-            ("codex", config.codex, codex_plan.as_str()),
-            ("gemini", config.gemini, "unknown"),
-        ];
-
-        let mut providers = Vec::new();
-
-        for (source_name, enabled, detected_plan) in &source_names {
-            if !*enabled {
-                continue;
-            }
-
-            let mut s_requests: u32 = 0;
-            let mut s_tokens: u64 = 0;
-            let mut s_cost: f64 = 0.0;
-            let mut s_earliest: Option<DateTime<Local>> = None;
-
-            for sess in &session_sessions {
-                if !sess.source.eq_ignore_ascii_case(source_name) {
-                    continue;
-                }
-                for rec in &sess.records {
-                    match rec {
-                        crate::normalized::NormalizedRecord::Instruction(ir) => {
-                            let ts = ir.timestamp.with_timezone(&Local);
-                            if ts >= session_start {
-                                s_requests += 1;
-                                s_earliest = Some(match s_earliest {
-                                    Some(prev) => if ts < prev { ts } else { prev },
-                                    None => ts,
-                                });
-                            }
-                        }
-                        crate::normalized::NormalizedRecord::Token(tr) => {
-                            let ts = tr.timestamp.with_timezone(&Local);
-                            if ts >= session_start {
-                                s_tokens += tr.input + tr.output + tr.cache_read + tr.cache_creation;
-                                s_cost += tr.cost_usd;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            let mut w_requests: u32 = 0;
-            let mut w_tokens: u64 = 0;
-            let mut w_cost: f64 = 0.0;
-            let mut w_earliest: Option<DateTime<Local>> = None;
-
-            for sess in &weekly_sessions {
-                if !sess.source.eq_ignore_ascii_case(source_name) {
-                    continue;
-                }
-                for rec in &sess.records {
-                    match rec {
-                        crate::normalized::NormalizedRecord::Instruction(ir) => {
-                            let ts = ir.timestamp.with_timezone(&Local);
-                            if ts >= weekly_start {
-                                w_requests += 1;
-                                w_earliest = Some(match w_earliest {
-                                    Some(prev) => if ts < prev { ts } else { prev },
-                                    None => ts,
-                                });
-                            }
-                        }
-                        crate::normalized::NormalizedRecord::Token(tr) => {
-                            let ts = tr.timestamp.with_timezone(&Local);
-                            if ts >= weekly_start {
-                                w_tokens += tr.input + tr.output + tr.cache_read + tr.cache_creation;
-                                w_cost += tr.cost_usd;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            if s_requests == 0 && w_requests == 0 {
-                continue;
-            }
-
-            // Reset = earliest request + window duration
-            let session_reset_ms = match s_earliest {
-                Some(earliest) => {
-                    let reset_at = earliest + Duration::hours(5);
-                    (reset_at - now).num_milliseconds().max(0)
-                }
-                None => 0,
-            };
-            let weekly_reset_ms = match w_earliest {
-                Some(earliest) => {
-                    let reset_at = earliest + Duration::days(7);
-                    (reset_at - now).num_milliseconds().max(0)
-                }
-                None => 0,
-            };
-
-            providers.push(ProviderUsage {
-                source: source_name.to_string(),
-                detected_plan: detected_plan.to_string(),
-                session_requests: s_requests,
-                session_tokens: s_tokens,
-                session_cost_usd: s_cost,
-                session_earliest_ts: s_earliest.map(|t| t.to_rfc3339()),
-                session_reset_ms,
-                weekly_requests: w_requests,
-                weekly_tokens: w_tokens,
-                weekly_cost_usd: w_cost,
-                weekly_earliest_ts: w_earliest.map(|t| t.to_rfc3339()),
-                weekly_reset_ms,
-            });
+    // Fetch Codex usage from real API
+    if config.codex {
+        match fetch_codex_usage().await {
+            Ok(usage) => providers.push(usage),
+            Err(e) => eprintln!("Codex usage fetch failed: {}", e),
         }
+    }
 
-        Ok(AccountUsageResult { providers })
+    // Fetch Claude usage from real API
+    if config.claude_code {
+        match fetch_claude_usage().await {
+            Ok(usage) => providers.push(usage),
+            Err(e) => eprintln!("Claude usage fetch failed: {}", e),
+        }
+    }
+
+    Ok(AccountUsageResult { providers })
+}
+
+/// Fetch Codex CLI usage from chatgpt.com/backend-api/wham/usage
+async fn fetch_codex_usage() -> Result<ProviderUsage, String> {
+    let home = dirs::home_dir().ok_or("No home dir")?;
+    let auth_path = home.join(".codex").join("auth.json");
+    let auth_data: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&auth_path).map_err(|e| format!("Read auth.json: {}", e))?,
+    )
+    .map_err(|e| format!("Parse auth.json: {}", e))?;
+
+    let access_token = auth_data
+        .pointer("/tokens/access_token")
+        .and_then(|v| v.as_str())
+        .ok_or("No access_token in auth.json")?;
+    let account_id = auth_data
+        .pointer("/tokens/account_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://chatgpt.com/backend-api/wham/usage")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("ChatGPT-Account-Id", account_id)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Codex API request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Codex API returned {}", resp.status()));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Parse Codex response: {}", e))?;
+
+    let plan_type = body
+        .get("plan_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let email = body
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let limit_reached = body
+        .pointer("/rate_limit/limit_reached")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let session_used = body
+        .pointer("/rate_limit/primary_window/used_percent")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let session_reset = body
+        .pointer("/rate_limit/primary_window/reset_after_seconds")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let (weekly_used, weekly_reset) = match body.pointer("/rate_limit/secondary_window") {
+        Some(w) if !w.is_null() => (
+            w.get("used_percent").and_then(|v| v.as_f64()),
+            w.get("reset_after_seconds")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0),
+        ),
+        _ => (None, 0),
+    };
+
+    let credits_balance = body
+        .pointer("/credits/balance")
+        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
+
+    Ok(ProviderUsage {
+        source: "codex".to_string(),
+        plan_type,
+        session_used_percent: session_used,
+        session_reset_seconds: session_reset,
+        weekly_used_percent: weekly_used,
+        weekly_reset_seconds: weekly_reset,
+        limit_reached,
+        email,
+        credits_balance,
     })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Fetch Claude Code usage from api.anthropic.com OAuth API
+async fn fetch_claude_usage() -> Result<ProviderUsage, String> {
+    // Try reading credentials from macOS Keychain first, then file
+    let creds = read_claude_credentials()?;
+    let access_token = creds
+        .pointer("/claudeAiOauth/accessToken")
+        .or_else(|| creds.get("accessToken"))
+        .and_then(|v| v.as_str())
+        .ok_or("No Claude OAuth accessToken found")?;
+    let plan_type = creds
+        .pointer("/claudeAiOauth/subscriptionType")
+        .or_else(|| creds.get("subscriptionType"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let rate_limit_tier = creds
+        .pointer("/claudeAiOauth/rateLimitTier")
+        .or_else(|| creds.get("rateLimitTier"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let display_plan = if !rate_limit_tier.is_empty() {
+        // e.g. "default_claude_max_5x" -> "Max 5x"
+        let tier = rate_limit_tier.to_lowercase();
+        if tier.contains("max_20x") {
+            "Max 20x".to_string()
+        } else if tier.contains("max_5x") {
+            "Max 5x".to_string()
+        } else {
+            capitalize(&plan_type)
+        }
+    } else {
+        capitalize(&plan_type)
+    };
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.anthropic.com/api/oauth/usage")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Accept", "application/json")
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .header("User-Agent", "claude-code/2.1.0")
+        .send()
+        .await
+        .map_err(|e| format!("Claude API request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Claude API returned {}: {}", status, body));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Parse Claude response: {}", e))?;
+
+    // Response has five_hour.utilization, seven_day.utilization, etc.
+    let session_used = body
+        .pointer("/five_hour/utilization")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let session_reset = parse_reset_seconds(&body, "/five_hour/resets_at");
+
+    let weekly_used = body
+        .pointer("/seven_day/utilization")
+        .and_then(|v| v.as_f64());
+    let weekly_reset = parse_reset_seconds(&body, "/seven_day/resets_at");
+
+    Ok(ProviderUsage {
+        source: "claude_code".to_string(),
+        plan_type: display_plan,
+        session_used_percent: session_used,
+        session_reset_seconds: session_reset,
+        weekly_used_percent: weekly_used,
+        weekly_reset_seconds: weekly_reset,
+        limit_reached: session_used >= 100.0 || weekly_used.unwrap_or(0.0) >= 100.0,
+        email: None,
+        credits_balance: None,
+    })
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+fn parse_reset_seconds(body: &serde_json::Value, pointer: &str) -> i64 {
+    body.pointer(pointer)
+        .and_then(|v| v.as_str())
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| {
+            let now = chrono::Utc::now();
+            (dt.with_timezone(&chrono::Utc) - now)
+                .num_seconds()
+                .max(0)
+        })
+        .unwrap_or(0)
+}
+
+/// Read Claude OAuth credentials from macOS Keychain or file
+fn read_claude_credentials() -> Result<serde_json::Value, String> {
+    // Try macOS Keychain first
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("security")
+            .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+            .output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                let json_str = String::from_utf8_lossy(&out.stdout);
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                    return Ok(v);
+                }
+            }
+        }
+    }
+
+    // Fall back to file
+    let home = dirs::home_dir().ok_or("No home dir")?;
+    for path in [
+        home.join(".claude").join(".credentials.json"),
+        home.join(".claude").join("credentials.json"),
+    ] {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                return Ok(v);
+            }
+        }
+    }
+
+    Err("No Claude credentials found".to_string())
 }
 
 fn default_preset_models() -> Vec<String> {

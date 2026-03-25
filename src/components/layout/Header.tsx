@@ -3,7 +3,7 @@ import { useAppStore } from '../../stores/appStore';
 import { useProjects, useAvailableProviders } from '../../hooks/useStatistics';
 import { useTranslation } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
-import { ArrowLeft, ChevronDown, RefreshCw, Settings, BarChart3, ArrowDownCircle, User } from 'lucide-react';
+import { ArrowLeft, ChevronDown, RefreshCw, Settings, BarChart3, ArrowDownCircle, Gauge } from 'lucide-react';
 import { useUpdateStore } from '../../stores/updateStore';
 import { HeaderTimeRangeControl } from '../time-ranges/HeaderTimeRangeControl';
 
@@ -111,10 +111,11 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
           {/* Account Usage Button */}
           <button
             onClick={() => { window.location.hash = '#/account'; }}
-            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2a2a2a] hover:bg-[#333] border border-[#333] hover:border-[#444] text-sm transition-colors"
             title={t('account.title')}
           >
-            <User className="w-5 h-5 text-[#a0a0a0] hover:text-white transition-colors" />
+            <Gauge className="w-4 h-4 text-[#f97316]" />
+            <span className="text-[#a0a0a0] hover:text-white">{t('account.title')}</span>
           </button>
 
           {/* Update Badge */}
