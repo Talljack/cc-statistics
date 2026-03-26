@@ -6,7 +6,10 @@ use cc_statistics_lib::pricing_cache::{
     is_catalog_fresh, load_cached_catalog, merge_provider_refresh, pricing_cache_path,
     save_cached_catalog,
 };
-use cc_statistics_lib::pricing_providers::load_or_refresh_catalog_with_fetcher;
+use cc_statistics_lib::pricing_providers::{
+    billing_provider_coverage, billing_provider_coverage_entries, load_or_refresh_catalog_with_fetcher,
+    provider_coverage, upstream_provider_coverage, upstream_provider_coverage_entries, CoverageMode,
+};
 use chrono::{Duration, Utc};
 use std::fs;
 use std::path::PathBuf;
@@ -550,6 +553,181 @@ fn pricing_catalog_freshness_uses_a_24_hour_window() {
 
     assert!(is_catalog_fresh(&fresh, Utc::now()));
     assert!(!is_catalog_fresh(&stale, Utc::now()));
+}
+
+#[test]
+fn billing_provider_matrix_is_complete() {
+    let expected = [
+        ("anthropic", CoverageMode::OfficialDoc),
+        ("openai", CoverageMode::OfficialDoc),
+        ("google", CoverageMode::OfficialDoc),
+        ("openrouter", CoverageMode::OfficialApi),
+        ("copilot", CoverageMode::FallbackOnly),
+        ("moonshot", CoverageMode::OfficialDoc),
+        ("zai", CoverageMode::OfficialDoc),
+        ("warp", CoverageMode::FallbackOnly),
+        ("cursor", CoverageMode::FallbackOnly),
+        ("kimi", CoverageMode::FallbackOnly),
+        ("amp", CoverageMode::FallbackOnly),
+        ("factory", CoverageMode::FallbackOnly),
+        ("augment", CoverageMode::FallbackOnly),
+        ("jetbrains_ai", CoverageMode::FallbackOnly),
+        ("ollama_cloud", CoverageMode::OfficialDoc),
+        ("kiro", CoverageMode::FallbackOnly),
+    ];
+
+    assert_complete_matrix("billing", &expected, billing_provider_coverage_entries());
+
+    for (provider, mode) in expected {
+        assert_eq!(
+            billing_provider_coverage(provider),
+            Some(mode),
+            "billing provider `{provider}` should resolve to {mode:?}"
+        );
+    }
+}
+
+#[test]
+fn upstream_provider_matrix_is_complete() {
+    let expected = [
+        ("anthropic", CoverageMode::OfficialDoc),
+        ("openai", CoverageMode::OfficialDoc),
+        ("google", CoverageMode::OfficialDoc),
+        ("deepseek", CoverageMode::OfficialDoc),
+        ("moonshot", CoverageMode::OfficialDoc),
+        ("zai", CoverageMode::OfficialDoc),
+        ("mistral", CoverageMode::OfficialDoc),
+        ("meta", CoverageMode::OfficialDoc),
+        ("qwen", CoverageMode::OfficialDoc),
+        ("xai", CoverageMode::OfficialDoc),
+        ("cohere", CoverageMode::OfficialDoc),
+        ("yi", CoverageMode::FallbackOnly),
+        ("baichuan", CoverageMode::FallbackOnly),
+        ("bytedance", CoverageMode::FallbackOnly),
+        ("sensetime", CoverageMode::FallbackOnly),
+        ("perplexity", CoverageMode::FallbackOnly),
+        ("minimax", CoverageMode::FallbackOnly),
+        ("ai21", CoverageMode::FallbackOnly),
+        ("stepfun", CoverageMode::FallbackOnly),
+        ("baidu", CoverageMode::FallbackOnly),
+        ("tencent", CoverageMode::FallbackOnly),
+        ("iflytek", CoverageMode::FallbackOnly),
+        ("internlm", CoverageMode::FallbackOnly),
+        ("nvidia", CoverageMode::FallbackOnly),
+        ("reka", CoverageMode::FallbackOnly),
+        ("nous", CoverageMode::FallbackOnly),
+    ];
+
+    assert_complete_matrix("upstream", &expected, upstream_provider_coverage_entries());
+
+    for (provider, mode) in expected {
+        assert_eq!(
+            upstream_provider_coverage(provider),
+            Some(mode),
+            "upstream provider `{provider}` should resolve to {mode:?}"
+        );
+    }
+}
+
+#[test]
+fn missing_coverage_entries_fail_loudly() {
+    let expected = [
+        ("anthropic", CoverageMode::OfficialDoc),
+        ("openrouter", CoverageMode::OfficialApi),
+        ("missing-provider", CoverageMode::FallbackOnly),
+    ];
+    let actual = [
+        ("anthropic", CoverageMode::OfficialDoc),
+        ("openrouter", CoverageMode::OfficialApi),
+    ];
+
+    let panic = std::panic::catch_unwind(|| assert_complete_matrix("billing", &expected, &actual))
+        .expect_err("missing coverage should panic loudly");
+    let message = panic_message(panic);
+
+    assert!(message.contains("billing coverage matrix mismatch"));
+    assert!(message.contains("missing-provider"));
+}
+
+#[test]
+fn fallback_only_providers_still_remain_addressable_by_the_merged_resolver() {
+    for provider in [
+        "copilot",
+        "warp",
+        "cursor",
+        "kimi",
+        "amp",
+        "factory",
+        "augment",
+        "jetbrains_ai",
+        "kiro",
+        "yi",
+        "baichuan",
+        "bytedance",
+        "sensetime",
+        "perplexity",
+        "minimax",
+        "ai21",
+        "stepfun",
+        "baidu",
+        "tencent",
+        "iflytek",
+        "internlm",
+        "nvidia",
+        "reka",
+        "nous",
+    ] {
+        assert_eq!(
+            provider_coverage(provider),
+            Some(CoverageMode::FallbackOnly),
+            "fallback-only provider `{provider}` should still be resolvable"
+        );
+    }
+}
+
+fn assert_complete_matrix(
+    namespace: &str,
+    expected: &[(&str, CoverageMode)],
+    actual: &[(&str, CoverageMode)],
+) {
+    let mut missing = Vec::new();
+    let mut mismatched = Vec::new();
+
+    for (provider, expected_mode) in expected {
+        match actual.iter().find(|(candidate, _)| candidate == provider) {
+            Some((_, actual_mode)) if actual_mode == expected_mode => {}
+            Some((_, actual_mode)) => mismatched.push(format!(
+                "{provider}: expected {expected_mode:?}, got {actual_mode:?}"
+            )),
+            None => missing.push((*provider).to_string()),
+        }
+    }
+
+    let extras: Vec<_> = actual
+        .iter()
+        .filter(|(provider, _)| !expected.iter().any(|(expected_provider, _)| expected_provider == provider))
+        .map(|(provider, mode)| format!("{provider}:{mode:?}"))
+        .collect();
+
+    assert!(
+        missing.is_empty() && mismatched.is_empty() && extras.is_empty(),
+        "{namespace} coverage matrix mismatch\nmissing: {}\nmismatched: {}\nextra: {}",
+        missing.join(", "),
+        mismatched.join(", "),
+        extras.join(", ")
+    );
+}
+
+fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = panic.downcast_ref::<String>() {
+        return message.clone();
+    }
+
+    if let Some(message) = panic.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+
+    "non-string panic payload".to_string()
 }
 
 fn assert_catalog_shape(result: &PricingCatalogResult) {

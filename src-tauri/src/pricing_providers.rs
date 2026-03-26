@@ -9,6 +9,85 @@ use std::future::Future;
 const OPENROUTER_CATALOG_URL: &str = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_PROVIDER: &str = "openrouter";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoverageMode {
+    OfficialApi,
+    OfficialDoc,
+    FallbackOnly,
+}
+
+const BILLING_PROVIDER_COVERAGE: &[(&str, CoverageMode)] = &[
+    ("anthropic", CoverageMode::OfficialDoc),
+    ("openai", CoverageMode::OfficialDoc),
+    ("google", CoverageMode::OfficialDoc),
+    ("openrouter", CoverageMode::OfficialApi),
+    ("copilot", CoverageMode::FallbackOnly),
+    ("moonshot", CoverageMode::OfficialDoc),
+    ("zai", CoverageMode::OfficialDoc),
+    ("warp", CoverageMode::FallbackOnly),
+    ("cursor", CoverageMode::FallbackOnly),
+    ("kimi", CoverageMode::FallbackOnly),
+    ("amp", CoverageMode::FallbackOnly),
+    ("factory", CoverageMode::FallbackOnly),
+    ("augment", CoverageMode::FallbackOnly),
+    ("jetbrains_ai", CoverageMode::FallbackOnly),
+    ("ollama_cloud", CoverageMode::OfficialDoc),
+    ("kiro", CoverageMode::FallbackOnly),
+];
+
+const UPSTREAM_PROVIDER_COVERAGE: &[(&str, CoverageMode)] = &[
+    ("anthropic", CoverageMode::OfficialDoc),
+    ("openai", CoverageMode::OfficialDoc),
+    ("google", CoverageMode::OfficialDoc),
+    ("deepseek", CoverageMode::OfficialDoc),
+    ("moonshot", CoverageMode::OfficialDoc),
+    ("zai", CoverageMode::OfficialDoc),
+    ("mistral", CoverageMode::OfficialDoc),
+    ("meta", CoverageMode::OfficialDoc),
+    ("qwen", CoverageMode::OfficialDoc),
+    ("xai", CoverageMode::OfficialDoc),
+    ("cohere", CoverageMode::OfficialDoc),
+    ("yi", CoverageMode::FallbackOnly),
+    ("baichuan", CoverageMode::FallbackOnly),
+    ("bytedance", CoverageMode::FallbackOnly),
+    ("sensetime", CoverageMode::FallbackOnly),
+    ("perplexity", CoverageMode::FallbackOnly),
+    ("minimax", CoverageMode::FallbackOnly),
+    ("ai21", CoverageMode::FallbackOnly),
+    ("stepfun", CoverageMode::FallbackOnly),
+    ("baidu", CoverageMode::FallbackOnly),
+    ("tencent", CoverageMode::FallbackOnly),
+    ("iflytek", CoverageMode::FallbackOnly),
+    ("internlm", CoverageMode::FallbackOnly),
+    ("nvidia", CoverageMode::FallbackOnly),
+    ("reka", CoverageMode::FallbackOnly),
+    ("nous", CoverageMode::FallbackOnly),
+];
+
+pub fn billing_provider_coverage_entries() -> &'static [(&'static str, CoverageMode)] {
+    BILLING_PROVIDER_COVERAGE
+}
+
+pub fn upstream_provider_coverage_entries() -> &'static [(&'static str, CoverageMode)] {
+    UPSTREAM_PROVIDER_COVERAGE
+}
+
+pub fn billing_provider_coverage(provider: &str) -> Option<CoverageMode> {
+    BILLING_PROVIDER_COVERAGE
+        .iter()
+        .find_map(|(candidate, mode)| (*candidate == provider).then_some(*mode))
+}
+
+pub fn upstream_provider_coverage(provider: &str) -> Option<CoverageMode> {
+    UPSTREAM_PROVIDER_COVERAGE
+        .iter()
+        .find_map(|(candidate, mode)| (*candidate == provider).then_some(*mode))
+}
+
+pub fn provider_coverage(provider: &str) -> Option<CoverageMode> {
+    billing_provider_coverage(provider).or_else(|| upstream_provider_coverage(provider))
+}
+
 #[derive(Debug, Deserialize)]
 struct OpenRouterCatalogResponse {
     data: Vec<OpenRouterModel>,
