@@ -220,7 +220,6 @@ pub struct AccountUsageResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PricingCatalogResult {
     pub providers: Vec<PricingProviderCatalog>,
     pub models: Vec<ModelPriceEntry>,
@@ -231,7 +230,6 @@ pub struct PricingCatalogResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PricingProviderCatalog {
     pub billing_provider: String,
     pub upstream_provider: Option<String>,
@@ -241,7 +239,6 @@ pub struct PricingProviderCatalog {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ModelPriceEntry {
     pub billing_provider: String,
     pub upstream_provider: Option<String>,

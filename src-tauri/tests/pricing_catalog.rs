@@ -15,8 +15,8 @@ fn pricing_catalog_result_serializes_expected_keys() {
 
     assert!(json.get("providers").is_some());
     assert!(json.get("models").is_some());
-    assert!(json.get("fetchedAt").is_some());
-    assert!(json.get("expiresAt").is_some());
+    assert!(json.get("fetched_at").is_some());
+    assert!(json.get("expires_at").is_some());
     assert!(json.get("stale").is_some());
     assert!(json.get("errors").is_some());
 }
@@ -35,8 +35,8 @@ fn assert_catalog_shape(result: &PricingCatalogResult) {
 
     assert!(json.get("providers").is_some());
     assert!(json.get("models").is_some());
-    assert!(json.get("fetchedAt").is_some());
-    assert!(json.get("expiresAt").is_some());
+    assert!(json.get("fetched_at").is_some());
+    assert!(json.get("expires_at").is_some());
     assert!(json.get("stale").is_some());
     assert!(json.get("errors").is_some());
 }
