@@ -7,13 +7,13 @@ use crate::normalized::{
 };
 use crate::parser::{format_duration, ProjectStats, SessionStats};
 use chrono::{DateTime, Duration, Local, TimeZone, Utc};
-use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::io::{BufRead, BufReader};
+use std::fs;
 use walkdir::WalkDir;
+use rusqlite::{Connection, OpenFlags};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -82,10 +82,8 @@ pub fn collect_stats(
                 continue;
             }
             // Skip empty sessions
-            let total_tok = session.tokens.input
-                + session.tokens.output
-                + session.tokens.cache_read
-                + session.tokens.cache_creation;
+            let total_tok = session.tokens.input + session.tokens.output
+                + session.tokens.cache_read + session.tokens.cache_creation;
             if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
                 continue;
             }
@@ -144,10 +142,8 @@ pub fn collect_sessions(
                 continue;
             }
             // Skip empty sessions
-            let total_tok = session.tokens.input
-                + session.tokens.output
-                + session.tokens.cache_read
-                + session.tokens.cache_creation;
+            let total_tok = session.tokens.input + session.tokens.output
+                + session.tokens.cache_read + session.tokens.cache_creation;
             if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
                 continue;
             }
@@ -204,10 +200,7 @@ pub fn collect_normalized_sessions_from_home(
 
     let mut sessions = Vec::new();
 
-    for entry in WalkDir::new(&sessions_dir)
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-    {
+    for entry in WalkDir::new(&sessions_dir).into_iter().filter_map(|entry| entry.ok()) {
         let path = entry.path();
         if !is_codex_jsonl(path) {
             continue;
@@ -248,10 +241,7 @@ fn parse_normalized_codex_session(
     let file = fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
 
-    let mut session_id = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_string());
+    let mut session_id = path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string());
     let mut cwd: Option<String> = None;
     let mut git_branch: Option<String> = None;
     let mut primary_model: Option<String> = None;
@@ -273,10 +263,7 @@ fn parse_normalized_codex_session(
             Err(_) => continue,
         };
 
-        let event_type = value
-            .get("type")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
+        let event_type = value.get("type").and_then(|value| value.as_str()).unwrap_or("");
         match event_type {
             "session_meta" => {
                 if let Some(payload) = value.get("payload") {
@@ -355,10 +342,7 @@ fn parse_normalized_codex_session(
                     Some(payload) => payload,
                     None => continue,
                 };
-                let payload_type = payload
-                    .get("type")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("");
+                let payload_type = payload.get("type").and_then(|value| value.as_str()).unwrap_or("");
                 let Some(timestamp) = extract_codex_timestamp(&value) else {
                     continue;
                 };
@@ -386,13 +370,16 @@ fn parse_normalized_codex_session(
                         }
                     }
                     "function_call" | "custom_tool_call" => {
-                        let Some(name) = payload.get("name").and_then(|value| value.as_str())
-                        else {
+                        let Some(name) = payload.get("name").and_then(|value| value.as_str()) else {
                             continue;
                         };
                         let input_value = payload.get("input").or_else(|| payload.get("arguments"));
-                        let classification =
-                            classify_tool_call("codex", name, input_value, ToolCallChain::Direct);
+                        let classification = classify_tool_call(
+                            "codex",
+                            name,
+                            input_value,
+                            ToolCallChain::Direct,
+                        );
                         let record = NormalizedRecord::Tool(ToolRecord {
                             timestamp,
                             name: name.to_string(),
@@ -404,8 +391,7 @@ fn parse_normalized_codex_session(
                         if name == "apply_patch" {
                             if let Some(patch_text) = extract_codex_patch_text(input_value) {
                                 if patch_text.trim_start().starts_with("*** Begin Patch") {
-                                    for record in parse_codex_patch_records(timestamp, &patch_text)
-                                    {
+                                    for record in parse_codex_patch_records(timestamp, &patch_text) {
                                         records.push(record);
                                     }
                                 }
@@ -482,9 +468,7 @@ impl CodexTokenSnapshot {
             input: self.input.saturating_sub(previous.input),
             cached_input: self.cached_input.saturating_sub(previous.cached_input),
             output: self.output.saturating_sub(previous.output),
-            reasoning_output: self
-                .reasoning_output
-                .saturating_sub(previous.reasoning_output),
+            reasoning_output: self.reasoning_output.saturating_sub(previous.reasoning_output),
         }
     }
 }
@@ -615,10 +599,7 @@ fn parse_codex_patch_records(
             current_file = Some(path.trim().to_string());
             continue;
         }
-        if line.starts_with("*** Begin Patch")
-            || line.starts_with("*** End of File")
-            || line.starts_with("@@")
-        {
+        if line.starts_with("*** Begin Patch") || line.starts_with("*** End of File") || line.starts_with("@@") {
             continue;
         }
 
@@ -845,7 +826,10 @@ fn parse_codex_jsonl(path: &Path) -> Option<SessionStats> {
             }
             "turn_context" => {
                 // Extract model name
-                if let Some(model) = value.pointer("/payload/model").and_then(|v| v.as_str()) {
+                if let Some(model) = value
+                    .pointer("/payload/model")
+                    .and_then(|v| v.as_str())
+                {
                     if stats.primary_model.is_none() {
                         stats.primary_model = Some(model.to_string());
                     }
@@ -864,7 +848,10 @@ fn parse_codex_jsonl(path: &Path) -> Option<SessionStats> {
             }
             "function_call" => {
                 // Count tool usage
-                if let Some(name) = value.pointer("/payload/name").and_then(|v| v.as_str()) {
+                if let Some(name) = value
+                    .pointer("/payload/name")
+                    .and_then(|v| v.as_str())
+                {
                     *stats.tool_usage.entry(name.to_string()).or_insert(0) += 1;
                     stats.has_activity = true;
                 }
@@ -933,7 +920,10 @@ fn parse_session_meta(value: &serde_json::Value, stats: &mut SessionStats) {
         stats.version = Some(version.to_string());
     }
 
-    if let Some(branch) = payload.pointer("/git/branch").and_then(|v| v.as_str()) {
+    if let Some(branch) = payload
+        .pointer("/git/branch")
+        .and_then(|v| v.as_str())
+    {
         stats.git_branch = Some(branch.to_string());
     }
 }
@@ -956,7 +946,9 @@ fn extract_project_from_jsonl(path: &Path) -> Option<(String, String)> {
         if value.get("type").and_then(|v| v.as_str()) != Some("session_meta") {
             continue;
         }
-        let cwd = value.pointer("/payload/cwd").and_then(|v| v.as_str())?;
+        let cwd = value
+            .pointer("/payload/cwd")
+            .and_then(|v| v.as_str())?;
         let name = project_name_from_cwd(cwd);
         return Some((name, cwd.to_string()));
     }
@@ -1059,9 +1051,7 @@ fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionIn
         duration_formatted: format_duration(session.duration_ms),
         total_tokens,
         instructions: session.instructions,
-        model: session
-            .primary_model
-            .unwrap_or_else(|| "unknown".to_string()),
+        model: session.primary_model.unwrap_or_else(|| "unknown".to_string()),
         git_branch: session.git_branch.unwrap_or_default(),
         cost_usd: session.cost_usd,
         source: "codex".to_string(),

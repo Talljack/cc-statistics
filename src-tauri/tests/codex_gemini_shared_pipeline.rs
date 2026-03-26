@@ -27,7 +27,9 @@ fn absolute_day(day: &str) -> QueryTimeRange {
 }
 
 fn ts(value: &str) -> String {
-    DateTime::parse_from_rfc3339(value).unwrap().to_rfc3339()
+    DateTime::parse_from_rfc3339(value)
+        .unwrap()
+        .to_rfc3339()
 }
 
 fn write_jsonl(path: &Path, lines: &[serde_json::Value]) {
@@ -176,7 +178,10 @@ fn codex_shared_pipeline_keeps_skill_tool_mcp_and_token_deltas() {
     assert_eq!(stats.tool_usage.get("mcp__filesystem__read_file"), Some(&1));
     assert_eq!(stats.tool_usage.get("apply_patch"), Some(&1));
     assert_eq!(stats.skill_usage.get("brainstorming"), Some(&1));
-    assert_eq!(stats.mcp_usage.get("mcp__filesystem__read_file"), Some(&1));
+    assert_eq!(
+        stats.mcp_usage.get("mcp__filesystem__read_file"),
+        Some(&1)
+    );
     assert_eq!(stats.code_changes.total.additions, 2);
     assert_eq!(stats.code_changes.total.deletions, 0);
     assert_eq!(stats.code_changes.total.files, 1);
@@ -232,13 +237,8 @@ fn gemini_shared_pipeline_extracts_instructions_tokens_and_zero_other_signals() 
     let gemini_path = chats_dir.join("session-1.json");
     fs::write(&gemini_path, session.to_string()).unwrap();
     let mtime = filetime::FileTime::from_unix_time(
-        chrono::NaiveDate::from_ymd_opt(2026, 3, 11)
-            .unwrap()
-            .and_hms_opt(12, 0, 0)
-            .unwrap()
-            .and_utc()
-            .timestamp(),
-        0,
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 11).unwrap()
+            .and_hms_opt(12, 0, 0).unwrap().and_utc().timestamp(), 0,
     );
     filetime::set_file_mtime(&gemini_path, mtime).unwrap();
 
