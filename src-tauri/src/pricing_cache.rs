@@ -97,6 +97,10 @@ pub fn save_cached_catalog(catalog: &PricingCatalogResult) -> Result<(), String>
 }
 
 pub fn is_catalog_fresh(catalog: &PricingCatalogResult, now: DateTime<Utc>) -> bool {
+    if catalog.stale {
+        return false;
+    }
+
     DateTime::parse_from_rfc3339(&catalog.fetched_at)
         .map(|fetched_at| now < fetched_at.with_timezone(&Utc) + Duration::hours(24))
         .unwrap_or(false)

@@ -156,6 +156,70 @@ async fn pricing_catalog_stale_cache_triggers_refresh_on_non_forced_reads() {
 }
 
 #[tokio::test]
+async fn pricing_catalog_recent_but_stale_merge_triggers_refresh_on_non_forced_reads() {
+    let _guard = env_lock().lock().unwrap();
+    let temp_home = make_temp_home("recent-stale-merge");
+    std::env::set_var("CC_STATISTICS_HOME", &temp_home);
+
+    let previous = sample_catalog_with_timestamp(
+        "2026-03-24T00:00:00Z",
+        vec![
+            sample_provider("openrouter", "ok", false, vec![], 1),
+            sample_provider("anthropic", "ok", false, vec![], 1),
+        ],
+        vec![
+            sample_model(
+                "openrouter",
+                "anthropic/claude-sonnet-4-5",
+                "2026-03-24T00:00:00Z",
+            ),
+            sample_model("anthropic", "claude-opus-4-1", "2026-03-24T00:00:00Z"),
+        ],
+        false,
+        vec![],
+    );
+    let merged = merge_provider_refresh(
+        &previous,
+        vec![sample_provider("openrouter", "ok", false, vec![], 1)],
+        vec![sample_model(
+            "openrouter",
+            "openai/gpt-4.1-mini",
+            &Utc::now().to_rfc3339(),
+        )],
+    );
+    assert!(merged.stale);
+    assert!(merged
+        .providers
+        .iter()
+        .any(|provider| provider.status == "stale"));
+    save_cached_catalog(&merged).unwrap();
+
+    let fetch_calls = Arc::new(AtomicUsize::new(0));
+    let result = load_or_refresh_catalog_with_fetcher(false, {
+        let fetch_calls = Arc::clone(&fetch_calls);
+        move || {
+            let fetch_calls = Arc::clone(&fetch_calls);
+            async move {
+                fetch_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![sample_model(
+                    "openrouter",
+                    "openai/gpt-4.1-mini",
+                    "2026-03-26T00:00:00Z",
+                )])
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(fetch_calls.load(Ordering::SeqCst), 1);
+    assert!(result.stale);
+    assert!(result.providers.iter().any(|provider| provider.status == "stale"));
+
+    std::env::remove_var("CC_STATISTICS_HOME");
+}
+
+#[tokio::test]
 async fn pricing_catalog_stale_cache_survives_refresh_failure() {
     let _guard = env_lock().lock().unwrap();
     let temp_home = make_temp_home("stale-refresh-failure");
