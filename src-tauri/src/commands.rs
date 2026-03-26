@@ -748,12 +748,35 @@ pub async fn get_account_usage(
 pub async fn get_pricing_catalog(
     force_refresh: Option<bool>,
 ) -> Result<PricingCatalogResult, String> {
-    pricing_providers::get_catalog(force_refresh.unwrap_or(false)).await
+    get_pricing_catalog_with_fetcher(force_refresh, pricing_providers::fetch_openrouter_catalog)
+        .await
 }
 
 #[tauri::command]
 pub async fn refresh_pricing_catalog() -> Result<PricingCatalogResult, String> {
-    pricing_providers::get_catalog(true).await
+    refresh_pricing_catalog_with_fetcher(pricing_providers::fetch_openrouter_catalog).await
+}
+
+pub async fn get_pricing_catalog_with_fetcher<F, Fut>(
+    force_refresh: Option<bool>,
+    fetcher: F,
+) -> Result<PricingCatalogResult, String>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<ModelPriceEntry>, String>>,
+{
+    pricing_providers::load_or_refresh_catalog_with_fetcher(force_refresh.unwrap_or(false), fetcher)
+        .await
+}
+
+pub async fn refresh_pricing_catalog_with_fetcher<F, Fut>(
+    fetcher: F,
+) -> Result<PricingCatalogResult, String>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<ModelPriceEntry>, String>>,
+{
+    get_pricing_catalog_with_fetcher(Some(true), fetcher).await
 }
 
 fn default_preset_models() -> Vec<String> {

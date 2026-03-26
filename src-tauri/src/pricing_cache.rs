@@ -1,7 +1,8 @@
 use crate::models::{ModelPriceEntry, PricingCatalogResult, PricingProviderCatalog};
 use chrono::{DateTime, Duration, Utc};
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::PathBuf;
 
 const CACHE_DIR_NAME: &str = ".cc-statistics";
@@ -23,10 +24,29 @@ pub fn load_cached_catalog() -> Result<Option<PricingCatalogResult>, String> {
         return Ok(None);
     }
 
-    let contents = fs::read_to_string(&path)
-        .map_err(|error| format!("Failed to read pricing cache {}: {error}", path.display()))?;
-    let catalog = serde_json::from_str::<PricingCatalogResult>(&contents)
-        .map_err(|error| format!("Failed to parse pricing cache {}: {error}", path.display()))?;
+    let contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            clear_broken_cache_file(&path);
+            return Ok({
+                eprintln!(
+                    "Ignoring unreadable pricing cache {}: {error}",
+                    path.display()
+                );
+                None
+            });
+        }
+    };
+    let catalog = match serde_json::from_str::<PricingCatalogResult>(&contents) {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            clear_broken_cache_file(&path);
+            return Ok({
+                eprintln!("Ignoring invalid pricing cache {}: {error}", path.display());
+                None
+            });
+        }
+    };
 
     Ok(Some(catalog))
 }
@@ -44,8 +64,36 @@ pub fn save_cached_catalog(catalog: &PricingCatalogResult) -> Result<(), String>
 
     let payload = serde_json::to_string_pretty(catalog)
         .map_err(|error| format!("Failed to serialize pricing cache: {error}"))?;
-    fs::write(&path, payload)
-        .map_err(|error| format!("Failed to write pricing cache {}: {error}", path.display()))
+    let temp_path = path.with_extension(format!("{}.tmp", std::process::id()));
+
+    let mut temp_file = File::create(&temp_path).map_err(|error| {
+        format!(
+            "Failed to create pricing cache temp file {}: {error}",
+            temp_path.display()
+        )
+    })?;
+    temp_file.write_all(payload.as_bytes()).map_err(|error| {
+        format!(
+            "Failed to write pricing cache temp file {}: {error}",
+            temp_path.display()
+        )
+    })?;
+    temp_file.sync_all().map_err(|error| {
+        format!(
+            "Failed to sync pricing cache temp file {}: {error}",
+            temp_path.display()
+        )
+    })?;
+    drop(temp_file);
+
+    fs::rename(&temp_path, &path).map_err(|error| {
+        let _ = fs::remove_file(&temp_path);
+        format!(
+            "Failed to replace pricing cache {} with {}: {error}",
+            path.display(),
+            temp_path.display()
+        )
+    })
 }
 
 pub fn is_catalog_fresh(catalog: &PricingCatalogResult, now: DateTime<Utc>) -> bool {
@@ -88,7 +136,9 @@ pub fn merge_provider_refresh(
     let mut models = Vec::new();
     let mut top_level_errors = Vec::new();
     let mut any_stale = false;
-    let had_successful_refresh = refreshed_lookup.values().any(|provider| provider.status == "ok");
+    let had_successful_refresh = refreshed_lookup
+        .values()
+        .any(|provider| provider.status == "ok");
 
     for billing_provider in provider_order {
         let previous_provider = previous_providers.get(&billing_provider);
@@ -128,10 +178,13 @@ pub fn merge_provider_refresh(
                 providers.push(updated_provider);
             }
         } else if let Some(provider) = previous_provider.cloned() {
-            any_stale |= provider.stale;
-            top_level_errors.extend(provider.errors.clone());
+            let mut stale_provider = provider;
+            stale_provider.status = "stale".to_string();
+            stale_provider.stale = true;
+            any_stale = true;
+            top_level_errors.extend(stale_provider.errors.clone());
             models.extend(previous_provider_models);
-            providers.push(provider);
+            providers.push(stale_provider);
         }
     }
 
@@ -177,4 +230,8 @@ fn models_by_provider(models: Vec<ModelPriceEntry>) -> HashMap<String, Vec<Model
 fn dedupe_errors(errors: &mut Vec<String>) {
     let mut seen = HashSet::new();
     errors.retain(|error| seen.insert(error.clone()));
+}
+
+fn clear_broken_cache_file(path: &PathBuf) {
+    let _ = fs::remove_file(path);
 }

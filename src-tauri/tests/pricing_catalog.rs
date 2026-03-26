@@ -1,4 +1,6 @@
-use cc_statistics_lib::commands::{get_pricing_catalog, refresh_pricing_catalog};
+use cc_statistics_lib::commands::{
+    get_pricing_catalog, get_pricing_catalog_with_fetcher, refresh_pricing_catalog_with_fetcher,
+};
 use cc_statistics_lib::models::{ModelPriceEntry, PricingCatalogResult, PricingProviderCatalog};
 use cc_statistics_lib::pricing_cache::{
     is_catalog_fresh, load_cached_catalog, merge_provider_refresh, pricing_cache_path,
@@ -182,6 +184,37 @@ async fn pricing_catalog_stale_cache_survives_refresh_failure() {
     std::env::remove_var("CC_STATISTICS_HOME");
 }
 
+#[tokio::test]
+async fn pricing_catalog_invalid_cache_is_ignored_and_replaced_on_refresh() {
+    let _guard = env_lock().lock().unwrap();
+    let temp_home = make_temp_home("invalid-cache");
+    std::env::set_var("CC_STATISTICS_HOME", &temp_home);
+
+    let cache_path = pricing_cache_path().unwrap();
+    fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    fs::write(&cache_path, "{not valid json").unwrap();
+
+    let result = load_or_refresh_catalog_with_fetcher(false, || async {
+        Ok(vec![sample_model(
+            "openrouter",
+            "openai/gpt-4.1-mini",
+            "2026-03-26T00:00:00Z",
+        )])
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(result.providers.len(), 1);
+    assert_eq!(result.providers[0].status, "ok");
+    assert!(!result.stale);
+
+    let persisted = load_cached_catalog().unwrap().unwrap();
+    assert_eq!(persisted.providers[0].status, "ok");
+    assert_eq!(persisted.models[0].model_id, "openai/gpt-4.1-mini");
+
+    std::env::remove_var("CC_STATISTICS_HOME");
+}
+
 #[test]
 fn pricing_catalog_provider_refresh_status_is_stored_per_billing_provider() {
     let previous = sample_catalog_with_timestamp(
@@ -242,10 +275,57 @@ fn pricing_catalog_provider_refresh_status_is_stored_per_billing_provider() {
 }
 
 #[test]
+fn pricing_catalog_omitted_provider_is_marked_stale_after_partial_refresh() {
+    let previous = sample_catalog_with_timestamp(
+        "2026-03-24T00:00:00Z",
+        vec![
+            sample_provider("openrouter", "ok", false, vec![], 1),
+            sample_provider("anthropic", "ok", false, vec![], 1),
+        ],
+        vec![
+            sample_model(
+                "openrouter",
+                "anthropic/claude-sonnet-4-5",
+                "2026-03-24T00:00:00Z",
+            ),
+            sample_model("anthropic", "claude-opus-4-1", "2026-03-24T00:00:00Z"),
+        ],
+        false,
+        vec![],
+    );
+
+    let merged = merge_provider_refresh(
+        &previous,
+        vec![sample_provider("openrouter", "ok", false, vec![], 1)],
+        vec![sample_model(
+            "openrouter",
+            "openai/gpt-4.1-mini",
+            "2026-03-26T00:00:00Z",
+        )],
+    );
+
+    let anthropic = merged
+        .providers
+        .iter()
+        .find(|provider| provider.billing_provider == "anthropic")
+        .unwrap();
+
+    assert_eq!(anthropic.status, "stale");
+    assert!(anthropic.stale);
+    assert!(merged.stale);
+}
+
+#[test]
 fn pricing_catalog_successful_refresh_clears_old_catalog_level_errors() {
     let previous = sample_catalog_with_timestamp(
         "2026-03-24T00:00:00Z",
-        vec![sample_provider("openrouter", "error", true, vec!["old provider error".into()], 1)],
+        vec![sample_provider(
+            "openrouter",
+            "error",
+            true,
+            vec!["old provider error".into()],
+            1,
+        )],
         vec![sample_model(
             "openrouter",
             "anthropic/claude-sonnet-4-5",
@@ -330,12 +410,63 @@ async fn pricing_catalog_commands_return_expected_shape() {
     save_cached_catalog(&cache).unwrap();
 
     let from_get = get_pricing_catalog(Some(false)).await.unwrap();
-    let from_refresh = refresh_pricing_catalog().await.unwrap();
+    let refresh_calls = Arc::new(AtomicUsize::new(0));
+    let from_refresh = refresh_pricing_catalog_with_fetcher({
+        let refresh_calls = Arc::clone(&refresh_calls);
+        move || {
+            let refresh_calls = Arc::clone(&refresh_calls);
+            async move {
+                refresh_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![sample_model(
+                    "openrouter",
+                    "openai/gpt-4.1-mini",
+                    "2026-03-26T00:00:00Z",
+                )])
+            }
+        }
+    })
+    .await
+    .unwrap();
 
     assert_catalog_shape(&from_get);
     assert_catalog_shape(&from_refresh);
+    assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
     assert_eq!(from_get.models.len(), cache.models.len());
-    assert_eq!(from_refresh.models.len(), cache.models.len());
+    assert_eq!(from_refresh.models.len(), 1);
+    assert_eq!(from_refresh.models[0].model_id, "openai/gpt-4.1-mini");
+
+    std::env::remove_var("CC_STATISTICS_HOME");
+}
+
+#[tokio::test]
+async fn pricing_catalog_command_helper_respects_force_refresh_flag() {
+    let _guard = env_lock().lock().unwrap();
+    let temp_home = make_temp_home("command-force-refresh");
+    std::env::set_var("CC_STATISTICS_HOME", &temp_home);
+
+    let cache = sample_catalog(false, vec![]);
+    save_cached_catalog(&cache).unwrap();
+
+    let refresh_calls = Arc::new(AtomicUsize::new(0));
+    let refreshed = get_pricing_catalog_with_fetcher(Some(true), {
+        let refresh_calls = Arc::clone(&refresh_calls);
+        move || {
+            let refresh_calls = Arc::clone(&refresh_calls);
+            async move {
+                refresh_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![sample_model(
+                    "openrouter",
+                    "openai/gpt-4.1-mini",
+                    "2026-03-26T00:00:00Z",
+                )])
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(refreshed.models[0].model_id, "openai/gpt-4.1-mini");
 
     std::env::remove_var("CC_STATISTICS_HOME");
 }
