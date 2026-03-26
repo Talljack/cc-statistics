@@ -118,7 +118,7 @@ async fn pricing_catalog_fresh_cache_is_returned_without_network_fetch() {
 }
 
 #[tokio::test]
-async fn pricing_catalog_stale_cache_can_still_be_returned_on_non_forced_reads() {
+async fn pricing_catalog_stale_cache_triggers_refresh_on_non_forced_reads() {
     let _guard = env_lock().lock().unwrap();
     let temp_home = make_temp_home("stale-non-forced");
     std::env::set_var("CC_STATISTICS_HOME", &temp_home);
@@ -126,15 +126,29 @@ async fn pricing_catalog_stale_cache_can_still_be_returned_on_non_forced_reads()
     let cache = sample_stale_catalog("openrouter");
     save_cached_catalog(&cache).unwrap();
 
-    let result = load_or_refresh_catalog_with_fetcher(false, || async {
-        Err("refresh should be skipped for non-forced stale reads".to_string())
+    let fetch_calls = Arc::new(AtomicUsize::new(0));
+    let result = load_or_refresh_catalog_with_fetcher(false, {
+        let fetch_calls = Arc::clone(&fetch_calls);
+        move || {
+            let fetch_calls = Arc::clone(&fetch_calls);
+            async move {
+                fetch_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![sample_model(
+                    "openrouter",
+                    "openai/gpt-4.1-mini",
+                    "2026-03-26T00:00:00Z",
+                )])
+            }
+        }
     })
     .await
     .unwrap();
 
-    assert!(result.stale);
-    assert_eq!(result.models.len(), cache.models.len());
-    assert_eq!(result.providers[0].status, "stale");
+    assert_eq!(fetch_calls.load(Ordering::SeqCst), 1);
+    assert!(!result.stale);
+    assert_eq!(result.models.len(), 1);
+    assert_eq!(result.models[0].model_id, "openai/gpt-4.1-mini");
+    assert_eq!(result.providers[0].status, "ok");
 
     std::env::remove_var("CC_STATISTICS_HOME");
 }
@@ -148,7 +162,7 @@ async fn pricing_catalog_stale_cache_survives_refresh_failure() {
     let cache = sample_stale_catalog("openrouter");
     save_cached_catalog(&cache).unwrap();
 
-    let result = load_or_refresh_catalog_with_fetcher(true, || async {
+    let result = load_or_refresh_catalog_with_fetcher(false, || async {
         Err("upstream refresh failed".to_string())
     })
     .await
@@ -159,6 +173,7 @@ async fn pricing_catalog_stale_cache_survives_refresh_failure() {
     assert_eq!(result.providers[0].billing_provider, "openrouter");
     assert_eq!(result.providers[0].status, "error");
     assert_eq!(result.providers[0].errors, vec!["upstream refresh failed"]);
+    assert_eq!(result.errors, vec!["upstream refresh failed"]);
 
     let persisted = load_cached_catalog().unwrap().unwrap();
     assert_eq!(persisted.models.len(), cache.models.len());
@@ -224,6 +239,36 @@ fn pricing_catalog_provider_refresh_status_is_stored_per_billing_provider() {
     assert_eq!(anthropic.status, "error");
     assert!(anthropic.stale);
     assert_eq!(anthropic.errors, vec!["doc parse failed"]);
+}
+
+#[test]
+fn pricing_catalog_successful_refresh_clears_old_catalog_level_errors() {
+    let previous = sample_catalog_with_timestamp(
+        "2026-03-24T00:00:00Z",
+        vec![sample_provider("openrouter", "error", true, vec!["old provider error".into()], 1)],
+        vec![sample_model(
+            "openrouter",
+            "anthropic/claude-sonnet-4-5",
+            "2026-03-24T00:00:00Z",
+        )],
+        true,
+        vec!["old top-level error".into()],
+    );
+
+    let merged = merge_provider_refresh(
+        &previous,
+        vec![sample_provider("openrouter", "ok", false, vec![], 1)],
+        vec![sample_model(
+            "openrouter",
+            "openai/gpt-4.1-mini",
+            "2026-03-26T00:00:00Z",
+        )],
+    );
+
+    assert_eq!(merged.errors, Vec::<String>::new());
+    assert!(!merged.stale);
+    assert_eq!(merged.providers[0].status, "ok");
+    assert!(merged.providers[0].errors.is_empty());
 }
 
 #[test]

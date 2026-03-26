@@ -1,19 +1,25 @@
-use crate::models::*;
-use crate::normalized::{InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord, ToolRecord};
 use crate::classification::{classify_tool_call, ToolCallChain};
-use crate::parser::{ProjectStats, SessionStats, format_duration};
 use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
+use crate::models::*;
+use crate::normalized::{
+    InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord, ToolRecord,
+};
+use crate::parser::{format_duration, ProjectStats, SessionStats};
 use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::io::{BufRead, BufReader};
-use std::fs;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 
 /// Return the base sessions directory: ~/.openclaw/agents/main/sessions
 fn sessions_dir() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    let dir = home.join(".openclaw").join("agents").join("main").join("sessions");
+    let dir = home
+        .join(".openclaw")
+        .join("agents")
+        .join("main")
+        .join("sessions");
     if dir.is_dir() {
         Some(dir)
     } else {
@@ -351,7 +357,9 @@ pub fn collect_sessions(
             duration_formatted: format_duration(session.duration_ms),
             total_tokens,
             instructions: session.instructions,
-            model: session.primary_model.unwrap_or_else(|| "unknown".to_string()),
+            model: session
+                .primary_model
+                .unwrap_or_else(|| "unknown".to_string()),
             git_branch: session.git_branch.unwrap_or_default(),
             cost_usd: session.cost_usd,
             source: "openclaw".to_string(),
@@ -372,7 +380,11 @@ fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession
     let file = fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
 
-    let mut source_session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+    let mut source_session_id = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
     let mut project_name = "unknown".to_string();
     let mut current_model: Option<String> = None;
     let mut records: Vec<NormalizedRecord> = Vec::new();
@@ -392,7 +404,11 @@ fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession
         };
 
         let record_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let timestamp = match value.get("timestamp").and_then(|v| v.as_str()).and_then(parse_fixed_offset_timestamp) {
+        let timestamp = match value
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .and_then(parse_fixed_offset_timestamp)
+        {
             Some(ts) => ts,
             None => continue,
         };
@@ -445,8 +461,12 @@ fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession
 
                         let input = usage.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
                         let output = usage.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let cache_read = usage.get("cacheRead").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let cache_write = usage.get("cacheWrite").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cache_read =
+                            usage.get("cacheRead").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cache_write = usage
+                            .get("cacheWrite")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
                         let cost = usage
                             .get("cost")
                             .and_then(|c| c.get("total"))
@@ -463,7 +483,13 @@ fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession
                             cost_usd: if cost > 0.0 {
                                 cost
                             } else {
-                                crate::parser::calculate_cost(&model, input, output, cache_read, cache_write)
+                                crate::parser::calculate_cost(
+                                    &model,
+                                    input,
+                                    output,
+                                    cache_read,
+                                    cache_write,
+                                )
                             },
                         }));
 
@@ -504,10 +530,13 @@ fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession
         return None;
     }
 
-    let primary_model = records.iter().find_map(|record| match record {
-        NormalizedRecord::Token(token) if token.model != "unknown" => Some(token.model.clone()),
-        _ => None,
-    }).or(current_model);
+    let primary_model = records
+        .iter()
+        .find_map(|record| match record {
+            NormalizedRecord::Token(token) if token.model != "unknown" => Some(token.model.clone()),
+            _ => None,
+        })
+        .or(current_model);
 
     let provider = primary_model
         .as_deref()
@@ -637,7 +666,10 @@ fn parse_openclaw_session(path: &PathBuf, time_filter: &TimeFilter) -> Option<Se
 
             "message" => {
                 // Record-level time filtering
-                let ts_str = value.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+                let ts_str = value
+                    .get("timestamp")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if !record_passes_time_filter(ts_str, time_filter) {
                     continue;
                 }
@@ -706,14 +738,21 @@ fn parse_assistant_message(
         let input = usage.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
         let output = usage.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
         let cache_read = usage.get("cacheRead").and_then(|v| v.as_u64()).unwrap_or(0);
-        let cache_write = usage.get("cacheWrite").and_then(|v| v.as_u64()).unwrap_or(0);
+        let cache_write = usage
+            .get("cacheWrite")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
 
         stats.tokens.input += input;
         stats.tokens.output += output;
         stats.tokens.cache_read += cache_read;
         stats.tokens.cache_creation += cache_write;
 
-        let model_tokens = stats.tokens.by_model.entry(model_str.to_string()).or_default();
+        let model_tokens = stats
+            .tokens
+            .by_model
+            .entry(model_str.to_string())
+            .or_default();
         model_tokens.input += input;
         model_tokens.output += output;
         model_tokens.cache_read += cache_read;
@@ -730,9 +769,8 @@ fn parse_assistant_message(
             model_tokens.cost_usd += cost;
             stats.cost_usd += cost;
         } else {
-            let calc_cost = crate::parser::calculate_cost(
-                model_str, input, output, cache_read, cache_write,
-            );
+            let calc_cost =
+                crate::parser::calculate_cost(model_str, input, output, cache_read, cache_write);
             model_tokens.cost_usd += calc_cost;
             stats.cost_usd += calc_cost;
         }
@@ -748,7 +786,10 @@ fn parse_assistant_message(
                 if let Some(name) = block.get("name").and_then(|v| v.as_str()) {
                     *stats.tool_usage.entry(name.to_string()).or_insert(0) += 1;
                 } else {
-                    *stats.tool_usage.entry("unknown_tool".to_string()).or_insert(0) += 1;
+                    *stats
+                        .tool_usage
+                        .entry("unknown_tool".to_string())
+                        .or_insert(0) += 1;
                 }
             }
         }

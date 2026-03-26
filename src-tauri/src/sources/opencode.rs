@@ -1,12 +1,14 @@
+use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
 use crate::models::*;
-use crate::normalized::{CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord};
-use crate::parser::{ProjectStats, SessionStats, format_duration};
-use crate::commands::{model_to_provider, model_matches_provider, CustomProviderDef};
+use crate::normalized::{
+    CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord,
+};
+use crate::parser::{format_duration, ProjectStats, SessionStats};
 use crate::time_ranges::record_matches_query_range;
 use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone, Utc};
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use rusqlite::{Connection, OpenFlags};
 
 const MAX_DIFF_TEXT_BYTES: usize = 50 * 1024;
 
@@ -288,9 +290,7 @@ struct SessionRow {
 
 /// Resolve project table IDs whose display name matches the given name.
 fn resolve_project_ids(conn: &Connection, name: &str) -> Vec<String> {
-    let mut stmt = match conn.prepare(
-        "SELECT id, name, worktree FROM project",
-    ) {
+    let mut stmt = match conn.prepare("SELECT id, name, worktree FROM project") {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
@@ -306,9 +306,7 @@ fn resolve_project_ids(conn: &Connection, name: &str) -> Vec<String> {
     };
 
     rows.flatten()
-        .filter(|(_, pname, worktree)| {
-            project_display_name(pname, worktree) == name
-        })
+        .filter(|(_, pname, worktree)| project_display_name(pname, worktree) == name)
         .map(|(id, _, _)| id)
         .collect()
 }
@@ -521,7 +519,13 @@ fn build_normalized_session(
                     cost_usd: if cost > 0.0 {
                         cost
                     } else if !model_id.is_empty() {
-                        crate::parser::calculate_cost(&model_id, input, output, cache_read, cache_creation)
+                        crate::parser::calculate_cost(
+                            &model_id,
+                            input,
+                            output,
+                            cache_read,
+                            cache_creation,
+                        )
                     } else {
                         0.0
                     },
@@ -581,18 +585,14 @@ fn summary_code_changes_fit_range(sess: &SessionRow, query_range: &QueryTimeRang
         return false;
     };
 
-    record_matches_query_range(query_range, &start)
-        && record_matches_query_range(query_range, &end)
+    record_matches_query_range(query_range, &start) && record_matches_query_range(query_range, &end)
 }
 
 fn extract_summary_code_changes(
     value: &Value,
     timestamp: DateTime<FixedOffset>,
 ) -> Vec<CodeChangeRecord> {
-    let Some(diffs) = value
-        .pointer("/summary/diffs")
-        .and_then(|v| v.as_array())
-    else {
+    let Some(diffs) = value.pointer("/summary/diffs").and_then(|v| v.as_array()) else {
         return Vec::new();
     };
 
@@ -721,9 +721,9 @@ fn build_session_stats(conn: &Connection, sess: &SessionRow, _cutoff_ms: i64) ->
     }
 
     // Query messages for this session
-    let mut stmt = match conn.prepare(
-        "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created ASC",
-    ) {
+    let mut stmt = match conn
+        .prepare("SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created ASC")
+    {
         Ok(s) => s,
         Err(_) => return stats,
     };
@@ -763,10 +763,7 @@ fn build_session_stats(conn: &Connection, sess: &SessionRow, _cutoff_ms: i64) ->
 /// Parse an assistant message JSON and accumulate token/cost stats.
 fn parse_assistant_message(value: &serde_json::Value, stats: &mut SessionStats) {
     // Extract model
-    let model_id = value
-        .get("modelID")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let model_id = value.get("modelID").and_then(|v| v.as_str()).unwrap_or("");
 
     // Extract tokens
     let tokens_obj = value.get("tokens");
@@ -800,10 +797,7 @@ fn parse_assistant_message(value: &serde_json::Value, stats: &mut SessionStats) 
     stats.tokens.cache_creation += cache_creation;
 
     // Cost: use the value from the data directly if > 0
-    let cost = value
-        .get("cost")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
+    let cost = value.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
     if !model_id.is_empty() {
         let model_tokens = stats
@@ -821,9 +815,8 @@ fn parse_assistant_message(value: &serde_json::Value, stats: &mut SessionStats) 
             stats.cost_usd += cost;
         } else {
             // Fallback: calculate cost from model name + tokens
-            let calc_cost = crate::parser::calculate_cost(
-                model_id, input, output, cache_read, cache_creation,
-            );
+            let calc_cost =
+                crate::parser::calculate_cost(model_id, input, output, cache_read, cache_creation);
             model_tokens.cost_usd += calc_cost;
             stats.cost_usd += calc_cost;
         }

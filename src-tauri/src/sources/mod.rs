@@ -2,8 +2,8 @@ use crate::normalized::NormalizedSession;
 pub mod claude;
 pub mod codex;
 pub mod gemini;
-pub mod opencode;
 pub mod openclaw;
+pub mod opencode;
 
 use crate::commands::CustomProviderDef;
 use crate::models::*;
@@ -18,10 +18,16 @@ pub fn detect_installed_sources() -> Vec<(String, bool)> {
     };
 
     vec![
-        ("claude_code".to_string(), home.join(".claude").join("projects").exists()),
+        (
+            "claude_code".to_string(),
+            home.join(".claude").join("projects").exists(),
+        ),
         ("codex".to_string(), home.join(".codex").exists()),
         ("gemini".to_string(), home.join(".gemini").exists()),
-        ("opencode".to_string(), home.join(".local/share/opencode/opencode.db").exists()),
+        (
+            "opencode".to_string(),
+            home.join(".local/share/opencode/opencode.db").exists(),
+        ),
         ("openclaw".to_string(), home.join(".openclaw").exists()),
     ]
 }
@@ -32,10 +38,9 @@ pub fn collect_all_projects(config: &SourceConfig) -> Vec<ProjectInfo> {
 
     let mut add_projects = |projects: Vec<(String, String)>| {
         for (name, path) in projects {
-            project_map.entry(name.clone()).or_insert_with(|| ProjectInfo {
-                name,
-                path,
-            });
+            project_map
+                .entry(name.clone())
+                .or_insert_with(|| ProjectInfo { name, path });
         }
     };
 
@@ -98,19 +103,45 @@ pub fn collect_all_stats(
     let mut all_stats = ProjectStats::default();
 
     if config.claude_code {
-        all_stats.merge(claude::collect_stats(project, time_filter, query_range, provider_filter, custom_providers));
+        all_stats.merge(claude::collect_stats(
+            project,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.codex {
-        all_stats.merge(codex::collect_stats(project, time_filter, provider_filter, custom_providers));
+        all_stats.merge(codex::collect_stats(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.gemini {
-        all_stats.merge(gemini::collect_stats(project, time_filter, provider_filter, custom_providers));
+        all_stats.merge(gemini::collect_stats(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.opencode {
-        all_stats.merge(opencode::collect_stats(project, time_filter, provider_filter, custom_providers));
+        all_stats.merge(opencode::collect_stats(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.openclaw {
-        all_stats.merge(openclaw::collect_stats(project, time_filter, provider_filter, custom_providers));
+        all_stats.merge(openclaw::collect_stats(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
 
     all_stats
@@ -128,19 +159,45 @@ pub fn collect_all_sessions(
     let mut sessions = Vec::new();
 
     if config.claude_code {
-        sessions.extend(claude::collect_sessions(project, time_filter, query_range, provider_filter, custom_providers));
+        sessions.extend(claude::collect_sessions(
+            project,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.codex {
-        sessions.extend(codex::collect_sessions(project, time_filter, provider_filter, custom_providers));
+        sessions.extend(codex::collect_sessions(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.gemini {
-        sessions.extend(gemini::collect_sessions(project, time_filter, provider_filter, custom_providers));
+        sessions.extend(gemini::collect_sessions(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.opencode {
-        sessions.extend(opencode::collect_sessions(project, time_filter, provider_filter, custom_providers));
+        sessions.extend(opencode::collect_sessions(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
     if config.openclaw {
-        sessions.extend(openclaw::collect_sessions(project, time_filter, provider_filter, custom_providers));
+        sessions.extend(openclaw::collect_sessions(
+            project,
+            time_filter,
+            provider_filter,
+            custom_providers,
+        ));
     }
 
     sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -159,7 +216,13 @@ pub fn collect_all_instructions(
     let mut instructions = Vec::new();
 
     if config.claude_code {
-        instructions.extend(claude::collect_instructions(project, time_filter, query_range, provider_filter, custom_providers));
+        instructions.extend(claude::collect_instructions(
+            project,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ));
     }
     // Other sources don't support instruction extraction yet
 
@@ -178,7 +241,14 @@ pub fn collect_all_providers(
     let mut providers: HashSet<String> = HashSet::new();
 
     // Collect from all session data across sources
-    let all_sessions = collect_all_sessions(None, &TimeFilter::All, &None, &None, custom_providers, config);
+    let all_sessions = collect_all_sessions(
+        None,
+        &TimeFilter::All,
+        &None,
+        &None,
+        custom_providers,
+        config,
+    );
     for session in &all_sessions {
         if let Some(provider) = model_to_provider(&session.model, custom_providers) {
             providers.insert(provider);

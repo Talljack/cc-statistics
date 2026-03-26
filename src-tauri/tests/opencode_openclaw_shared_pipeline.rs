@@ -1,7 +1,7 @@
 use cc_statistics_lib::aggregation::{aggregate_code_changes_detail, aggregate_statistics};
 use cc_statistics_lib::models::QueryTimeRange;
-use chrono::DateTime;
 use cc_statistics_lib::sources::{openclaw, opencode};
+use chrono::DateTime;
 use serde_json::json;
 use std::env;
 use std::fs;
@@ -152,7 +152,8 @@ fn opencode_instruction_tokens_and_zero_tool_skill_mcp() {
     .unwrap();
 
     let _guard = HomeGuard::set(&home);
-    let sessions = opencode::collect_normalized_sessions(Some("openclaw-demo"), &absolute_same_day());
+    let sessions =
+        opencode::collect_normalized_sessions(Some("openclaw-demo"), &absolute_same_day());
     assert_eq!(sessions.len(), 1);
 
     let stats = aggregate_statistics(&sessions, &absolute_same_day(), &None, &[]);
@@ -463,13 +464,19 @@ fn openclaw_instruction_tokens_tool_and_mcp_without_skill() {
 
     // Set mtime so file-level time filtering matches the Absolute range
     let mtime = filetime::FileTime::from_unix_time(
-        chrono::NaiveDate::from_ymd_opt(2026, 3, 10).unwrap()
-            .and_hms_opt(12, 0, 0).unwrap().and_utc().timestamp(), 0,
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 10)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp(),
+        0,
     );
     filetime::set_file_mtime(&session_path, mtime).unwrap();
 
     let _guard = HomeGuard::set(&home);
-    let sessions = openclaw::collect_normalized_sessions(Some("openclaw-demo"), &absolute_same_day());
+    let sessions =
+        openclaw::collect_normalized_sessions(Some("openclaw-demo"), &absolute_same_day());
     assert_eq!(sessions.len(), 1);
 
     let stats = aggregate_statistics(&sessions, &absolute_same_day(), &None, &[]);

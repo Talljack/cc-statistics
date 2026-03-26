@@ -88,6 +88,7 @@ pub fn merge_provider_refresh(
     let mut models = Vec::new();
     let mut top_level_errors = Vec::new();
     let mut any_stale = false;
+    let had_successful_refresh = refreshed_lookup.values().any(|provider| provider.status == "ok");
 
     for billing_provider in provider_order {
         let previous_provider = previous_providers.get(&billing_provider);
@@ -147,7 +148,9 @@ pub fn merge_provider_refresh(
         })
         .unwrap_or_else(Utc::now);
 
-    top_level_errors.extend(previous.errors.clone());
+    if !had_successful_refresh {
+        top_level_errors.extend(previous.errors.clone());
+    }
     dedupe_errors(&mut top_level_errors);
 
     PricingCatalogResult {

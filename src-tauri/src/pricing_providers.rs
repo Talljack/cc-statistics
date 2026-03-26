@@ -75,19 +75,6 @@ where
         if !force_refresh && is_catalog_fresh(&catalog, Utc::now()) {
             return Ok(catalog);
         }
-        if !force_refresh {
-            let mut stale_catalog = catalog.clone();
-            stale_catalog.stale = true;
-            stale_catalog.errors.clear();
-            for provider in &mut stale_catalog.providers {
-                provider.stale = true;
-                if provider.status == "ok" {
-                    provider.status = "stale".to_string();
-                }
-                provider.errors.clear();
-            }
-            return Ok(stale_catalog);
-        }
     }
 
     match fetcher().await {
