@@ -85,18 +85,39 @@ This order is global and deterministic. Every cost surface must use the same ord
 
 Price lookup must distinguish between:
 
-- `billing_provider`: who the user is most likely paying
-- `upstream_provider`: who owns the underlying model
+- `app_source`: one of the 16 session/account source ids already used by the app, such as `cursor`, `openrouter`, `claude_code`
+- `billing_provider`: the price authority namespace used by the pricing catalog
+- `upstream_provider`: who owns the underlying model family
+
+Canonical identifier namespaces in v1:
+
+- `app_source` always uses the existing app ids from session/account data:
+  - `claude_code`, `codex`, `gemini`, `openrouter`, `copilot`, `kimi_k2`, `zai`, `warp`, `cursor`, `kimi`, `amp`, `factory`, `augment`, `jetbrains_ai`, `ollama_cloud`, `kiro`
+- `billing_provider` uses a stable internal catalog namespace:
+  - tool or route providers keep their app-style ids, for example `cursor`, `warp`, `openrouter`
+  - direct providers map to their vendor ids, for example `anthropic`, `openai`, `google`, `moonshot`, `zai`, `ollama_cloud`
+- `upstream_provider` uses normalized model-vendor ids:
+  - `anthropic`, `openai`, `google`, `zai`, `moonshot`, `xai`, `deepseek`, `mistral`, `meta`, `qwen`, `cohere`, `yi`, `baichuan`, `bytedance`, `sensetime`, `perplexity`, `minimax`, `ai21`, `stepfun`, `baidu`, `tencent`, `iflytek`, `internlm`, `nvidia`, `reka`, `nous`
+
+Rules:
+
+- `ProviderCatalog.provider` must always use `billing_provider`
+- custom pricing keys use `app_source:model`, then `billing_provider:model`, then `model`
+- Settings refresh status is keyed by `billing_provider`
+- upstream adapters are also keyed by `upstream_provider`
 
 Examples:
 
 - `source=cursor`, model `claude-sonnet-4-5`
+  - `app_source=cursor`
   - `billing_provider=cursor`
   - `upstream_provider=anthropic`
 - `source=openrouter`, model `google/gemini-2.5-pro`
+  - `app_source=openrouter`
   - `billing_provider=openrouter`
   - `upstream_provider=google`
 - `source=claude_code`, model `claude-opus-4-6`
+  - `app_source=claude_code`
   - `billing_provider=anthropic`
   - `upstream_provider=anthropic`
 
@@ -327,6 +348,60 @@ Priority:
 2. OpenRouter official price
 3. fallback
 
+Important clarification:
+
+- for `app_source=openrouter`, the billing surface is still `openrouter`
+- the first pricing authority is still the upstream provider's official price if available
+- OpenRouter price is the explicit fallback for OpenRouter sessions, not the default first choice
+
+This resolves the session source deterministically:
+
+- same `app_source=openrouter`
+- same model id
+- same resolution order every time: upstream official -> OpenRouter -> fallback
+
+## Upstream Provider Scope
+
+v1 must provide first-class upstream-provider support for every normalized upstream provider currently recognized by [src-tauri/src/commands.rs](/Users/yugangcao/apps/my-apps/cc-statistics/src-tauri/src/commands.rs) model classification logic:
+
+1. `anthropic`
+2. `openai`
+3. `google`
+4. `deepseek`
+5. `moonshot`
+6. `zai`
+7. `mistral`
+8. `meta`
+9. `qwen`
+10. `xai`
+11. `cohere`
+12. `yi`
+13. `baichuan`
+14. `bytedance`
+15. `sensetime`
+16. `perplexity`
+17. `minimax`
+18. `ai21`
+19. `stepfun`
+20. `baidu`
+21. `tencent`
+22. `iflytek`
+23. `internlm`
+24. `nvidia`
+25. `reka`
+26. `nous`
+
+Planning rule:
+
+- if an upstream provider has an official API or official pricing page, v1 should add an adapter or parser for it
+- if an upstream provider has no stable official price source during implementation, it is still part of the v1 namespace but may resolve through OpenRouter or local fallback
+- the implementation plan must track which upstream providers land with:
+  - official API
+  - official doc parsing
+  - OpenRouter fallback only
+
+This keeps the scope explicit without blocking the unified resolver on incomplete official coverage.
+
 ## Adapter Design
 
 Each provider should expose one adapter with a common contract:
@@ -353,13 +428,14 @@ The parser should never scrape arbitrary third-party pages.
 
 ### OpenRouter Fallback Adapter
 
-OpenRouter remains part of the system, but only as a fallback catalog source unless the session source itself is OpenRouter.
+OpenRouter remains part of the system as a catalog source and a deterministic fallback layer.
 
 This adapter should:
 
 - fetch the OpenRouter models endpoint
 - normalize its prices into the same shared shape
 - be used for model-level fallback when official provider sources fail
+- be used for `app_source=openrouter` only after upstream official pricing lookup has failed
 
 ## Matching Rules
 
@@ -408,7 +484,7 @@ Substring matching is allowed only when exactly one candidate matches. If multip
 
 User custom pricing should support these keys in descending priority:
 
-1. `source:model`
+1. `app_source:model`
 2. `billing_provider:model`
 3. `model`
 
@@ -532,7 +608,7 @@ Extend [src/lib/costing.test.ts](/Users/yugangcao/apps/my-apps/cc-statistics/src
 - route-style provider priority over OpenRouter fallback
 - alias matching
 - ambiguity fallback behavior
-- `source:model` custom override priority
+- `app_source:model` custom override priority
 
 ### Page-Level Consistency Tests
 
