@@ -604,10 +604,39 @@ pub async fn get_account_usage(
     Ok(AccountUsageResult { providers })
 }
 
+#[tauri::command]
+pub async fn get_pricing_catalog(
+    force_refresh: Option<bool>,
+) -> Result<PricingCatalogResult, String> {
+    Ok(stub_pricing_catalog(force_refresh.unwrap_or(false)))
+}
+
+#[tauri::command]
+pub async fn refresh_pricing_catalog() -> Result<PricingCatalogResult, String> {
+    Ok(stub_pricing_catalog(true))
+}
+
 fn default_preset_models() -> Vec<String> {
     vec![
         "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4", "o3",
         "gemini-3-pro-preview", "deepseek-r1", "grok-4", "glm-5",
         "kimi-k2.5", "minimax-m2.7", "llama-4-maverick",
     ].into_iter().map(String::from).collect()
+}
+
+fn stub_pricing_catalog(force_refresh: bool) -> PricingCatalogResult {
+    let error = if force_refresh {
+        "pricing catalog refresh is not implemented yet"
+    } else {
+        "pricing catalog loading is not implemented yet"
+    };
+
+    PricingCatalogResult {
+        providers: vec![],
+        models: vec![],
+        fetched_at: "1970-01-01T00:00:00Z".to_string(),
+        expires_at: "1970-01-01T00:00:00Z".to_string(),
+        stale: true,
+        errors: vec![error.to_string()],
+    }
 }

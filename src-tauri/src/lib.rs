@@ -29,6 +29,8 @@ pub fn run() {
             detect_sources,
             get_preset_models,
             get_account_usage,
+            get_pricing_catalog,
+            refresh_pricing_catalog,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

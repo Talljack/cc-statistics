@@ -218,3 +218,42 @@ pub struct ProviderUsage {
 pub struct AccountUsageResult {
     pub providers: Vec<ProviderUsage>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PricingCatalogResult {
+    pub providers: Vec<PricingProviderCatalog>,
+    pub models: Vec<ModelPriceEntry>,
+    pub fetched_at: String,
+    pub expires_at: String,
+    pub stale: bool,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PricingProviderCatalog {
+    pub billing_provider: String,
+    pub upstream_provider: Option<String>,
+    pub source_kind: String,
+    pub source_url: Option<String>,
+    pub fetched_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelPriceEntry {
+    pub billing_provider: String,
+    pub upstream_provider: Option<String>,
+    pub model_id: String,
+    pub normalized_model_id: String,
+    pub alias_keys: Vec<String>,
+    pub input_per_m: Option<f64>,
+    pub output_per_m: Option<f64>,
+    pub cache_read_per_m: Option<f64>,
+    pub cache_write_per_m: Option<f64>,
+    pub source_kind: String,
+    pub source_url: Option<String>,
+    pub resolved_from: Option<String>,
+    pub fetched_at: String,
+}
