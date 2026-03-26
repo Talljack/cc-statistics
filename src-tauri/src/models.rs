@@ -233,6 +233,10 @@ pub struct PricingCatalogResult {
 pub struct PricingProviderCatalog {
     pub billing_provider: String,
     pub upstream_provider: Option<String>,
+    pub status: String,
+    pub stale: bool,
+    pub errors: Vec<String>,
+    pub model_count: usize,
     pub source_kind: String,
     pub source_url: Option<String>,
     pub fetched_at: String,

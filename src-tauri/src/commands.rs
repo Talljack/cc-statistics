@@ -1,5 +1,6 @@
 use crate::aggregation;
 use crate::models::*;
+use crate::pricing_providers;
 use crate::sources;
 use crate::time_ranges;
 use chrono::{DateTime, Duration, Local, TimeZone};
@@ -27,7 +28,10 @@ pub struct TrayDisplayStats {
 /// Extract provider name from a model string.
 /// Handles various formats: bare model names, slash-prefixed (openrouter/x-ai/grok-4),
 /// antigravity proxy models, and custom provider keywords.
-pub(crate) fn model_to_provider(model: &str, custom_providers: &[CustomProviderDef]) -> Option<String> {
+pub(crate) fn model_to_provider(
+    model: &str,
+    custom_providers: &[CustomProviderDef],
+) -> Option<String> {
     let m = model.to_lowercase();
 
     // Skip synthetic/internal/empty models
@@ -49,8 +53,12 @@ pub(crate) fn model_to_provider(model: &str, custom_providers: &[CustomProviderD
     // Antigravity proxy models: "antigravity-gemini-*" → Google Gemini, "antigravity-claude-*" → Anthropic
     if effective.starts_with("antigravity-") {
         let inner = &effective["antigravity-".len()..];
-        if inner.starts_with("gemini") { return Some("Google Gemini".to_string()); }
-        if inner.starts_with("claude") { return Some("Anthropic".to_string()); }
+        if inner.starts_with("gemini") {
+            return Some("Google Gemini".to_string());
+        }
+        if inner.starts_with("claude") {
+            return Some("Anthropic".to_string());
+        }
         // Other antigravity models → Google Gemini (default, since it's Google's proxy)
         return Some("Google Gemini".to_string());
     }
@@ -67,7 +75,12 @@ pub(crate) fn model_to_provider(model: &str, custom_providers: &[CustomProviderD
 fn strip_routing_prefix(model: &str) -> &str {
     // Known routing/platform prefixes to strip
     let platform_prefixes = [
-        "openrouter/", "together/", "groq/", "openrouter-", "together-", "groq-",
+        "openrouter/",
+        "together/",
+        "groq/",
+        "openrouter-",
+        "together-",
+        "groq-",
     ];
     let mut s = model;
     // Strip platform prefix first (e.g. "openrouter/")
@@ -79,12 +92,40 @@ fn strip_routing_prefix(model: &str) -> &str {
     }
     // Strip provider org prefix (e.g. "x-ai/", "anthropic/", "google/", "meta-llama/")
     let provider_org_prefixes = [
-        "x-ai/", "anthropic/", "google/", "meta-llama/", "meta/", "mistralai/",
-        "cohere/", "deepseek/", "qwen/", "microsoft/", "nvidia/", "01-ai/",
-        "databricks/", "amazon/", "ai21/", "zhipu/", "zai/", "moonshot/", "baichuan/",
-        "bytedance/", "minimax/", "sensetime/", "cloudflare/", "aihubmix/",
-        "fireworks/", "cerebras/", "sambanova/", "stepfun/", "baidu/", "tencent/",
-        "iflytek/", "internlm/", "reka/", "nousresearch/",
+        "x-ai/",
+        "anthropic/",
+        "google/",
+        "meta-llama/",
+        "meta/",
+        "mistralai/",
+        "cohere/",
+        "deepseek/",
+        "qwen/",
+        "microsoft/",
+        "nvidia/",
+        "01-ai/",
+        "databricks/",
+        "amazon/",
+        "ai21/",
+        "zhipu/",
+        "zai/",
+        "moonshot/",
+        "baichuan/",
+        "bytedance/",
+        "minimax/",
+        "sensetime/",
+        "cloudflare/",
+        "aihubmix/",
+        "fireworks/",
+        "cerebras/",
+        "sambanova/",
+        "stepfun/",
+        "baidu/",
+        "tencent/",
+        "iflytek/",
+        "internlm/",
+        "reka/",
+        "nousresearch/",
         "custom-proxy/",
     ];
     for prefix in &provider_org_prefixes {
@@ -98,87 +139,170 @@ fn strip_routing_prefix(model: &str) -> &str {
 /// Match a model name (after prefix stripping) to a known provider.
 fn match_known_provider(m: &str) -> Option<String> {
     // Anthropic
-    if m.starts_with("claude") { return Some("Anthropic".to_string()); }
+    if m.starts_with("claude") {
+        return Some("Anthropic".to_string());
+    }
     // OpenAI
-    if m.starts_with("gpt") || m.starts_with("o3") || m.starts_with("o4") || m.starts_with("o1")
-        || m.starts_with("chatgpt") || m.starts_with("codex") || m.starts_with("dall-e")
-        || m.starts_with("tts") || m.starts_with("whisper") {
+    if m.starts_with("gpt")
+        || m.starts_with("o3")
+        || m.starts_with("o4")
+        || m.starts_with("o1")
+        || m.starts_with("chatgpt")
+        || m.starts_with("codex")
+        || m.starts_with("dall-e")
+        || m.starts_with("tts")
+        || m.starts_with("whisper")
+    {
         return Some("OpenAI".to_string());
     }
     // Google Gemini
-    if m.starts_with("gemini") { return Some("Google Gemini".to_string()); }
+    if m.starts_with("gemini") {
+        return Some("Google Gemini".to_string());
+    }
     // DeepSeek
-    if m.starts_with("deepseek") { return Some("DeepSeek".to_string()); }
+    if m.starts_with("deepseek") {
+        return Some("DeepSeek".to_string());
+    }
     // Moonshot (Kimi)
-    if m.starts_with("kimi") || m.starts_with("moonshot") { return Some("Moonshot".to_string()); }
+    if m.starts_with("kimi") || m.starts_with("moonshot") {
+        return Some("Moonshot".to_string());
+    }
     // Z.AI (GLM)
-    if m.starts_with("glm") { return Some("Z.AI".to_string()); }
+    if m.starts_with("glm") {
+        return Some("Z.AI".to_string());
+    }
     // Mistral
-    if m.starts_with("mistral") || m.starts_with("codestral") || m.starts_with("pixtral") || m.starts_with("ministral") {
+    if m.starts_with("mistral")
+        || m.starts_with("codestral")
+        || m.starts_with("pixtral")
+        || m.starts_with("ministral")
+    {
         return Some("Mistral".to_string());
     }
     // Meta (Llama)
-    if m.starts_with("llama") || m.starts_with("meta-llama") { return Some("Meta".to_string()); }
+    if m.starts_with("llama") || m.starts_with("meta-llama") {
+        return Some("Meta".to_string());
+    }
     // Qwen (Alibaba)
-    if m.starts_with("qwen") { return Some("Qwen".to_string()); }
+    if m.starts_with("qwen") {
+        return Some("Qwen".to_string());
+    }
     // xAI (Grok)
-    if m.starts_with("grok") { return Some("xAI".to_string()); }
+    if m.starts_with("grok") {
+        return Some("xAI".to_string());
+    }
     // Cohere
-    if m.starts_with("command") || m.starts_with("cohere") { return Some("Cohere".to_string()); }
+    if m.starts_with("command") || m.starts_with("cohere") {
+        return Some("Cohere".to_string());
+    }
     // Yi (01.AI)
-    if m.starts_with("yi-") { return Some("Yi".to_string()); }
+    if m.starts_with("yi-") {
+        return Some("Yi".to_string());
+    }
     // Baichuan
-    if m.starts_with("baichuan") { return Some("Baichuan".to_string()); }
+    if m.starts_with("baichuan") {
+        return Some("Baichuan".to_string());
+    }
     // ByteDance (Doubao)
-    if m.starts_with("doubao") || m.starts_with("bytedance") { return Some("ByteDance".to_string()); }
+    if m.starts_with("doubao") || m.starts_with("bytedance") {
+        return Some("ByteDance".to_string());
+    }
     // SenseTime
-    if m.starts_with("sensechat") || m.starts_with("sensetime") { return Some("SenseTime".to_string()); }
+    if m.starts_with("sensechat") || m.starts_with("sensetime") {
+        return Some("SenseTime".to_string());
+    }
     // Perplexity
-    if m.starts_with("perplexity") || m.starts_with("pplx") { return Some("Perplexity".to_string()); }
+    if m.starts_with("perplexity") || m.starts_with("pplx") {
+        return Some("Perplexity".to_string());
+    }
     // MiniMax
-    if m.starts_with("minimax") { return Some("MiniMax".to_string()); }
+    if m.starts_with("minimax") {
+        return Some("MiniMax".to_string());
+    }
     // Azure OpenAI
-    if m.starts_with("azure") { return Some("Azure OpenAI".to_string()); }
+    if m.starts_with("azure") {
+        return Some("Azure OpenAI".to_string());
+    }
     // GitHub Copilot
-    if m.starts_with("github") || m.starts_with("copilot") { return Some("GitHub Copilot".to_string()); }
+    if m.starts_with("github") || m.starts_with("copilot") {
+        return Some("GitHub Copilot".to_string());
+    }
     // Ollama
-    if m.starts_with("ollama") { return Some("Ollama".to_string()); }
+    if m.starts_with("ollama") {
+        return Some("Ollama".to_string());
+    }
     // Cloudflare
-    if m.starts_with("cloudflare") || m.starts_with("cf-") { return Some("Cloudflare".to_string()); }
+    if m.starts_with("cloudflare") || m.starts_with("cf-") {
+        return Some("Cloudflare".to_string());
+    }
     // AiHubMix
-    if m.starts_with("aihubmix") { return Some("AiHubMix".to_string()); }
+    if m.starts_with("aihubmix") {
+        return Some("AiHubMix".to_string());
+    }
     // OpenRouter (bare prefix, not already stripped)
-    if m.starts_with("openrouter") { return Some("OpenRouter".to_string()); }
+    if m.starts_with("openrouter") {
+        return Some("OpenRouter".to_string());
+    }
     // Together
-    if m.starts_with("together") { return Some("Together".to_string()); }
+    if m.starts_with("together") {
+        return Some("Together".to_string());
+    }
     // Groq
-    if m.starts_with("groq") { return Some("Groq".to_string()); }
+    if m.starts_with("groq") {
+        return Some("Groq".to_string());
+    }
     // Fireworks AI
-    if m.starts_with("fireworks") || m.starts_with("accounts/fireworks") { return Some("Fireworks AI".to_string()); }
+    if m.starts_with("fireworks") || m.starts_with("accounts/fireworks") {
+        return Some("Fireworks AI".to_string());
+    }
     // Amazon Bedrock
-    if m.starts_with("bedrock") { return Some("Amazon Bedrock".to_string()); }
+    if m.starts_with("bedrock") {
+        return Some("Amazon Bedrock".to_string());
+    }
     // AI21 Labs
-    if m.starts_with("jamba") || m.starts_with("j2-") { return Some("AI21 Labs".to_string()); }
+    if m.starts_with("jamba") || m.starts_with("j2-") {
+        return Some("AI21 Labs".to_string());
+    }
     // Cerebras
-    if m.starts_with("cerebras") { return Some("Cerebras".to_string()); }
+    if m.starts_with("cerebras") {
+        return Some("Cerebras".to_string());
+    }
     // SambaNova
-    if m.starts_with("samba") { return Some("SambaNova".to_string()); }
+    if m.starts_with("samba") {
+        return Some("SambaNova".to_string());
+    }
     // Stepfun (阶跃星辰)
-    if m.starts_with("step-") { return Some("Stepfun".to_string()); }
+    if m.starts_with("step-") {
+        return Some("Stepfun".to_string());
+    }
     // Baidu (百度文心)
-    if m.starts_with("ernie") || m.starts_with("wenxin") { return Some("Baidu".to_string()); }
+    if m.starts_with("ernie") || m.starts_with("wenxin") {
+        return Some("Baidu".to_string());
+    }
     // Tencent (腾讯混元)
-    if m.starts_with("hunyuan") { return Some("Tencent".to_string()); }
+    if m.starts_with("hunyuan") {
+        return Some("Tencent".to_string());
+    }
     // iFlytek (讯飞星火)
-    if m.starts_with("spark") || m.starts_with("iflytek") { return Some("iFlytek".to_string()); }
+    if m.starts_with("spark") || m.starts_with("iflytek") {
+        return Some("iFlytek".to_string());
+    }
     // Shanghai AI Lab (书生·浦语)
-    if m.starts_with("internlm") { return Some("InternLM".to_string()); }
+    if m.starts_with("internlm") {
+        return Some("InternLM".to_string());
+    }
     // NVIDIA
-    if m.starts_with("nemotron") || m.starts_with("nvidia") { return Some("NVIDIA".to_string()); }
+    if m.starts_with("nemotron") || m.starts_with("nvidia") {
+        return Some("NVIDIA".to_string());
+    }
     // Reka
-    if m.starts_with("reka") { return Some("Reka".to_string()); }
+    if m.starts_with("reka") {
+        return Some("Reka".to_string());
+    }
     // Nous Research
-    if m.starts_with("nous") || m.starts_with("hermes") { return Some("Nous Research".to_string()); }
+    if m.starts_with("nous") || m.starts_with("hermes") {
+        return Some("Nous Research".to_string());
+    }
 
     // No known provider matched — return None instead of guessing from model name
     // All mainstream providers are handled above; unknown models should not
@@ -186,7 +310,11 @@ fn match_known_provider(m: &str) -> Option<String> {
     None
 }
 
-pub(crate) fn model_matches_provider(model: &str, provider: &str, custom_providers: &[CustomProviderDef]) -> bool {
+pub(crate) fn model_matches_provider(
+    model: &str,
+    provider: &str,
+    custom_providers: &[CustomProviderDef],
+) -> bool {
     model_to_provider(model, custom_providers)
         .map(|p| p.eq_ignore_ascii_case(provider))
         .unwrap_or(false)
@@ -373,11 +501,15 @@ pub async fn get_projects(
         if config.claude_code {
             for (name, dirs) in &name_map {
                 let active = dirs.iter().any(|dir| has_any_activity(dir));
-                if !active { continue; }
-                projects_map.entry(name.clone()).or_insert_with(|| ProjectInfo {
-                    name: name.clone(),
-                    path: name.clone(),
-                });
+                if !active {
+                    continue;
+                }
+                projects_map
+                    .entry(name.clone())
+                    .or_insert_with(|| ProjectInfo {
+                        name: name.clone(),
+                        path: name.clone(),
+                    });
             }
         }
 
@@ -392,7 +524,9 @@ pub async fn get_projects(
         for (enabled, discover_fn) in other_sources {
             if enabled {
                 for (name, path) in discover_fn() {
-                    projects_map.entry(name.clone()).or_insert_with(|| ProjectInfo { name, path });
+                    projects_map
+                        .entry(name.clone())
+                        .or_insert_with(|| ProjectInfo { name, path });
                 }
             }
         }
@@ -417,7 +551,14 @@ pub async fn get_statistics(
     tokio::task::spawn_blocking(move || {
         let cps = custom_providers.unwrap_or_default();
         let config = enabled_sources.unwrap_or_default();
-        get_statistics_internal(project, time_filter, time_range, provider_filter, &cps, &config)
+        get_statistics_internal(
+            project,
+            time_filter,
+            time_range,
+            provider_filter,
+            &cps,
+            &config,
+        )
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -595,7 +736,6 @@ pub fn get_preset_models() -> Vec<String> {
     defaults
 }
 
-
 #[tauri::command]
 pub async fn get_account_usage(
     _enabled_sources: Option<SourceConfig>,
@@ -608,35 +748,29 @@ pub async fn get_account_usage(
 pub async fn get_pricing_catalog(
     force_refresh: Option<bool>,
 ) -> Result<PricingCatalogResult, String> {
-    Ok(stub_pricing_catalog(force_refresh.unwrap_or(false)))
+    pricing_providers::get_catalog(force_refresh.unwrap_or(false)).await
 }
 
 #[tauri::command]
 pub async fn refresh_pricing_catalog() -> Result<PricingCatalogResult, String> {
-    Ok(stub_pricing_catalog(true))
+    pricing_providers::get_catalog(true).await
 }
 
 fn default_preset_models() -> Vec<String> {
     vec![
-        "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4", "o3",
-        "gemini-3-pro-preview", "deepseek-r1", "grok-4", "glm-5",
-        "kimi-k2.5", "minimax-m2.7", "llama-4-maverick",
-    ].into_iter().map(String::from).collect()
-}
-
-fn stub_pricing_catalog(force_refresh: bool) -> PricingCatalogResult {
-    let error = if force_refresh {
-        "pricing catalog refresh is not implemented yet"
-    } else {
-        "pricing catalog loading is not implemented yet"
-    };
-
-    PricingCatalogResult {
-        providers: vec![],
-        models: vec![],
-        fetched_at: "1970-01-01T00:00:00Z".to_string(),
-        expires_at: "1970-01-01T00:00:00Z".to_string(),
-        stale: true,
-        errors: vec![error.to_string()],
-    }
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "gpt-5.4",
+        "o3",
+        "gemini-3-pro-preview",
+        "deepseek-r1",
+        "grok-4",
+        "glm-5",
+        "kimi-k2.5",
+        "minimax-m2.7",
+        "llama-4-maverick",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }

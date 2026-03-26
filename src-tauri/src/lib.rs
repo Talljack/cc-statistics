@@ -5,6 +5,8 @@ pub mod commands;
 pub mod models;
 pub mod normalized;
 mod parser;
+pub mod pricing_cache;
+pub mod pricing_providers;
 pub mod sources;
 pub mod time_ranges;
 mod tray;
