@@ -64,14 +64,6 @@ const UPSTREAM_PROVIDER_COVERAGE: &[(&str, CoverageMode)] = &[
     ("nous", CoverageMode::FallbackOnly),
 ];
 
-pub fn billing_provider_coverage_entries() -> &'static [(&'static str, CoverageMode)] {
-    BILLING_PROVIDER_COVERAGE
-}
-
-pub fn upstream_provider_coverage_entries() -> &'static [(&'static str, CoverageMode)] {
-    UPSTREAM_PROVIDER_COVERAGE
-}
-
 pub fn billing_provider_coverage(provider: &str) -> Option<CoverageMode> {
     BILLING_PROVIDER_COVERAGE
         .iter()
@@ -82,10 +74,6 @@ pub fn upstream_provider_coverage(provider: &str) -> Option<CoverageMode> {
     UPSTREAM_PROVIDER_COVERAGE
         .iter()
         .find_map(|(candidate, mode)| (*candidate == provider).then_some(*mode))
-}
-
-pub fn provider_coverage(provider: &str) -> Option<CoverageMode> {
-    billing_provider_coverage(provider).or_else(|| upstream_provider_coverage(provider))
 }
 
 #[derive(Debug, Deserialize)]

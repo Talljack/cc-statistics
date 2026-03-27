@@ -7,8 +7,8 @@ use cc_statistics_lib::pricing_cache::{
     save_cached_catalog,
 };
 use cc_statistics_lib::pricing_providers::{
-    billing_provider_coverage, billing_provider_coverage_entries, load_or_refresh_catalog_with_fetcher,
-    provider_coverage, upstream_provider_coverage, upstream_provider_coverage_entries, CoverageMode,
+    billing_provider_coverage, load_or_refresh_catalog_with_fetcher, upstream_provider_coverage,
+    CoverageMode,
 };
 use chrono::{Duration, Utc};
 use std::fs;
@@ -576,7 +576,11 @@ fn pricing_catalog_billing_provider_matrix_is_complete() {
         ("kiro", CoverageMode::FallbackOnly),
     ];
 
-    assert_complete_matrix("billing", &expected, billing_provider_coverage_entries());
+    assert_complete_matrix(
+        "billing",
+        &expected,
+        &extract_matrix_entries("BILLING_PROVIDER_COVERAGE"),
+    );
 
     for (provider, mode) in expected {
         assert_eq!(
@@ -618,7 +622,11 @@ fn pricing_catalog_upstream_provider_matrix_is_complete() {
         ("nous", CoverageMode::FallbackOnly),
     ];
 
-    assert_complete_matrix("upstream", &expected, upstream_provider_coverage_entries());
+    assert_complete_matrix(
+        "upstream",
+        &expected,
+        &extract_matrix_entries("UPSTREAM_PROVIDER_COVERAGE"),
+    );
 
     for (provider, mode) in expected {
         assert_eq!(
@@ -637,8 +645,8 @@ fn pricing_catalog_missing_coverage_entries_fail_loudly() {
         ("missing-provider", CoverageMode::FallbackOnly),
     ];
     let actual = [
-        ("anthropic", CoverageMode::OfficialDoc),
-        ("openrouter", CoverageMode::OfficialApi),
+        ("anthropic".to_string(), CoverageMode::OfficialDoc),
+        ("openrouter".to_string(), CoverageMode::OfficialApi),
     ];
 
     let panic = std::panic::catch_unwind(|| assert_complete_matrix("billing", &expected, &actual))
@@ -677,18 +685,26 @@ fn pricing_catalog_fallback_only_providers_still_remain_addressable_by_the_merge
         "reka",
         "nous",
     ] {
-        assert_eq!(
-            provider_coverage(provider),
-            Some(CoverageMode::FallbackOnly),
-            "fallback-only provider `{provider}` should still be resolvable"
-        );
+        if billing_provider_coverage(provider).is_some() {
+            assert_eq!(
+                billing_provider_coverage(provider),
+                Some(CoverageMode::FallbackOnly),
+                "fallback-only billing provider `{provider}` should still be resolvable"
+            );
+        } else {
+            assert_eq!(
+                upstream_provider_coverage(provider),
+                Some(CoverageMode::FallbackOnly),
+                "fallback-only upstream provider `{provider}` should still be resolvable"
+            );
+        }
     }
 }
 
 fn assert_complete_matrix(
     namespace: &str,
     expected: &[(&str, CoverageMode)],
-    actual: &[(&str, CoverageMode)],
+    actual: &[(String, CoverageMode)],
 ) {
     let mut missing = Vec::new();
     let mut mismatched = Vec::new();
@@ -728,6 +744,47 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
     }
 
     "non-string panic payload".to_string()
+}
+
+fn extract_matrix_entries(const_name: &str) -> Vec<(String, CoverageMode)> {
+    let source = include_str!("../src/pricing_providers.rs");
+    let start = source
+        .find(&format!("const {const_name}:"))
+        .unwrap_or_else(|| panic!("missing {const_name} definition"));
+    let block = &source[start..];
+    let open = block
+        .find("&[")
+        .unwrap_or_else(|| panic!("missing opening slice for {const_name}"));
+    let close = block[open + 2..]
+        .find("];")
+        .unwrap_or_else(|| panic!("missing closing slice for {const_name}"));
+    let slice = &block[open + 2..open + 2 + close];
+
+    slice
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("(\"") {
+                return None;
+            }
+
+            let provider_end = trimmed[2..]
+                .find('"')
+                .unwrap_or_else(|| panic!("invalid provider entry in {const_name}: {trimmed}"));
+            let provider = &trimmed[2..2 + provider_end];
+            let mode = if trimmed.contains("CoverageMode::OfficialApi") {
+                CoverageMode::OfficialApi
+            } else if trimmed.contains("CoverageMode::OfficialDoc") {
+                CoverageMode::OfficialDoc
+            } else if trimmed.contains("CoverageMode::FallbackOnly") {
+                CoverageMode::FallbackOnly
+            } else {
+                panic!("invalid coverage mode in {const_name}: {trimmed}");
+            };
+
+            Some((provider.to_string(), mode))
+        })
+        .collect()
 }
 
 fn assert_catalog_shape(result: &PricingCatalogResult) {
