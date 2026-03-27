@@ -32,7 +32,7 @@ vi.mock('../../stores/updateStore', () => ({
     status: 'idle',
     checkForUpdate: vi.fn(),
     setDialogOpen: vi.fn(),
-    currentVersion: '0.2.5',
+    currentVersion: '0.2.6',
     error: null,
   }),
 }));
@@ -93,7 +93,7 @@ function deferred<T>() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getVersionMock.mockResolvedValue('0.2.5');
+  getVersionMock.mockResolvedValue('0.2.6');
 
   useSettingsStore.setState({
     language: 'en',
