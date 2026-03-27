@@ -154,10 +154,11 @@ async fn pricing_catalog_stale_cache_triggers_refresh_on_non_forced_reads() {
     .unwrap();
 
     assert_eq!(fetch_calls.load(Ordering::SeqCst), 1);
-    assert!(!result.stale);
+    assert!(result.stale);
     assert_eq!(result.models.len(), 1);
     assert_eq!(result.models[0].model_id, "openai/gpt-4.1-mini");
     assert_eq!(provider_named(&result, "openrouter").status, "ok");
+    assert_eq!(provider_named(&result, "anthropic").status, "stale");
 
     std::env::remove_var("CC_STATISTICS_HOME");
 }
@@ -286,12 +287,34 @@ async fn pricing_catalog_invalid_cache_is_ignored_and_replaced_on_refresh() {
     assert!(result.providers.len() >= 16);
     assert_eq!(provider_named(&result, "openrouter").status, "ok");
     assert_eq!(provider_named(&result, "anthropic").source_kind, "official_doc");
+    assert_eq!(provider_named(&result, "anthropic").status, "stale");
     assert_eq!(provider_named(&result, "cursor").source_kind, "fallback_only");
-    assert!(!result.stale);
+    assert_eq!(provider_named(&result, "cursor").status, "stale");
+    assert_eq!(provider_named(&result, "deepseek").source_kind, "official_doc");
+    assert_eq!(provider_named(&result, "deepseek").status, "stale");
+    assert!(result.stale);
 
     let persisted = load_cached_catalog().unwrap().unwrap();
     assert_eq!(provider_named(&persisted, "openrouter").status, "ok");
     assert_eq!(persisted.models[0].model_id, "openai/gpt-4.1-mini");
+
+    std::env::remove_var("CC_STATISTICS_HOME");
+}
+
+#[tokio::test]
+async fn pricing_catalog_cold_start_failure_without_cache_returns_error() {
+    let _guard = env_lock().lock().unwrap();
+    let temp_home = make_temp_home("cold-start-refresh-failure");
+    std::env::set_var("CC_STATISTICS_HOME", &temp_home);
+
+    let error = load_or_refresh_catalog_with_fetcher(false, || async {
+        Err("upstream refresh failed".to_string())
+    })
+    .await
+    .expect_err("cold-start failures should bubble up");
+
+    assert!(error.contains("upstream refresh failed"));
+    assert!(load_cached_catalog().unwrap().is_none());
 
     std::env::remove_var("CC_STATISTICS_HOME");
 }

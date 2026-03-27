@@ -173,20 +173,14 @@ where
     }
 
     let previous_has_provider_models = previous_has_models(previous, provider);
-    let errors = if previous_has_provider_models {
-        vec![format!(
-            "Pricing adapter for billing provider `{provider}` is not implemented yet"
-        )]
-    } else {
-        vec![]
-    };
+    let (status, stale, errors) = scaffold_status_for_provider(previous_has_provider_models, "billing", provider);
 
     Ok(ProviderRefreshResult {
         provider: build_provider_catalog(
             &plan.provider,
             None,
-            if previous_has_provider_models { "error" } else { "ok" },
-            previous_has_provider_models,
+            status,
+            stale,
             errors,
             0,
             &plan.source_kind,
@@ -201,16 +195,27 @@ pub async fn fetch_upstream_provider_entries(
     provider: &str,
     ctx: &PricingFetchContext,
 ) -> Result<ProviderRefreshResult, String> {
+    fetch_upstream_provider_entries_with_previous(provider, ctx, None)
+}
+
+fn fetch_upstream_provider_entries_with_previous(
+    provider: &str,
+    ctx: &PricingFetchContext,
+    previous: Option<&PricingCatalogResult>,
+) -> Result<ProviderRefreshResult, String> {
     let plan = upstream_provider_fetch_plan(provider)
         .ok_or_else(|| format!("Unsupported upstream provider `{provider}`"))?;
+    let previous_has_provider_models = previous_has_models(previous, provider);
+    let (status, stale, errors) =
+        scaffold_status_for_provider(previous_has_provider_models, "upstream", provider);
 
     Ok(ProviderRefreshResult {
         provider: build_provider_catalog(
             &plan.provider,
             Some(plan.provider.clone()),
-            "ok",
-            false,
-            vec![],
+            status,
+            stale,
+            errors,
             0,
             &plan.source_kind,
             plan.source_url.clone(),
@@ -762,8 +767,23 @@ where
     }
 
     let context = PricingFetchContext::now();
-    let refreshes =
+    let mut refreshes =
         refresh_billing_provider_batches(cached.as_ref(), &context, &fetcher).await;
+    refreshes.extend(refresh_upstream_provider_batches(cached.as_ref(), &context));
+
+    if cached.is_none() {
+        if let Some(openrouter_error) = refreshes
+            .iter()
+            .find(|refresh| refresh.provider.billing_provider == OPENROUTER_PROVIDER)
+            .and_then(|refresh| {
+                (refresh.provider.status == "error")
+                    .then(|| refresh.provider.errors.first().cloned())
+                    .flatten()
+            })
+        {
+            return Err(openrouter_error);
+        }
+    }
     let catalog = merge_provider_refresh_batches(cached.as_ref(), refreshes);
 
     save_cached_catalog(&catalog)?;
@@ -831,7 +851,28 @@ where
         .await
         {
             Ok(refresh) => refresh,
-            Err(error) => build_failed_refresh(provider, ctx, previous, error),
+            Err(error) => build_failed_refresh(provider, None, ctx, previous, error),
+        };
+        refreshes.push(refresh);
+    }
+
+    refreshes
+}
+
+fn refresh_upstream_provider_batches(
+    previous: Option<&PricingCatalogResult>,
+    ctx: &PricingFetchContext,
+) -> Vec<ProviderRefreshResult> {
+    let mut refreshes = Vec::new();
+
+    for (provider, _) in UPSTREAM_PROVIDER_COVERAGE {
+        if billing_provider_coverage(provider).is_some() {
+            continue;
+        }
+
+        let refresh = match fetch_upstream_provider_entries_with_previous(provider, ctx, previous) {
+            Ok(refresh) => refresh,
+            Err(error) => build_failed_refresh(provider, Some(provider.to_string()), ctx, previous, error),
         };
         refreshes.push(refresh);
     }
@@ -841,17 +882,20 @@ where
 
 fn build_failed_refresh(
     provider: &str,
+    upstream_provider: Option<String>,
     ctx: &PricingFetchContext,
     previous: Option<&PricingCatalogResult>,
     error: String,
 ) -> ProviderRefreshResult {
-    let plan = billing_provider_fetch_plan(provider).unwrap_or(ProviderFetchPlan {
-        namespace: ProviderNamespace::Billing,
-        provider: provider.to_string(),
-        mode: CoverageMode::FallbackOnly,
-        source_kind: "fallback_only".to_string(),
-        source_url: None,
-    });
+    let plan = billing_provider_fetch_plan(provider)
+        .or_else(|| upstream_provider_fetch_plan(provider))
+        .unwrap_or(ProviderFetchPlan {
+            namespace: ProviderNamespace::Billing,
+            provider: provider.to_string(),
+            mode: CoverageMode::FallbackOnly,
+            source_kind: "fallback_only".to_string(),
+            source_url: None,
+        });
     let previous_model_count = previous
         .map(|catalog| {
             catalog
@@ -865,7 +909,7 @@ fn build_failed_refresh(
     ProviderRefreshResult {
         provider: build_provider_catalog(
             provider,
-            None,
+            upstream_provider,
             "error",
             true,
             vec![error],
@@ -885,6 +929,24 @@ fn previous_has_models(previous: Option<&PricingCatalogResult>, provider: &str) 
             .iter()
             .any(|entry| entry.billing_provider == provider)
     })
+}
+
+fn scaffold_status_for_provider(
+    previous_has_provider_models: bool,
+    namespace: &str,
+    provider: &str,
+) -> (&'static str, bool, Vec<String>) {
+    if previous_has_provider_models {
+        return (
+            "error",
+            true,
+            vec![format!(
+                "Pricing adapter for {namespace} provider `{provider}` is not implemented yet"
+            )],
+        );
+    }
+
+    ("stale", true, vec![])
 }
 
 fn build_provider_catalog(
