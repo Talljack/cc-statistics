@@ -10,6 +10,10 @@ export interface PricingCatalogResult {
 export interface PricingProviderCatalog {
   billing_provider: string;
   upstream_provider: string | null;
+  status: string;
+  stale: boolean;
+  errors: string[];
+  model_count: number;
   source_kind: string;
   source_url: string | null;
   fetched_at: string;

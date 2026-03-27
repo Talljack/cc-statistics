@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { invoke } from '@tauri-apps/api/core';
 import { FALLBACK_PRICING as SHARED_FALLBACK_PRICING, resolveModelPricing } from '../lib/modelPricing';
+import type { ModelPriceEntry as CatalogModelPriceEntry, PricingCatalogResult, PricingProviderCatalog } from '../types/pricing';
 
 // Per-model pricing data from OpenRouter
 export interface ModelPricingEntry {
@@ -14,17 +16,19 @@ export interface ModelPricingEntry {
 }
 
 interface PricingStore {
+  catalog: PricingCatalogResult | null;
+  providers: PricingProviderCatalog[];
   models: ModelPricingEntry[];
-  lastFetched: string | null;  // ISO timestamp
+  lastFetched: string | null;
+  expiresAt: string | null;
+  stale: boolean;
   isFetching: boolean;
   error: string | null;
 
-  fetchPricing: () => Promise<void>;
+  fetchPricing: (forceRefresh?: boolean) => Promise<void>;
+  refreshPricing: () => Promise<void>;
   getPricingForModel: (modelName: string) => ModelPricingEntry | null;
 }
-
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const OPENROUTER_API = 'https://openrouter.ai/api/v1/models';
 
 const FALLBACK: ModelPricingEntry = {
   id: SHARED_FALLBACK_PRICING.id,
@@ -36,72 +40,71 @@ const FALLBACK: ModelPricingEntry = {
   cacheWrite: SHARED_FALLBACK_PRICING.cacheCreation,
 };
 
-function parseOpenRouterResponse(data: OpenRouterModel[]): ModelPricingEntry[] {
-  return data
-    .filter((m) => {
-      const prompt = parseFloat(m.pricing?.prompt || '0');
-      const completion = parseFloat(m.pricing?.completion || '0');
-      return prompt > 0 || completion > 0; // skip free models
-    })
-    .map((m) => {
-      const perM = 1_000_000;
-      const input = parseFloat(m.pricing?.prompt || '0') * perM;
-      const output = parseFloat(m.pricing?.completion || '0') * perM;
-      const cacheRead = parseFloat(m.pricing?.input_cache_read || '0') * perM;
-      const cacheWrite = parseFloat(m.pricing?.input_cache_write || '0') * perM;
-      const provider = m.id.split('/')[0] || 'unknown';
-
-      return {
-        id: m.id,
-        name: m.name || m.id,
-        provider,
-        input: Math.round(input * 1000) / 1000,
-        output: Math.round(output * 1000) / 1000,
-        cacheRead: Math.round(cacheRead * 10000) / 10000,
-        cacheWrite: Math.round(cacheWrite * 10000) / 10000,
-      };
-    })
+function mapCatalogModels(models: CatalogModelPriceEntry[]): ModelPricingEntry[] {
+  return models
+    .filter((model) => model.input_per_m != null || model.output_per_m != null)
+    .map((model) => ({
+      id: model.model_id,
+      name: model.model_id,
+      provider: model.billing_provider,
+      input: roundPrice(model.input_per_m, 3),
+      output: roundPrice(model.output_per_m, 3),
+      cacheRead: roundPrice(model.cache_read_per_m, 4),
+      cacheWrite: roundPrice(model.cache_write_per_m, 4),
+    }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-interface OpenRouterModel {
-  id: string;
-  name?: string;
-  pricing?: {
-    prompt?: string;
-    completion?: string;
-    input_cache_read?: string;
-    input_cache_write?: string;
-  };
+function roundPrice(value: number | null, precision: number): number {
+  if (value == null) return 0;
+  const base = 10 ** precision;
+  return Math.round(value * base) / base;
+}
+
+function shouldSkipFetch(state: PricingStore, forceRefresh: boolean) {
+  if (forceRefresh || state.isFetching) return true;
+  if (state.stale) return false;
+  if (!state.expiresAt) return false;
+  return Date.now() < new Date(state.expiresAt).getTime();
+}
+
+async function fetchCatalog(forceRefresh: boolean): Promise<PricingCatalogResult> {
+  if (forceRefresh) {
+    return invoke<PricingCatalogResult>('refresh_pricing_catalog');
+  }
+  return invoke<PricingCatalogResult>('get_pricing_catalog', { forceRefresh: false });
 }
 
 export const usePricingStore = create<PricingStore>()(
   persist(
     (set, get) => ({
+      catalog: null,
+      providers: [],
       models: [],
       lastFetched: null,
+      expiresAt: null,
+      stale: false,
       isFetching: false,
       error: null,
 
-      fetchPricing: async () => {
-        // Check cache freshness
-        const { lastFetched, isFetching } = get();
-        if (isFetching) return;
-        if (lastFetched) {
-          const age = Date.now() - new Date(lastFetched).getTime();
-          if (age < CACHE_TTL_MS) return; // cache still fresh
-        }
+      fetchPricing: async (forceRefresh = false) => {
+        const current = get();
+        if (current.isFetching) return;
+        if (!forceRefresh && shouldSkipFetch(current, false)) return;
 
         set({ isFetching: true, error: null });
         try {
-          const res = await fetch(OPENROUTER_API);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = await res.json();
-          const models = parseOpenRouterResponse(json.data || []);
+          const catalog = await fetchCatalog(forceRefresh);
+          const models = mapCatalogModels(catalog.models);
           set({
+            catalog,
+            providers: catalog.providers,
             models,
-            lastFetched: new Date().toISOString(),
+            lastFetched: catalog.fetched_at,
+            expiresAt: catalog.expires_at,
+            stale: catalog.stale,
             isFetching: false,
+            error: catalog.errors[0] ?? null,
           });
         } catch (err) {
           set({
@@ -109,6 +112,10 @@ export const usePricingStore = create<PricingStore>()(
             error: err instanceof Error ? err.message : 'Failed to fetch pricing',
           });
         }
+      },
+
+      refreshPricing: async () => {
+        await get().fetchPricing(true);
       },
 
       getPricingForModel: (modelName: string): ModelPricingEntry | null => {
@@ -137,8 +144,12 @@ export const usePricingStore = create<PricingStore>()(
     {
       name: 'cc-statistics-pricing-cache',
       partialize: (state) => ({
+        catalog: state.catalog,
+        providers: state.providers,
         models: state.models,
         lastFetched: state.lastFetched,
+        expiresAt: state.expiresAt,
+        stale: state.stale,
       }),
     }
   )

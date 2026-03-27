@@ -455,7 +455,14 @@ function AdvancedTab() {
     removeCustomProvider,
     resetSettings,
   } = useSettingsStore();
-  const { models: pricingModels, lastFetched, isFetching, error: pricingError, fetchPricing } =
+  const {
+    models: pricingModels,
+    lastFetched,
+    stale,
+    isFetching,
+    error: pricingError,
+    refreshPricing,
+  } =
     usePricingStore();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [newProviderName, setNewProviderName] = useState('');
@@ -471,8 +478,7 @@ function AdvancedTab() {
   }, [presetModels, customPricingModels.length]);
 
   const handleRefreshPricing = () => {
-    usePricingStore.setState({ lastFetched: null });
-    fetchPricing();
+    refreshPricing();
   };
 
   const handleAddPricing = () => {
@@ -523,6 +529,7 @@ function AdvancedTab() {
                       <span className="ml-2">
                         · {t('settings.pricing.updated')}{' '}
                         {new Date(lastFetched).toLocaleString()}
+                        {stale && ' · stale'}
                       </span>
                     )}
                   </>
