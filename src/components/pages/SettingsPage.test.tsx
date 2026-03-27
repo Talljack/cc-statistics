@@ -141,8 +141,8 @@ beforeEach(() => {
 });
 
 describe('SettingsPage pricing catalog integration', () => {
-  it('fetchPricing loads the pricing catalog through Tauri and stores catalog metadata', async () => {
-    const catalog = makeCatalog({ stale: true });
+  it('fetchPricing loads the pricing catalog through Tauri and surfaces catalog metadata in Settings', async () => {
+    const catalog = makeCatalog({ stale: true, errors: ['source unavailable'] });
     invokeMock.mockResolvedValueOnce(catalog);
 
     await usePricingStore.getState().fetchPricing();
@@ -154,10 +154,11 @@ describe('SettingsPage pricing catalog integration', () => {
       lastFetched: catalog.fetched_at,
       expiresAt: catalog.expires_at,
       stale: true,
-      error: null,
+      error: 'source unavailable',
     });
+    expect(usePricingStore.getState().error).toBe('source unavailable');
     expect(usePricingStore.getState().models).toEqual([
-      {
+      expect.objectContaining({
         id: 'anthropic/claude-sonnet-4-5',
         name: 'anthropic/claude-sonnet-4-5',
         provider: 'openrouter',
@@ -165,8 +166,14 @@ describe('SettingsPage pricing catalog integration', () => {
         output: 15,
         cacheRead: 0.3,
         cacheWrite: 3.75,
-      },
+      }),
     ]);
+
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'settings.tabs.advanced' }));
+    expect(screen.getByText(/1 settings\.pricing\.models/)).toBeInTheDocument();
+    expect(screen.getByText(/Expires/)).toBeInTheDocument();
+    expect(screen.getByText('source unavailable')).toBeInTheDocument();
   });
 
   it('manual refresh uses the refresh command, shows fetching state, and preserves previous models on failure', async () => {
@@ -198,7 +205,7 @@ describe('SettingsPage pricing catalog integration', () => {
     });
 
     render(<SettingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'settings.tabs.advanced' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'settings.tabs.advanced' })[0]);
 
     const refreshButton = screen.getByRole('button', { name: 'settings.pricing.refresh' });
     fireEvent.click(refreshButton);
@@ -214,6 +221,7 @@ describe('SettingsPage pricing catalog integration', () => {
       expect(usePricingStore.getState().error).toBe('refresh failed');
       expect(usePricingStore.getState().models).toHaveLength(1);
       expect(screen.getByText(/1 settings\.pricing\.models/)).toBeInTheDocument();
+      expect(screen.getByText('refresh failed')).toBeInTheDocument();
     });
   });
 });

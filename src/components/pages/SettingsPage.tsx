@@ -458,6 +458,7 @@ function AdvancedTab() {
   const {
     models: pricingModels,
     lastFetched,
+    expiresAt,
     stale,
     isFetching,
     error: pricingError,
@@ -478,7 +479,7 @@ function AdvancedTab() {
   }, [presetModels, customPricingModels.length]);
 
   const handleRefreshPricing = () => {
-    refreshPricing();
+    void refreshPricing();
   };
 
   const handleAddPricing = () => {
@@ -529,9 +530,14 @@ function AdvancedTab() {
                       <span className="ml-2">
                         · {t('settings.pricing.updated')}{' '}
                         {new Date(lastFetched).toLocaleString()}
-                        {stale && ' · stale'}
                       </span>
                     )}
+                    {expiresAt && (
+                      <span className="ml-2">
+                        · Expires {new Date(expiresAt).toLocaleString()}
+                      </span>
+                    )}
+                    {stale && <span className="ml-2 text-amber-400">· stale</span>}
                   </>
                 ) : pricingError ? (
                   <span className="text-[#ef4444]">{pricingError}</span>
@@ -539,6 +545,9 @@ function AdvancedTab() {
                   t('settings.pricing.notFetched')
                 )}
               </div>
+              {pricingModels.length > 0 && pricingError && (
+                <div className="text-xs text-[#ef4444] mt-1">{pricingError}</div>
+              )}
             </div>
           </div>
           <button

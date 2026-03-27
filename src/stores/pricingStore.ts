@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { FALLBACK_PRICING as SHARED_FALLBACK_PRICING, resolveModelPricing } from '../lib/modelPricing';
 import type { ModelPriceEntry as CatalogModelPriceEntry, PricingCatalogResult, PricingProviderCatalog } from '../types/pricing';
 
-// Per-model pricing data from OpenRouter
+// Per-model pricing data from the backend pricing catalog
 export interface ModelPricingEntry {
   id: string;            // e.g. "anthropic/claude-sonnet-4.6"
   name: string;          // e.g. "Claude Sonnet 4.6"
