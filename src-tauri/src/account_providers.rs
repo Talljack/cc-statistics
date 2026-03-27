@@ -36,18 +36,17 @@ fn provider_config() -> serde_json::Value {
 }
 
 fn cfg_str(config: &serde_json::Value, key: &str) -> Option<String> {
-    config.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+    config
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn parse_reset_secs(body: &serde_json::Value, pointer: &str) -> i64 {
     body.pointer(pointer)
         .and_then(|v| v.as_str())
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| {
-            (dt.with_timezone(&Utc) - Utc::now())
-                .num_seconds()
-                .max(0)
-        })
+        .map(|dt| (dt.with_timezone(&Utc) - Utc::now()).num_seconds().max(0))
         .unwrap_or(0)
 }
 
@@ -145,7 +144,12 @@ fn read_claude_credentials() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "macos")]
     {
         let out = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+            .args([
+                "find-generic-password",
+                "-s",
+                "Claude Code-credentials",
+                "-w",
+            ])
             .output();
         if let Ok(o) = out {
             if o.status.success() {
@@ -216,7 +220,10 @@ pub async fn fetch_codex() -> Result<ProviderUsage, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
-    let email = body.get("email").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let email = body
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let limit_reached = body
         .pointer("/rate_limit/limit_reached")
         .and_then(|v| v.as_bool())
@@ -232,13 +239,16 @@ pub async fn fetch_codex() -> Result<ProviderUsage, String> {
     let (weekly_used, weekly_reset) = match body.pointer("/rate_limit/secondary_window") {
         Some(w) if !w.is_null() => (
             w.get("used_percent").and_then(|v| v.as_f64()),
-            w.get("reset_after_seconds").and_then(|v| v.as_i64()).unwrap_or(0),
+            w.get("reset_after_seconds")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0),
         ),
         _ => (None, 0),
     };
-    let credits_balance = body
-        .pointer("/credits/balance")
-        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
+    let credits_balance = body.pointer("/credits/balance").and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    });
 
     Ok(ProviderUsage {
         source: "codex".to_string(),
@@ -298,7 +308,11 @@ pub async fn fetch_gemini() -> Result<ProviderUsage, String> {
                 .or_else(|| body.pointer("/limit"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            if limit > 0.0 { used / limit * 100.0 } else { 0.0 }
+            if limit > 0.0 {
+                used / limit * 100.0
+            } else {
+                0.0
+            }
         });
 
     let reset_secs = body
@@ -390,7 +404,10 @@ async fn get_gemini_access_token() -> Result<String, String> {
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Gemini token refresh returned {}: {}", status, body));
+        return Err(format!(
+            "Gemini token refresh returned {}: {}",
+            status, body
+        ));
     }
 
     let token_resp: serde_json::Value = resp
@@ -415,7 +432,10 @@ async fn get_gemini_access_token() -> Result<String, String> {
         map.insert("access_token".to_string(), serde_json::json!(new_token));
         map.insert("expiry_date".to_string(), serde_json::json!(new_expiry_ms));
     }
-    let _ = std::fs::write(&creds_path, serde_json::to_string_pretty(&updated).unwrap_or_default());
+    let _ = std::fs::write(
+        &creds_path,
+        serde_json::to_string_pretty(&updated).unwrap_or_default(),
+    );
 
     Ok(new_token)
 }
@@ -433,7 +453,10 @@ fn read_gemini_email() -> Option<String> {
     }
     let payload = base64_decode_nopad(parts[1])?;
     let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-    claims.get("email").and_then(|v| v.as_str()).map(|s| s.to_string())
+    claims
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn base64_decode_nopad(s: &str) -> Option<Vec<u8>> {
@@ -446,8 +469,7 @@ fn base64_decode_nopad(s: &str) -> Option<Vec<u8>> {
     };
     let fixed = padded.replace('-', "+").replace('_', "/");
     // Use stdlib base64 via a simple implementation
-    let table: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let table: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut decode_map = [255u8; 256];
     for (i, &c) in table.iter().enumerate() {
         decode_map[c as usize] = i as u8;
@@ -460,10 +482,16 @@ fn base64_decode_nopad(s: &str) -> Option<Vec<u8>> {
         let b = decode_map[bytes[i + 1] as usize];
         let c = decode_map[bytes[i + 2] as usize];
         let d = decode_map[bytes[i + 3] as usize];
-        if a == 255 || b == 255 { break; }
+        if a == 255 || b == 255 {
+            break;
+        }
         out.push((a << 2) | (b >> 4));
-        if c != 255 && bytes[i + 2] != b'=' { out.push((b << 4) | (c >> 2)); }
-        if d != 255 && bytes[i + 3] != b'=' { out.push((c << 6) | d); }
+        if c != 255 && bytes[i + 2] != b'=' {
+            out.push((b << 4) | (c >> 2));
+        }
+        if d != 255 && bytes[i + 3] != b'=' {
+            out.push((c << 6) | d);
+        }
         i += 4;
     }
     Some(out)
@@ -601,8 +629,12 @@ fn find_copilot_token() -> Result<String, String> {
     // Try ~/.config/github-copilot/apps.json (new location)
     let home = dirs::home_dir().ok_or("No home dir")?;
     for path in [
-        home.join(".config").join("github-copilot").join("apps.json"),
-        home.join(".config").join("github-copilot").join("hosts.json"),
+        home.join(".config")
+            .join("github-copilot")
+            .join("apps.json"),
+        home.join(".config")
+            .join("github-copilot")
+            .join("hosts.json"),
     ] {
         if let Ok(content) = std::fs::read_to_string(&path) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -720,7 +752,10 @@ pub async fn fetch_zai() -> Result<ProviderUsage, String> {
     let balance = body
         .pointer("/data/balance")
         .or_else(|| body.get("balance"))
-        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
+        .and_then(|v| {
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        });
 
     Ok(ProviderUsage {
         source: "zai".to_string(),
@@ -927,7 +962,11 @@ pub async fn fetch_kimi() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= total && total > 0.0,
         email: None,
-        credits_balance: if total > 0.0 { Some(total - used) } else { None },
+        credits_balance: if total > 0.0 {
+            Some(total - used)
+        } else {
+            None
+        },
     })
 }
 
@@ -992,7 +1031,11 @@ pub async fn fetch_amp() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= limit && limit > 0.0,
         email: None,
-        credits_balance: if limit > 0.0 { Some(limit - used) } else { None },
+        credits_balance: if limit > 0.0 {
+            Some(limit - used)
+        } else {
+            None
+        },
     })
 }
 
@@ -1034,7 +1077,11 @@ pub async fn fetch_factory() -> Result<ProviderUsage, String> {
         .or_else(|| body.get("credits_total"))
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
-    let used_pct = if total > 0.0 { (used / total * 100.0).min(100.0) } else { 0.0 };
+    let used_pct = if total > 0.0 {
+        (used / total * 100.0).min(100.0)
+    } else {
+        0.0
+    };
 
     Ok(ProviderUsage {
         source: "factory".to_string(),
@@ -1045,7 +1092,11 @@ pub async fn fetch_factory() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= total && total > 0.0,
         email: None,
-        credits_balance: if total > 0.0 { Some(total - used) } else { None },
+        credits_balance: if total > 0.0 {
+            Some(total - used)
+        } else {
+            None
+        },
     })
 }
 
@@ -1087,7 +1138,11 @@ pub async fn fetch_augment() -> Result<ProviderUsage, String> {
         .or_else(|| body.get("requests_limit"))
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
-    let used_pct = if limit > 0.0 { (used / limit * 100.0).min(100.0) } else { 0.0 };
+    let used_pct = if limit > 0.0 {
+        (used / limit * 100.0).min(100.0)
+    } else {
+        0.0
+    };
 
     Ok(ProviderUsage {
         source: "augment".to_string(),
@@ -1098,7 +1153,11 @@ pub async fn fetch_augment() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= limit && limit > 0.0,
         email: None,
-        credits_balance: if limit > 0.0 { Some(limit - used) } else { None },
+        credits_balance: if limit > 0.0 {
+            Some(limit - used)
+        } else {
+            None
+        },
     })
 }
 
@@ -1110,7 +1169,10 @@ pub fn fetch_jetbrains_ai() -> Result<ProviderUsage, String> {
     let home = dirs::home_dir().ok_or("No home dir")?;
 
     // Search for AIAssistantQuotaManager2.xml across all JetBrains IDE installations
-    let jetbrains_base = home.join("Library").join("Application Support").join("JetBrains");
+    let jetbrains_base = home
+        .join("Library")
+        .join("Application Support")
+        .join("JetBrains");
     let quota_file = find_jetbrains_quota_file(&jetbrains_base)?;
 
     let content = std::fs::read_to_string(&quota_file)
@@ -1123,8 +1185,8 @@ fn find_jetbrains_quota_file(jetbrains_base: &std::path::Path) -> Result<PathBuf
     if !jetbrains_base.is_dir() {
         return Err("JetBrains support directory not found".to_string());
     }
-    let entries = std::fs::read_dir(jetbrains_base)
-        .map_err(|e| format!("Read JetBrains dir: {}", e))?;
+    let entries =
+        std::fs::read_dir(jetbrains_base).map_err(|e| format!("Read JetBrains dir: {}", e))?;
 
     let mut candidates: Vec<PathBuf> = Vec::new();
     for entry in entries.flatten() {
@@ -1165,7 +1227,11 @@ fn parse_jetbrains_quota(xml: &str) -> Result<ProviderUsage, String> {
         .unwrap_or(0);
 
     let used = (total - remaining).max(0.0);
-    let used_pct = if total > 0.0 { (used / total * 100.0).min(100.0) } else { 0.0 };
+    let used_pct = if total > 0.0 {
+        (used / total * 100.0).min(100.0)
+    } else {
+        0.0
+    };
 
     if total == 0.0 && remaining == 0.0 {
         return Err("JetBrains AI quota file has no data".to_string());
@@ -1220,7 +1286,10 @@ pub async fn fetch_ollama_cloud() -> Result<ProviderUsage, String> {
         .map_err(|e| format!("Ollama Cloud /api/me failed: {}", e))?;
 
     if !me_resp.status().is_success() {
-        return Err(format!("Ollama Cloud /api/me returned {}", me_resp.status()));
+        return Err(format!(
+            "Ollama Cloud /api/me returned {}",
+            me_resp.status()
+        ));
     }
 
     let me: serde_json::Value = me_resp
@@ -1228,7 +1297,10 @@ pub async fn fetch_ollama_cloud() -> Result<ProviderUsage, String> {
         .await
         .map_err(|e| format!("Parse Ollama Cloud /api/me: {}", e))?;
 
-    let email = me.get("email").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let email = me
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let username = me.get("username").and_then(|v| v.as_str()).unwrap_or("");
 
     // Fetch billing / plan info
@@ -1258,7 +1330,11 @@ pub async fn fetch_ollama_cloud() -> Result<ProviderUsage, String> {
                 .or_else(|| body.get("requests_limit"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            let pct = if limit > 0.0 { (used / limit * 100.0).min(100.0) } else { 0.0 };
+            let pct = if limit > 0.0 {
+                (used / limit * 100.0).min(100.0)
+            } else {
+                0.0
+            };
             let credits = body
                 .pointer("/billing/credits")
                 .or_else(|| body.get("credits"))
@@ -1296,8 +1372,7 @@ pub async fn fetch_ollama_cloud() -> Result<ProviderUsage, String> {
 
 pub async fn fetch_kiro() -> Result<ProviderUsage, String> {
     let cfg = provider_config();
-    let token = cfg_str(&cfg, "kiro_token")
-        .or_else(|| std::env::var("KIRO_TOKEN").ok());
+    let token = cfg_str(&cfg, "kiro_token").or_else(|| std::env::var("KIRO_TOKEN").ok());
 
     // Try running kiro CLI for usage info first (non-blocking, 5s timeout)
     let kiro_cli_result = tokio::time::timeout(
@@ -1350,7 +1425,11 @@ fn parse_kiro_json(body: &serde_json::Value) -> Result<ProviderUsage, String> {
         .or_else(|| body.get("requests_limit"))
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
-    let used_pct = if limit > 0.0 { (used / limit * 100.0).min(100.0) } else { 0.0 };
+    let used_pct = if limit > 0.0 {
+        (used / limit * 100.0).min(100.0)
+    } else {
+        0.0
+    };
 
     Ok(ProviderUsage {
         source: "kiro".to_string(),
@@ -1361,7 +1440,11 @@ fn parse_kiro_json(body: &serde_json::Value) -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= limit && limit > 0.0,
         email: None,
-        credits_balance: if limit > 0.0 { Some(limit - used) } else { None },
+        credits_balance: if limit > 0.0 {
+            Some(limit - used)
+        } else {
+            None
+        },
     })
 }
 
@@ -1370,23 +1453,32 @@ fn parse_kiro_json(body: &serde_json::Value) -> Result<ProviderUsage, String> {
 // ---------------------------------------------------------------------------
 
 pub async fn fetch_all() -> Vec<ProviderUsage> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(15),
-        fetch_all_inner(),
-    )
-    .await
-    .unwrap_or_else(|_| {
-        eprintln!("fetch_all timed out after 15s");
-        Vec::new()
-    })
+    tokio::time::timeout(std::time::Duration::from_secs(15), fetch_all_inner())
+        .await
+        .unwrap_or_else(|_| {
+            eprintln!("fetch_all timed out after 15s");
+            Vec::new()
+        })
 }
 
 async fn fetch_all_inner() -> Vec<ProviderUsage> {
     // Async providers
     let (
-        claude, codex, gemini, openrouter, copilot,
-        kimi_k2, zai, warp, cursor, kimi, amp, factory,
-        augment, ollama_cloud, kiro,
+        claude,
+        codex,
+        gemini,
+        openrouter,
+        copilot,
+        kimi_k2,
+        zai,
+        warp,
+        cursor,
+        kimi,
+        amp,
+        factory,
+        augment,
+        ollama_cloud,
+        kiro,
     ) = tokio::join!(
         fetch_claude(),
         fetch_codex(),
@@ -1406,9 +1498,21 @@ async fn fetch_all_inner() -> Vec<ProviderUsage> {
     );
 
     let async_results = [
-        claude, codex, gemini, openrouter, copilot,
-        kimi_k2, zai, warp, cursor, kimi, amp, factory,
-        augment, ollama_cloud, kiro,
+        claude,
+        codex,
+        gemini,
+        openrouter,
+        copilot,
+        kimi_k2,
+        zai,
+        warp,
+        cursor,
+        kimi,
+        amp,
+        factory,
+        augment,
+        ollama_cloud,
+        kiro,
     ];
 
     // Sync providers (file reads)

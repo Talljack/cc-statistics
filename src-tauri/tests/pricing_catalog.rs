@@ -476,6 +476,7 @@ fn pricing_catalog_canonical_provider_helpers_cover_account_sources() {
     assert_eq!(app_source_to_billing_provider("codex"), "openai");
     assert_eq!(app_source_to_billing_provider("gemini"), "google");
     assert_eq!(app_source_to_billing_provider("kimi_k2"), "moonshot");
+    assert_eq!(app_source_to_billing_provider("kimi"), "kimi");
     assert_eq!(app_source_to_billing_provider("openrouter"), "openrouter");
     assert_eq!(app_source_to_billing_provider("cursor"), "cursor");
 
@@ -573,6 +574,30 @@ fn pricing_catalog_resolver_prefers_tool_provider_before_upstream_for_tool_sourc
 
     assert_eq!(resolved.billing_provider, "cursor");
     assert_eq!(resolved.source_kind, "fallback_only");
+}
+
+#[test]
+fn pricing_catalog_resolver_treats_kimi_as_a_tool_provider_not_openrouter_fallback() {
+    let catalog = sample_catalog_with_timestamp(
+        "2026-03-26T00:00:00Z",
+        vec![sample_provider("openrouter", "ok", false, vec![], 1)],
+        vec![pricing_model(
+            "openrouter",
+            Some("anthropic"),
+            "anthropic/kimi-k2",
+            "kimi-k2",
+            vec!["kimi-k2"],
+            "official_api",
+            Some("openrouter"),
+        )],
+        false,
+        vec![],
+    );
+
+    assert!(
+        resolve_catalog_entry("kimi", "moonshot/kimi-k2", &catalog).is_none(),
+        "kimi should not fall through to openrouter after upstream lookup"
+    );
 }
 
 #[test]

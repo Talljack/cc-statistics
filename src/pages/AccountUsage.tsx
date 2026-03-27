@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountUsage } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { useTranslation } from '../lib/i18n';
-import { ArrowLeft, User, RefreshCw, Clock, BarChart3, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, User, RefreshCw, Clock, BarChart3, AlertTriangle, WifiOff } from 'lucide-react';
 import type { ProviderUsage } from '../types/statistics';
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -214,6 +214,12 @@ export function AccountUsage() {
   const queryClient = useQueryClient();
   const { data, isLoading, isRefetching, error } = useAccountUsage();
 
+  // Track whether we ever had providers — if yes and now empty, it's likely a network issue
+  const hadDataRef = useRef(false);
+  const providers = data?.providers || [];
+  if (providers.length > 0) hadDataRef.current = true;
+  const fetchLikelyFailed = providers.length === 0 && (!!error || hadDataRef.current);
+
   // Live countdown timer
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -258,8 +264,6 @@ export function AccountUsage() {
     );
   }
 
-  const providers = data?.providers || [];
-
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
       <Header onRefresh={handleRefresh} isRefreshing={isRefetching} />
@@ -301,9 +305,27 @@ export function AccountUsage() {
 
         {providers.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center">
-            <User className="w-12 h-12 text-[#606060] mx-auto mb-3" />
-            <p className="text-[#a0a0a0] mb-1">{t('account.noData')}</p>
-            <p className="text-sm text-[#606060]">{t('account.noDataDesc')}</p>
+            {fetchLikelyFailed ? (
+              <>
+                <WifiOff className="w-12 h-12 text-[#f59e0b] mx-auto mb-3" />
+                <p className="text-[#a0a0a0] mb-1">{t('account.fetchFailed')}</p>
+                <p className="text-sm text-[#606060] mb-4">{t('account.fetchFailedDesc')}</p>
+                <button
+                  onClick={handleRefresh}
+                  disabled={isRefetching}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2a2a2a] hover:bg-[#333] text-sm transition-colors text-[#a0a0a0]"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
+                  {t('account.retry')}
+                </button>
+              </>
+            ) : (
+              <>
+                <User className="w-12 h-12 text-[#606060] mx-auto mb-3" />
+                <p className="text-[#a0a0a0] mb-1">{t('account.noData')}</p>
+                <p className="text-sm text-[#606060]">{t('account.noDataDesc')}</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

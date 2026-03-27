@@ -303,51 +303,61 @@ fn parse_normalized_assistant_record(value: &Value, session: &mut NormalizedSess
 /// Prices are per million tokens — last updated March 2026
 /// Sources: platform.claude.com, openai.com, ai.google.dev, api-docs.deepseek.com,
 ///          platform.moonshot.ai, open.bigmodel.cn
-pub(crate) fn calculate_cost(model: &str, input: u64, output: u64, cache_read: u64, cache_creation: u64) -> f64 {
+pub(crate) fn calculate_cost(
+    model: &str,
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_creation: u64,
+) -> f64 {
     let ml = model.to_lowercase();
     // (input_per_m, output_per_m, cache_read_per_m, cache_creation_per_m)
-    let rates = if ml.contains("opus-4-5") || ml.contains("opus-4-6")
-        || ml.contains("opus_4_5") || ml.contains("opus_4_6")
-        || ml.contains("opus-4.5") || ml.contains("opus-4.6") {
-        (5.0, 25.0, 0.50, 6.25)                      // Opus 4.5/4.6
+    let rates = if ml.contains("opus-4-5")
+        || ml.contains("opus-4-6")
+        || ml.contains("opus_4_5")
+        || ml.contains("opus_4_6")
+        || ml.contains("opus-4.5")
+        || ml.contains("opus-4.6")
+    {
+        (5.0, 25.0, 0.50, 6.25) // Opus 4.5/4.6
     } else if ml.contains("opus") {
-        (15.0, 75.0, 1.50, 18.75)                     // Opus 4/4.1 legacy
+        (15.0, 75.0, 1.50, 18.75) // Opus 4/4.1 legacy
     } else if ml.contains("sonnet") {
-        (3.0, 15.0, 0.30, 3.75)                       // Sonnet (all)
+        (3.0, 15.0, 0.30, 3.75) // Sonnet (all)
     } else if ml.contains("haiku-4-5") || ml.contains("haiku_4_5") || ml.contains("haiku-4.5") {
-        (1.0, 5.0, 0.10, 1.25)                        // Haiku 4.5
+        (1.0, 5.0, 0.10, 1.25) // Haiku 4.5
     } else if ml.contains("haiku-3-5") || ml.contains("haiku_3_5") || ml.contains("haiku-3.5") {
-        (0.80, 4.0, 0.08, 1.0)                        // Haiku 3.5
+        (0.80, 4.0, 0.08, 1.0) // Haiku 3.5
     } else if ml.contains("haiku") {
-        (0.25, 1.25, 0.03, 0.30)                      // Haiku 3
+        (0.25, 1.25, 0.03, 0.30) // Haiku 3
     } else if ml.contains("o3") {
-        (2.0, 8.0, 0.50, 2.0)                         // OpenAI o3
+        (2.0, 8.0, 0.50, 2.0) // OpenAI o3
     } else if ml.contains("o4-mini") || ml.contains("o4_mini") {
-        (1.10, 4.40, 0.275, 1.10)                     // OpenAI o4-mini
+        (1.10, 4.40, 0.275, 1.10) // OpenAI o4-mini
     } else if ml.contains("codex") {
-        (2.0, 8.0, 0.50, 2.0)                         // OpenAI Codex
+        (2.0, 8.0, 0.50, 2.0) // OpenAI Codex
     } else if ml.contains("gpt-4.1") || ml.contains("gpt-4-1") || ml.contains("gpt_4_1") {
-        (2.0, 8.0, 0.50, 2.0)                         // GPT-4.1
+        (2.0, 8.0, 0.50, 2.0) // GPT-4.1
     } else if ml.contains("gpt-4o") || ml.contains("gpt_4o") {
-        (2.50, 10.0, 1.25, 2.50)                      // GPT-4o
+        (2.50, 10.0, 1.25, 2.50) // GPT-4o
     } else if ml.contains("gpt") {
-        (2.50, 10.0, 1.25, 2.50)                      // GPT fallback
+        (2.50, 10.0, 1.25, 2.50) // GPT fallback
     } else if ml.contains("gemini") && ml.contains("flash") {
-        (0.15, 0.60, 0.0375, 0.15)                    // Gemini 2.5 Flash
+        (0.15, 0.60, 0.0375, 0.15) // Gemini 2.5 Flash
     } else if ml.contains("gemini") && ml.contains("pro") {
-        (1.25, 10.0, 0.315, 1.25)                     // Gemini 2.5 Pro
+        (1.25, 10.0, 0.315, 1.25) // Gemini 2.5 Pro
     } else if ml.contains("gemini") {
-        (0.15, 0.60, 0.0375, 0.15)                    // Gemini fallback
+        (0.15, 0.60, 0.0375, 0.15) // Gemini fallback
     } else if ml.contains("deepseek") && ml.contains("r1") {
-        (0.55, 2.19, 0.055, 0.55)                     // DeepSeek R1
+        (0.55, 2.19, 0.055, 0.55) // DeepSeek R1
     } else if ml.contains("deepseek") {
-        (0.28, 0.42, 0.028, 0.28)                     // DeepSeek V3
+        (0.28, 0.42, 0.028, 0.28) // DeepSeek V3
     } else if ml.contains("kimi") || ml.contains("moonshot") {
-        (0.60, 2.50, 0.15, 0.60)                      // Kimi K2
+        (0.60, 2.50, 0.15, 0.60) // Kimi K2
     } else if ml.contains("glm") {
-        (0.60, 2.20, 0.15, 0.60)                      // GLM-4.7
+        (0.60, 2.20, 0.15, 0.60) // GLM-4.7
     } else {
-        (3.0, 15.0, 0.30, 3.75)                       // Default (Sonnet)
+        (3.0, 15.0, 0.30, 3.75) // Default (Sonnet)
     };
 
     let million = 1_000_000.0;
@@ -541,7 +551,8 @@ pub fn format_duration(ms: u64) -> String {
 
 fn parse_user_record(value: &Value, stats: &mut SessionStats) {
     if let Some(tool_use_result) = value.get("toolUseResult") {
-        if let Some((file_path, extension, additions, deletions)) = extract_tool_result_code_changes(tool_use_result)
+        if let Some((file_path, extension, additions, deletions)) =
+            extract_tool_result_code_changes(tool_use_result)
         {
             stats.code_changes.total.additions += additions;
             stats.code_changes.total.deletions += deletions;
@@ -678,7 +689,9 @@ fn is_user_instruction(value: &Value) -> bool {
                 && item
                     .get("text")
                     .and_then(|value| value.as_str())
-                    .map(|text| !text.trim().is_empty() && !text.starts_with("[Request interrupted"))
+                    .map(|text| {
+                        !text.trim().is_empty() && !text.starts_with("[Request interrupted")
+                    })
                     .unwrap_or(false)
         }),
         _ => false,
@@ -698,9 +711,7 @@ fn extract_tool_result_code_changes(tool_use_result: &Value) -> Option<(String, 
 
     let file_path_owned = file_path.to_string();
     let extension = file_extension(file_path);
-    let result_type = tool_use_result
-        .get("type")
-        .and_then(|value| value.as_str());
+    let result_type = tool_use_result.get("type").and_then(|value| value.as_str());
 
     // Explicit "create" => count content lines as additions
     if result_type == Some("create") {
@@ -715,8 +726,9 @@ fn extract_tool_result_code_changes(tool_use_result: &Value) -> Option<(String, 
     }
 
     // Check structuredPatch (works for any type including missing/text/update)
-    if let Some(patches) =
-        tool_use_result.get("structuredPatch").and_then(|value| value.as_array())
+    if let Some(patches) = tool_use_result
+        .get("structuredPatch")
+        .and_then(|value| value.as_array())
     {
         let (additions, deletions) = count_structured_patch_changes(patches);
         if additions > 0 || deletions > 0 {
@@ -728,7 +740,11 @@ fn extract_tool_result_code_changes(tool_use_result: &Value) -> Option<(String, 
     let old_text = tool_use_result
         .get("oldString")
         .and_then(|value| value.as_str())
-        .or_else(|| tool_use_result.get("originalFile").and_then(|value| value.as_str()));
+        .or_else(|| {
+            tool_use_result
+                .get("originalFile")
+                .and_then(|value| value.as_str())
+        });
     let new_text = tool_use_result
         .get("newString")
         .and_then(|value| value.as_str());
@@ -760,9 +776,7 @@ fn extract_tool_result_code_changes_with_diff(
 
     let file_path_owned = file_path.to_string();
     let extension = file_extension(file_path);
-    let result_type = tool_use_result
-        .get("type")
-        .and_then(|value| value.as_str());
+    let result_type = tool_use_result.get("type").and_then(|value| value.as_str());
 
     // Explicit "create" => count content lines as additions
     if result_type == Some("create") {
@@ -792,7 +806,13 @@ fn extract_tool_result_code_changes_with_diff(
         let (additions, deletions) = count_structured_patch_changes(patches);
         if additions > 0 || deletions > 0 {
             let diff_content = parse_structured_patch_diff(patches);
-            return Some((file_path_owned, extension, additions, deletions, diff_content));
+            return Some((
+                file_path_owned,
+                extension,
+                additions,
+                deletions,
+                diff_content,
+            ));
         }
     }
 
@@ -823,7 +843,13 @@ fn extract_tool_result_code_changes_with_diff(
                     new: new.to_string(),
                 })
             };
-            return Some((file_path_owned, extension, additions, deletions, diff_content));
+            return Some((
+                file_path_owned,
+                extension,
+                additions,
+                deletions,
+                diff_content,
+            ));
         }
     }
 
@@ -987,7 +1013,10 @@ fn truncate_preview(content: &str) -> String {
 }
 
 /// Extract user instructions from a session file
-pub fn extract_instructions(path: &Path, time_filter: &TimeFilter) -> Result<Vec<(String, String)>, String> {
+pub fn extract_instructions(
+    path: &Path,
+    time_filter: &TimeFilter,
+) -> Result<Vec<(String, String)>, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let mut results: Vec<(String, String)> = Vec::new(); // (timestamp, content)
@@ -1030,7 +1059,14 @@ pub fn extract_instructions(path: &Path, time_filter: &TimeFilter) -> Result<Vec
         if !content.is_empty() {
             // Truncate to 200 chars for preview
             let preview = if content.len() > 200 {
-                format!("{}...", &content[..content.char_indices().nth(200).map(|(i, _)| i).unwrap_or(content.len())])
+                format!(
+                    "{}...",
+                    &content[..content
+                        .char_indices()
+                        .nth(200)
+                        .map(|(i, _)| i)
+                        .unwrap_or(content.len())]
+                )
             } else {
                 content
             };
@@ -1049,19 +1085,19 @@ fn extract_user_content(value: &Value) -> String {
 
     match content {
         Value::String(text) => text.trim().to_string(),
-        Value::Array(items) => {
-            items
-                .iter()
-                .filter_map(|item| {
-                    if item.get("type").and_then(|v| v.as_str()) == Some("text") {
-                        item.get("text").and_then(|v| v.as_str()).map(|s| s.trim().to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| {
+                if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    item.get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.trim().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
     }
 }

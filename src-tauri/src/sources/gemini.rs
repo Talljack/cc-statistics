@@ -1,12 +1,12 @@
+use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
 use crate::models::*;
 use crate::normalized::{InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord};
-use crate::parser::{ProjectStats, SessionStats, format_duration};
-use crate::commands::{model_to_provider, model_matches_provider, CustomProviderDef};
+use crate::parser::{format_duration, ProjectStats, SessionStats};
 use crate::time_ranges::record_matches_query_range;
 use chrono::{DateTime, Duration, Local, TimeZone};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 use walkdir::WalkDir;
 
 // ---------------------------------------------------------------------------
@@ -76,8 +76,10 @@ pub fn collect_stats(
             continue;
         }
         // Skip empty sessions
-        let total_tok = session.tokens.input + session.tokens.output
-            + session.tokens.cache_read + session.tokens.cache_creation;
+        let total_tok = session.tokens.input
+            + session.tokens.output
+            + session.tokens.cache_read
+            + session.tokens.cache_creation;
         if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
             continue;
         }
@@ -114,8 +116,10 @@ pub fn collect_sessions(
             continue;
         }
         // Skip empty sessions
-        let total_tok = session.tokens.input + session.tokens.output
-            + session.tokens.cache_read + session.tokens.cache_creation;
+        let total_tok = session.tokens.input
+            + session.tokens.output
+            + session.tokens.cache_read
+            + session.tokens.cache_creation;
         if total_tok == 0 && session.instructions == 0 && session.duration_ms == 0 {
             continue;
         }
@@ -158,7 +162,10 @@ pub fn collect_normalized_sessions_from_home(
         return sessions;
     }
 
-    for entry in WalkDir::new(&tmp_dir).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in WalkDir::new(&tmp_dir)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         let path = entry.path();
         if !is_gemini_session(path) {
             continue;
@@ -259,10 +266,7 @@ fn find_all_session_files(time_filter: &TimeFilter) -> Vec<PathBuf> {
         None => return files,
     };
 
-    for entry in WalkDir::new(&tmp_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(&tmp_dir).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if !is_gemini_session(path) {
             continue;
@@ -477,28 +481,33 @@ fn parse_normalized_gemini_session(
     let fallback_start = root.get("startTime").and_then(|value| value.as_str());
 
     for (index, message) in messages.iter().enumerate() {
-        let timestamp = parse_gemini_message_timestamp(message)
-            .or_else(|| {
-                if matches!(query_range, QueryTimeRange::BuiltIn { key: BuiltInTimeRangeKey::All }) {
-                    parse_gemini_message_timestamp_with_fallback(message, fallback_start, index == 0)
-                } else {
-                    None
+        let timestamp = parse_gemini_message_timestamp(message).or_else(|| {
+            if matches!(
+                query_range,
+                QueryTimeRange::BuiltIn {
+                    key: BuiltInTimeRangeKey::All
                 }
-            });
+            ) {
+                parse_gemini_message_timestamp_with_fallback(message, fallback_start, index == 0)
+            } else {
+                None
+            }
+        });
         let Some(timestamp) = timestamp else {
             continue;
         };
-        let message_type = message.get("type").and_then(|value| value.as_str()).unwrap_or("");
+        let message_type = message
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
 
         match message_type {
             "user" => {
                 if has_text_content(message) {
                     let content = user_content_text(message);
                     if !content.is_empty() {
-                        let record = NormalizedRecord::Instruction(InstructionRecord {
-                            timestamp,
-                            content,
-                        });
+                        let record =
+                            NormalizedRecord::Instruction(InstructionRecord { timestamp, content });
                         if record_matches_query_range(query_range, record.timestamp()) {
                             session.records.push(record);
                         }
@@ -517,13 +526,22 @@ fn parse_normalized_gemini_session(
                 }
 
                 if let Some(tokens) = message.get("tokens") {
-                    let input = tokens.get("input").and_then(|value| value.as_u64()).unwrap_or(0);
-                    let output = tokens.get("output").and_then(|value| value.as_u64()).unwrap_or(0);
+                    let input = tokens
+                        .get("input")
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0);
+                    let output = tokens
+                        .get("output")
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0);
                     let thoughts = tokens
                         .get("thoughts")
                         .and_then(|value| value.as_u64())
                         .unwrap_or(0);
-                    let cache_read = tokens.get("cached").and_then(|value| value.as_u64()).unwrap_or(0);
+                    let cache_read = tokens
+                        .get("cached")
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0);
                     let output = output + thoughts;
 
                     if input + output + cache_read > 0 {
@@ -614,8 +632,7 @@ fn parse_gemini_message_timestamp_with_fallback(
 ) -> Option<chrono::DateTime<chrono::FixedOffset>> {
     parse_gemini_message_timestamp(msg).or_else(|| {
         if is_first_message {
-            fallback_start
-                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            fallback_start.and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
         } else {
             None
         }
@@ -677,14 +694,12 @@ fn matches_project(project: Option<&str>, session: &SessionStats) -> bool {
 
 fn session_project_name(session: &SessionStats) -> String {
     match session.cwd.as_deref() {
-        Some(cwd) => {
-            PathBuf::from(cwd)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .filter(|n| !n.is_empty())
-                .unwrap_or("unknown")
-                .to_string()
-        }
+        Some(cwd) => PathBuf::from(cwd)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|n| !n.is_empty())
+            .unwrap_or("unknown")
+            .to_string(),
         None => "unknown".to_string(),
     }
 }
@@ -724,7 +739,9 @@ fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionIn
         duration_formatted: format_duration(session.duration_ms),
         total_tokens,
         instructions: session.instructions,
-        model: session.primary_model.unwrap_or_else(|| "unknown".to_string()),
+        model: session
+            .primary_model
+            .unwrap_or_else(|| "unknown".to_string()),
         git_branch: session.git_branch.unwrap_or_default(),
         cost_usd: session.cost_usd,
         source: "gemini".to_string(),

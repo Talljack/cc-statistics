@@ -127,6 +127,11 @@ export function Dashboard() {
           output: model.output,
           cacheRead: model.cacheRead,
           cacheCreation: model.cacheWrite,
+          billingProvider: model.billingProvider,
+          upstreamProvider: model.upstreamProvider,
+          aliasKeys: model.aliasKeys,
+          sourceKind: model.sourceKind,
+          resolvedFrom: model.resolvedFrom,
         })),
       }).totalCost;
 

@@ -77,12 +77,13 @@ export function getSessionCostKey(session: Pick<SessionInfo, 'source' | 'session
 
 function deriveCostFromBuckets(
   modelBuckets: Record<string, ModelTokens>,
-  snapshot: CostingSnapshot
+  snapshot: CostingSnapshot,
+  appSource?: string
 ): ModelBucketCost {
   const cost = createZeroBucketCost();
 
   for (const [model, tokens] of Object.entries(modelBuckets)) {
-    const pricing = resolveModelPricing(model, snapshot);
+    const pricing = resolveModelPricing(model, { ...snapshot, appSource });
     const inputCost = (tokens.input / 1_000_000) * pricing.input;
     const outputCost = (tokens.output / 1_000_000) * pricing.output;
     const cacheReadCost = (tokens.cache_read / 1_000_000) * pricing.cacheRead;
@@ -126,7 +127,7 @@ export function deriveCostMetrics(
   let totalCost = 0;
 
   for (const session of sessions) {
-    const sessionCost = deriveCostFromBuckets(session.tokens_by_model, snapshot);
+    const sessionCost = deriveCostFromBuckets(session.tokens_by_model, snapshot, session.source);
     costBySession.push({
       key: getSessionCostKey(session),
       totalCost: sessionCost.totalCost,
@@ -143,7 +144,7 @@ export function deriveCostMetrics(
     totalCost += sessionCost.totalCost;
 
     for (const [model, tokens] of Object.entries(session.tokens_by_model)) {
-      const pricing = resolveModelPricing(model, snapshot);
+      const pricing = resolveModelPricing(model, { ...snapshot, appSource: session.source });
       const modelCost = (tokens.input / 1_000_000) * pricing.input + (tokens.output / 1_000_000) * pricing.output;
       costByModel[model] = (costByModel[model] ?? 0) + modelCost;
     }

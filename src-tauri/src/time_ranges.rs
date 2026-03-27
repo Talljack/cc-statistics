@@ -58,13 +58,9 @@ pub fn record_matches_query_range(
 ) -> bool {
     match range {
         QueryTimeRange::BuiltIn { key } => match key {
-            BuiltInTimeRangeKey::Today => {
-                record_matches_time_filter(&TimeFilter::Today, timestamp)
-            }
+            BuiltInTimeRangeKey::Today => record_matches_time_filter(&TimeFilter::Today, timestamp),
             BuiltInTimeRangeKey::Week => record_matches_time_filter(&TimeFilter::Week, timestamp),
-            BuiltInTimeRangeKey::Month => {
-                record_matches_time_filter(&TimeFilter::Month, timestamp)
-            }
+            BuiltInTimeRangeKey::Month => record_matches_time_filter(&TimeFilter::Month, timestamp),
             BuiltInTimeRangeKey::All => true,
         },
         QueryTimeRange::Relative {
@@ -234,6 +230,9 @@ mod tests {
         let out_of_range = out_of_range.with_timezone(&out_of_range.offset().fix());
 
         assert!(record_matches_time_filter(&TimeFilter::Days(2), &in_range));
-        assert!(!record_matches_time_filter(&TimeFilter::Days(2), &out_of_range));
+        assert!(!record_matches_time_filter(
+            &TimeFilter::Days(2),
+            &out_of_range
+        ));
     }
 }

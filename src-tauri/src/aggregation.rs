@@ -1,7 +1,7 @@
 use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
 use crate::models::{
-    CodeChanges, ExtensionChanges, FileChange, InstructionInfo, ModelTokens, SessionInfo, Statistics,
-    QueryTimeRange, TokenUsage,
+    CodeChanges, ExtensionChanges, FileChange, InstructionInfo, ModelTokens, QueryTimeRange,
+    SessionInfo, Statistics, TokenUsage,
 };
 use crate::normalized::{NormalizedRecord, NormalizedSession};
 use crate::parser::format_duration;
@@ -38,8 +38,7 @@ pub fn aggregate_statistics(
     let mut result = Statistics::default();
 
     for session in sessions {
-        let Some(aggregate) =
-            aggregate_session(session, range, provider_filter, custom_providers)
+        let Some(aggregate) = aggregate_session(session, range, provider_filter, custom_providers)
         else {
             continue;
         };
@@ -133,8 +132,7 @@ pub fn aggregate_instructions(
     let mut results = Vec::new();
 
     for session in sessions {
-        let Some(aggregate) =
-            aggregate_session(session, range, provider_filter, custom_providers)
+        let Some(aggregate) = aggregate_session(session, range, provider_filter, custom_providers)
         else {
             continue;
         };
@@ -153,11 +151,12 @@ pub fn aggregate_available_providers(
     let mut providers = HashSet::new();
 
     for session in sessions {
-        if let Some(provider) = session
-            .provider
-            .clone()
-            .or_else(|| session.primary_model.as_deref().and_then(|m| model_to_provider(m, custom_providers)))
-        {
+        if let Some(provider) = session.provider.clone().or_else(|| {
+            session
+                .primary_model
+                .as_deref()
+                .and_then(|m| model_to_provider(m, custom_providers))
+        }) {
             providers.insert(provider);
         }
 
@@ -271,7 +270,8 @@ pub fn aggregate_code_changes_detail(
     }
 
     results.sort_by(|(a_ts, a_change), (b_ts, b_change)| {
-        b_ts.cmp(a_ts).then_with(|| a_change.file_path.cmp(&b_change.file_path))
+        b_ts.cmp(a_ts)
+            .then_with(|| a_change.file_path.cmp(&b_change.file_path))
     });
 
     results.into_iter().map(|(_, change)| change).collect()
@@ -331,14 +331,10 @@ fn aggregate_session(
         .unwrap_or(true);
     let mut provider_matches = provider_filter.is_none()
         || matching_token_count > 0
-        || (matching_token_count == 0
-            && non_matching_token_count == 0
-            && session_provider_matches);
+        || (matching_token_count == 0 && non_matching_token_count == 0 && session_provider_matches);
     let allow_provider_agnostic_records = provider_filter.is_none()
         || matching_token_count > 0
-        || (matching_token_count == 0
-            && non_matching_token_count == 0
-            && session_provider_matches);
+        || (matching_token_count == 0 && non_matching_token_count == 0 && session_provider_matches);
     let mut earliest: Option<DateTime<FixedOffset>> = None;
     let mut latest: Option<DateTime<FixedOffset>> = None;
     let mut tokens = TokenUsage::default();
@@ -386,13 +382,17 @@ fn aggregate_session(
                     tokens.cache_creation += token.cache_creation;
                     cost_usd += token.cost_usd;
 
-                    let model_tokens = tokens.by_model.entry(token.model.clone()).or_insert(ModelTokens {
-                        input: 0,
-                        output: 0,
-                        cache_read: 0,
-                        cache_creation: 0,
-                        cost_usd: 0.0,
-                    });
+                    let model_tokens =
+                        tokens
+                            .by_model
+                            .entry(token.model.clone())
+                            .or_insert(ModelTokens {
+                                input: 0,
+                                output: 0,
+                                cache_read: 0,
+                                cache_creation: 0,
+                                cost_usd: 0.0,
+                            });
                     model_tokens.input += token.input;
                     model_tokens.output += token.output;
                     model_tokens.cache_read += token.cache_read;
@@ -480,8 +480,7 @@ fn aggregate_session(
         _ => 0,
     };
 
-    let total_tokens =
-        tokens.input + tokens.output + tokens.cache_read + tokens.cache_creation;
+    let total_tokens = tokens.input + tokens.output + tokens.cache_read + tokens.cache_creation;
     let model = tokens
         .by_model
         .keys()
@@ -821,35 +820,29 @@ mod tests {
             key: crate::models::BuiltInTimeRangeKey::All,
         };
 
-        let anthropic_details = aggregate_code_changes_detail(
-            &sessions,
-            &range,
-            &Some("Anthropic".to_string()),
-            &[],
-        );
+        let anthropic_details =
+            aggregate_code_changes_detail(&sessions, &range, &Some("Anthropic".to_string()), &[]);
         assert_eq!(anthropic_details.len(), 1);
         assert_eq!(anthropic_details[0].file_path, "src/main.rs");
 
-        let openai_details = aggregate_code_changes_detail(
-            &sessions,
-            &range,
-            &Some("OpenAI".to_string()),
-            &[],
-        );
+        let openai_details =
+            aggregate_code_changes_detail(&sessions, &range, &Some("OpenAI".to_string()), &[]);
         assert!(openai_details.is_empty());
     }
 
     #[test]
     fn code_changes_detail_hides_summary_only_placeholder_records() {
-        let sessions = vec![session(vec![NormalizedRecord::CodeChange(CodeChangeRecord {
-            timestamp: ts("2026-03-10T09:03:00+08:00"),
-            file_path: "session:opaque-summary".to_string(),
-            extension: "summary".to_string(),
-            additions: 10,
-            deletions: 3,
-            files: 2,
-            diff_content: None,
-        })])];
+        let sessions = vec![session(vec![NormalizedRecord::CodeChange(
+            CodeChangeRecord {
+                timestamp: ts("2026-03-10T09:03:00+08:00"),
+                file_path: "session:opaque-summary".to_string(),
+                extension: "summary".to_string(),
+                additions: 10,
+                deletions: 3,
+                files: 2,
+                diff_content: None,
+            },
+        )])];
         let range = QueryTimeRange::BuiltIn {
             key: crate::models::BuiltInTimeRangeKey::All,
         };

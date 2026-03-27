@@ -310,5 +310,8 @@
   "account.balance": "残高",
   "account.localModels": "ローカルモデル",
   "account.configNote": "自動検出されないプロバイダーのAPIキーは ~/.cc-statistics/providers.json で設定できます",
-  "account.infoNote": "使用量データは公式APIからリアルタイムで取得されており、プロバイダーのダッシュボードと一致します。"
+  "account.infoNote": "使用量データは公式APIからリアルタイムで取得されており、プロバイダーのダッシュボードと一致します。",
+  "account.fetchFailed": "使用量データの取得に失敗しました",
+  "account.fetchFailedDesc": "ネットワーク接続が不安定か、サービスが一時的に利用できない可能性があります。しばらくしてからもう一度お試しください。",
+  "account.retry": "再試行"
 }

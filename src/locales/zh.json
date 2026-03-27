@@ -310,5 +310,8 @@
   "account.balance": "余额",
   "account.localModels": "本地模型",
   "account.configNote": "未自动检测到的提供商 API Key 可在 ~/.cc-statistics/providers.json 中配置",
-  "account.infoNote": "用量数据通过官方 API 实时获取，数据与官方仪表盘一致。"
+  "account.infoNote": "用量数据通过官方 API 实时获取，数据与官方仪表盘一致。",
+  "account.fetchFailed": "获取用量数据失败",
+  "account.fetchFailedDesc": "可能是网络连接不稳定或服务暂时不可用，请稍后重试",
+  "account.retry": "重试"
 }

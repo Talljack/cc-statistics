@@ -13,6 +13,11 @@ export interface ModelPricingEntry {
   output: number;        // USD per million tokens
   cacheRead: number;     // USD per million tokens
   cacheWrite: number;    // USD per million tokens
+  billingProvider?: string;
+  upstreamProvider?: string | null;
+  aliasKeys?: string[];
+  sourceKind?: string;
+  resolvedFrom?: string | null;
 }
 
 interface PricingStore {
@@ -51,6 +56,11 @@ function mapCatalogModels(models: CatalogModelPriceEntry[]): ModelPricingEntry[]
       output: roundPrice(model.output_per_m, 3),
       cacheRead: roundPrice(model.cache_read_per_m, 4),
       cacheWrite: roundPrice(model.cache_write_per_m, 4),
+      billingProvider: model.billing_provider,
+      upstreamProvider: model.upstream_provider,
+      aliasKeys: model.alias_keys,
+      sourceKind: model.source_kind,
+      resolvedFrom: model.resolved_from,
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -130,6 +140,11 @@ export const usePricingStore = create<PricingStore>()(
             output: model.output,
             cacheRead: model.cacheRead,
             cacheCreation: model.cacheWrite,
+            billingProvider: model.billingProvider,
+            upstreamProvider: model.upstreamProvider,
+            aliasKeys: model.aliasKeys,
+            sourceKind: model.sourceKind,
+            resolvedFrom: model.resolvedFrom,
           })),
           fallbackPricing: SHARED_FALLBACK_PRICING,
         });

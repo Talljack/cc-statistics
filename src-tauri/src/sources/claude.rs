@@ -1,8 +1,8 @@
+use crate::commands::{filter_by_time, model_matches_provider, CustomProviderDef};
 use crate::models::*;
 use crate::normalized::NormalizedSession;
-use crate::parser::{extract_instructions, format_duration, parse_session_file, ProjectStats};
 use crate::parser::parse_normalized_session_file;
-use crate::commands::{model_matches_provider, filter_by_time, CustomProviderDef};
+use crate::parser::{extract_instructions, format_duration, parse_session_file, ProjectStats};
 use crate::time_ranges::filter_by_query_range;
 use std::collections::HashMap;
 use std::fs;
@@ -163,7 +163,13 @@ pub fn collect_stats(
     };
 
     for dir in dirs_to_scan {
-        match collect_project_stats(dir, time_filter, query_range, provider_filter, custom_providers) {
+        match collect_project_stats(
+            dir,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ) {
             Ok(stats) => all_stats.merge(stats),
             Err(e) => eprintln!("Error collecting Claude stats for {:?}: {}", dir, e),
         }
@@ -181,8 +187,8 @@ fn collect_project_stats(
 ) -> Result<ProjectStats, String> {
     let mut stats = ProjectStats::default();
 
-    let entries = fs::read_dir(project_path)
-        .map_err(|e| format!("Failed to read project dir: {}", e))?;
+    let entries =
+        fs::read_dir(project_path).map_err(|e| format!("Failed to read project dir: {}", e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -286,14 +292,18 @@ pub fn collect_sessions(
                     + session_stats.tokens.cache_creation;
 
                 sessions.push(SessionInfo {
-                    session_id: session_stats.session_id.unwrap_or_else(|| "unknown".to_string()),
+                    session_id: session_stats
+                        .session_id
+                        .unwrap_or_else(|| "unknown".to_string()),
                     project_name: project_name.clone(),
                     timestamp: session_stats.first_timestamp.unwrap_or_default(),
                     duration_ms: session_stats.duration_ms,
                     duration_formatted: format_duration(session_stats.duration_ms),
                     total_tokens,
                     instructions: session_stats.instructions,
-                    model: session_stats.primary_model.unwrap_or_else(|| "unknown".to_string()),
+                    model: session_stats
+                        .primary_model
+                        .unwrap_or_else(|| "unknown".to_string()),
                     git_branch: session_stats.git_branch.unwrap_or_default(),
                     cost_usd: session_stats.cost_usd,
                     source: "claude_code".to_string(),
@@ -349,7 +359,10 @@ pub fn collect_normalized_sessions(
                 match parse_normalized_session_file(&path, &project_name) {
                     Ok(session) if !session.records.is_empty() => sessions.push(session),
                     Ok(_) => {}
-                    Err(error) => eprintln!("Error parsing normalized Claude session {:?}: {}", path, error),
+                    Err(error) => eprintln!(
+                        "Error parsing normalized Claude session {:?}: {}",
+                        path, error
+                    ),
                 }
             }
         }

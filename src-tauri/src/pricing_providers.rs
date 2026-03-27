@@ -473,7 +473,7 @@ fn provider_priority(app_source: &str, upstream_provider: Option<&str>) -> Vec<S
 fn app_source_track(app_source: &str) -> AppSourceTrack {
     match app_source {
         "openrouter" => AppSourceTrack::Router,
-        "copilot" | "warp" | "cursor" | "amp" | "factory" | "augment" | "jetbrains_ai" | "kiro" => {
+        "copilot" | "warp" | "cursor" | "kimi" | "amp" | "factory" | "augment" | "jetbrains_ai" | "kiro" => {
             AppSourceTrack::Tool
         }
         _ => AppSourceTrack::Direct,
