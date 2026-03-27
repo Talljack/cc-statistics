@@ -11,6 +11,12 @@ use crate::models::ProviderUsage;
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
+// Gemini CLI ships these installed-app OAuth credentials in its own source.
+// Reusing them keeps our account usage fetch aligned with the official CLI.
+const GEMINI_CLI_OAUTH_CLIENT_ID: &str =
+    "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
+const GEMINI_CLI_OAUTH_CLIENT_SECRET: &str = "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";
+
 fn make_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -268,17 +274,15 @@ pub async fn fetch_codex() -> Result<ProviderUsage, String> {
 // ---------------------------------------------------------------------------
 
 pub async fn fetch_gemini() -> Result<ProviderUsage, String> {
-    let token = get_gemini_access_token().await?;
+    let mut token = get_gemini_access_token(false).await?;
+    let mut resp = request_gemini_quota(&token).await?;
 
-    let client = make_client()?;
-    let resp = client
-        .post("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({}))
-        .send()
-        .await
-        .map_err(|e| format!("Gemini quota API failed: {}", e))?;
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+        || resp.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        token = get_gemini_access_token(true).await?;
+        resp = request_gemini_quota(&token).await?;
+    }
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -346,7 +350,29 @@ pub async fn fetch_gemini() -> Result<ProviderUsage, String> {
     })
 }
 
-async fn get_gemini_access_token() -> Result<String, String> {
+async fn request_gemini_quota(token: &str) -> Result<reqwest::Response, String> {
+    make_client()?
+        .post("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| format!("Gemini quota API failed: {}", e))
+}
+
+fn gemini_oauth_client_credentials(config: &serde_json::Value) -> (String, String) {
+    let client_id = cfg_str(config, "gemini_client_id")
+        .or_else(|| std::env::var("GEMINI_CLIENT_ID").ok())
+        .unwrap_or_else(|| GEMINI_CLI_OAUTH_CLIENT_ID.to_string());
+    let client_secret = cfg_str(config, "gemini_client_secret")
+        .or_else(|| std::env::var("GEMINI_CLIENT_SECRET").ok())
+        .unwrap_or_else(|| GEMINI_CLI_OAUTH_CLIENT_SECRET.to_string());
+
+    (client_id, client_secret)
+}
+
+async fn get_gemini_access_token(force_refresh: bool) -> Result<String, String> {
     let home = dirs::home_dir().ok_or("No home dir")?;
     let creds_path = home.join(".gemini").join("oauth_creds.json");
     let creds: serde_json::Value = serde_json::from_str(
@@ -366,7 +392,7 @@ async fn get_gemini_access_token() -> Result<String, String> {
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     let now_ms = Utc::now().timestamp_millis();
-    if expiry_ms > now_ms + 60_000 {
+    if !force_refresh && expiry_ms > now_ms + 60_000 {
         // Token still valid (60s buffer)
         return Ok(access_token.to_string());
     }
@@ -377,16 +403,7 @@ async fn get_gemini_access_token() -> Result<String, String> {
         .and_then(|v| v.as_str())
         .ok_or("No refresh_token in Gemini credentials")?;
     let cfg = provider_config();
-    let client_id = cfg_str(&cfg, "gemini_client_id")
-        .or_else(|| std::env::var("GEMINI_CLIENT_ID").ok())
-        .ok_or(
-            "No Gemini OAuth client_id (set gemini_client_id in ~/.cc-statistics/providers.json or GEMINI_CLIENT_ID env)",
-        )?;
-    let client_secret = cfg_str(&cfg, "gemini_client_secret")
-        .or_else(|| std::env::var("GEMINI_CLIENT_SECRET").ok())
-        .ok_or(
-            "No Gemini OAuth client_secret (set gemini_client_secret in ~/.cc-statistics/providers.json or GEMINI_CLIENT_SECRET env)",
-        )?;
+    let (client_id, client_secret) = gemini_oauth_client_credentials(&cfg);
 
     let client = make_client()?;
     let resp = client
@@ -495,6 +512,32 @@ fn base64_decode_nopad(s: &str) -> Option<Vec<u8>> {
         i += 4;
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_oauth_credentials_default_to_cli_constants() {
+        let cfg = serde_json::json!({});
+        let (client_id, client_secret) = gemini_oauth_client_credentials(&cfg);
+
+        assert_eq!(client_id, GEMINI_CLI_OAUTH_CLIENT_ID);
+        assert_eq!(client_secret, GEMINI_CLI_OAUTH_CLIENT_SECRET);
+    }
+
+    #[test]
+    fn gemini_oauth_credentials_allow_config_override() {
+        let cfg = serde_json::json!({
+            "gemini_client_id": "custom-client-id",
+            "gemini_client_secret": "custom-client-secret"
+        });
+        let (client_id, client_secret) = gemini_oauth_client_credentials(&cfg);
+
+        assert_eq!(client_id, "custom-client-id");
+        assert_eq!(client_secret, "custom-client-secret");
+    }
 }
 
 // ---------------------------------------------------------------------------
