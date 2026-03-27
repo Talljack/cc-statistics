@@ -310,15 +310,14 @@ function providerPriority(appSource?: string, upstreamProvider?: string | null):
   return [...new Set(priority.filter(Boolean))];
 }
 
-function candidateMatchesProvider(candidate: PricingCandidate, provider: string): boolean {
+function candidateProviderMatchRank(candidate: PricingCandidate, provider: string): number | null {
   const normalizedProvider = normalizeProviderName(provider);
-  if (!normalizedProvider) return false;
+  if (!normalizedProvider) return null;
 
-  return (
-    normalizeProviderName(candidate.billingProvider) === normalizedProvider ||
-    normalizeProviderName(candidate.upstreamProvider) === normalizedProvider ||
-    normalizeProviderName(candidate.resolvedFrom) === normalizedProvider
-  );
+  if (normalizeProviderName(candidate.billingProvider) === normalizedProvider) return 0;
+  if (normalizeProviderName(candidate.upstreamProvider) === normalizedProvider) return 1;
+  if (normalizeProviderName(candidate.resolvedFrom) === normalizedProvider) return 2;
+  return null;
 }
 
 function findDynamicCandidate(
@@ -330,49 +329,59 @@ function findDynamicCandidate(
   const queryAliases = [normalizedQuery];
   const upstreamProvider = classifyUpstreamProvider(query);
   const priorities = providerPriority(appSource, upstreamProvider);
-  const groups: PricingCandidate[][] = [];
+  const groups: Array<Array<{ candidate: PricingCandidate; rank: number }>> = [];
 
   for (const provider of priorities) {
-    const matches = candidates.filter((candidate) => candidateMatchesProvider(candidate, provider));
+    const matches = candidates
+      .map((candidate) => {
+        const rank = candidateProviderMatchRank(candidate, provider);
+        return rank == null ? null : { candidate, rank };
+      })
+      .filter((match): match is { candidate: PricingCandidate; rank: number } => match !== null);
     if (matches.length > 0) {
       groups.push(matches);
     }
   }
 
-  const providerAwareCandidates = new Set(groups.flat());
+  const providerAwareCandidates = new Set(groups.flat().map((match) => match.candidate));
   const unscopedCandidates = candidates.filter((candidate) => !providerAwareCandidates.has(candidate));
   if (unscopedCandidates.length > 0) {
-    groups.push(unscopedCandidates);
+    groups.push(unscopedCandidates.map((candidate) => ({ candidate, rank: 0 })));
   }
 
   for (const group of groups) {
-    const exact = group.filter((candidate) => candidate.id === query);
-    if (exact.length > 0) {
-      return selectBestCandidate(exact);
-    }
+    for (const providerRank of [0, 1, 2]) {
+      const scoped = group.filter((entry) => entry.rank === providerRank).map((entry) => entry.candidate);
+      if (scoped.length === 0) continue;
 
-    const normalized = group.filter((candidate) => {
-      if (normalizeModelName(candidate.id) === normalizedQuery) {
-        return true;
+      const exact = scoped.filter((candidate) => candidate.id === query);
+      if (exact.length > 0) {
+        return selectBestCandidate(exact);
       }
-      return candidate.aliasKeys?.some((alias) => normalizeModelName(alias) === normalizedQuery) ?? false;
-    });
-    if (normalized.length > 0) {
-      return selectBestCandidate(normalized);
-    }
 
-    const alias = group.filter((candidate) =>
-      candidate.aliasKeys?.some((candidateAlias) =>
-        queryAliases.includes(normalizeModelName(candidateAlias))
-      ) ?? false
-    );
-    if (alias.length > 0) {
-      return selectBestCandidate(alias);
-    }
+      const normalized = scoped.filter((candidate) => {
+        if (normalizeModelName(candidate.id) === normalizedQuery) {
+          return true;
+        }
+        return candidate.aliasKeys?.some((alias) => normalizeModelName(alias) === normalizedQuery) ?? false;
+      });
+      if (normalized.length > 0) {
+        return selectBestCandidate(normalized);
+      }
 
-    const substring = findUniqueSubstringCandidate(query, group);
-    if (substring) {
-      return substring;
+      const alias = scoped.filter((candidate) =>
+        candidate.aliasKeys?.some((candidateAlias) =>
+          queryAliases.includes(normalizeModelName(candidateAlias))
+        ) ?? false
+      );
+      if (alias.length > 0) {
+        return selectBestCandidate(alias);
+      }
+
+      const substring = findUniqueSubstringCandidate(query, scoped);
+      if (substring) {
+        return substring;
+      }
     }
   }
 

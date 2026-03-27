@@ -98,9 +98,9 @@ describe('resolveModelPricing source-aware resolution', () => {
     );
 
     expect(resolved.source).toBe('dynamic');
-    expect(resolved.matchedModel).toBe('anthropic/claude-sonnet-4-5');
-    expect(resolved.input).toBe(5);
-    expect(resolved.output).toBe(7);
+    expect(resolved.matchedModel).toBe('claude-sonnet-4-5');
+    expect(resolved.input).toBe(1);
+    expect(resolved.output).toBe(2);
   });
 
   it('prefers tool pricing before upstream entries for tool sessions', () => {

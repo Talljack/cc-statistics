@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveCostMetrics } from './costing';
+import { deriveCostFromTokenUsage, deriveCostMetrics } from './costing';
 import { FALLBACK_PRICING, resolveModelPricing, type PricingContext, type PricingCandidate } from './modelPricing';
 import type { ModelPricing } from '../stores/settingsStore';
 import type { ModelTokens, SessionInfo } from '../types/statistics';
@@ -182,6 +182,44 @@ describe('resolveModelPricing', () => {
 });
 
 describe('deriveCostMetrics', () => {
+  it('allows token-usage cost derivation to remain source-aware', () => {
+    const result = deriveCostFromTokenUsage(
+      {
+        input: 1_000_000,
+        output: 0,
+        cache_read: 0,
+        cache_creation: 0,
+        by_model: {
+          'anthropic/claude-sonnet-4-5': tokens(1_000_000, 0),
+        },
+      },
+      snapshot({
+        dynamicPricing: [
+          modelPricing('cursor/claude-sonnet-4-5', 1, 2, 0, 0, {
+            billingProvider: 'cursor',
+            upstreamProvider: 'anthropic',
+            sourceKind: 'fallback_only',
+            aliasKeys: ['claude-sonnet-4-5'],
+            resolvedFrom: 'cursor',
+          }),
+          modelPricing('anthropic/claude-sonnet-4-5', 5, 7, 0, 0, {
+            billingProvider: 'openrouter',
+            upstreamProvider: 'anthropic',
+            sourceKind: 'official_api',
+            resolvedFrom: 'openrouter',
+          }),
+          modelPricing('claude-sonnet-4-5', 3, 4, 0, 0, {
+            billingProvider: 'anthropic',
+            sourceKind: 'official_doc',
+          }),
+        ],
+      }),
+      'openrouter'
+    );
+
+    expect(result).toBeCloseTo(3);
+  });
+
   it('excludes cache tokens from cost', () => {
     const result = deriveCostMetrics(
       [

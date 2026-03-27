@@ -104,8 +104,12 @@ function deriveCostFromBuckets(
   return cost;
 }
 
-export function deriveCostFromTokenUsage(tokens: TokenUsage, snapshot: CostingSnapshot): number {
-  return deriveCostFromBuckets(tokens.by_model, snapshot).totalCost;
+export function deriveCostFromTokenUsage(
+  tokens: TokenUsage,
+  snapshot: CostingSnapshot,
+  appSource?: string
+): number {
+  return deriveCostFromBuckets(tokens.by_model, snapshot, appSource).totalCost;
 }
 
 export function deriveCostMetrics(
