@@ -78,6 +78,164 @@ pub fn upstream_provider_coverage(provider: &str) -> Option<CoverageMode> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderNamespace {
+    Billing,
+    Upstream,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderFetchPlan {
+    pub namespace: ProviderNamespace,
+    pub provider: String,
+    pub mode: CoverageMode,
+    pub source_kind: String,
+    pub source_url: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PricingFetchContext {
+    pub fetched_at: String,
+}
+
+impl PricingFetchContext {
+    pub fn now() -> Self {
+        Self {
+            fetched_at: Utc::now().to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderRefreshResult {
+    pub provider: PricingProviderCatalog,
+    pub models: Vec<ModelPriceEntry>,
+}
+
+pub fn billing_provider_fetch_plan(provider: &str) -> Option<ProviderFetchPlan> {
+    billing_provider_coverage(provider).map(|mode| ProviderFetchPlan {
+        namespace: ProviderNamespace::Billing,
+        provider: provider.to_string(),
+        mode,
+        source_kind: coverage_mode_source_kind(mode).to_string(),
+        source_url: coverage_source_url(ProviderNamespace::Billing, provider)
+            .map(str::to_string),
+    })
+}
+
+pub fn upstream_provider_fetch_plan(provider: &str) -> Option<ProviderFetchPlan> {
+    upstream_provider_coverage(provider).map(|mode| ProviderFetchPlan {
+        namespace: ProviderNamespace::Upstream,
+        provider: provider.to_string(),
+        mode,
+        source_kind: coverage_mode_source_kind(mode).to_string(),
+        source_url: coverage_source_url(ProviderNamespace::Upstream, provider)
+            .map(str::to_string),
+    })
+}
+
+pub async fn fetch_billing_provider_entries(
+    provider: &str,
+    ctx: &PricingFetchContext,
+) -> Result<ProviderRefreshResult, String> {
+    let plan = billing_provider_fetch_plan(provider)
+        .ok_or_else(|| format!("Unsupported billing provider `{provider}`"))?;
+
+    if provider == OPENROUTER_PROVIDER && plan.mode == CoverageMode::OfficialApi {
+        let models = fetch_openrouter_catalog().await?;
+        return Ok(ProviderRefreshResult {
+            provider: build_provider_catalog(
+                &plan.provider,
+                None,
+                "ok",
+                false,
+                vec![],
+                models.len(),
+                &plan.source_kind,
+                plan.source_url.clone(),
+                &ctx.fetched_at,
+            ),
+            models,
+        });
+    }
+
+    Ok(ProviderRefreshResult {
+        provider: build_provider_catalog(
+            &plan.provider,
+            None,
+            "ok",
+            false,
+            vec![],
+            0,
+            &plan.source_kind,
+            plan.source_url.clone(),
+            &ctx.fetched_at,
+        ),
+        models: vec![],
+    })
+}
+
+pub async fn fetch_upstream_provider_entries(
+    provider: &str,
+    ctx: &PricingFetchContext,
+) -> Result<ProviderRefreshResult, String> {
+    let plan = upstream_provider_fetch_plan(provider)
+        .ok_or_else(|| format!("Unsupported upstream provider `{provider}`"))?;
+
+    Ok(ProviderRefreshResult {
+        provider: build_provider_catalog(
+            &plan.provider,
+            Some(plan.provider.clone()),
+            "ok",
+            false,
+            vec![],
+            0,
+            &plan.source_kind,
+            plan.source_url.clone(),
+            &ctx.fetched_at,
+        ),
+        models: vec![],
+    })
+}
+
+pub fn merge_provider_refresh_batches(
+    previous: Option<&PricingCatalogResult>,
+    refreshes: Vec<ProviderRefreshResult>,
+) -> PricingCatalogResult {
+    let provider_catalogs: Vec<PricingProviderCatalog> =
+        refreshes.iter().map(|refresh| refresh.provider.clone()).collect();
+    let models: Vec<ModelPriceEntry> = refreshes
+        .into_iter()
+        .flat_map(|refresh| refresh.models)
+        .collect();
+
+    if let Some(previous) = previous {
+        return merge_provider_refresh(previous, provider_catalogs, models);
+    }
+
+    let fetched_at = provider_catalogs
+        .iter()
+        .filter_map(|provider| chrono::DateTime::parse_from_rfc3339(&provider.fetched_at).ok())
+        .map(|date| date.with_timezone(&Utc))
+        .max()
+        .unwrap_or_else(Utc::now);
+    let stale = provider_catalogs.iter().any(|provider| provider.stale);
+    let errors: Vec<String> = provider_catalogs
+        .iter()
+        .flat_map(|provider| provider.errors.clone())
+        .collect();
+    let errors = dedupe_strings(errors);
+
+    PricingCatalogResult {
+        providers: provider_catalogs,
+        models,
+        fetched_at: fetched_at.to_rfc3339(),
+        expires_at: (fetched_at + Duration::hours(24)).to_rfc3339(),
+        stale,
+        errors,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppSourceTrack {
     Router,
     Tool,
@@ -232,24 +390,6 @@ pub fn classify_upstream_provider(model: &str) -> Option<String> {
     }
     if effective.starts_with("azure") {
         return Some("openai".to_string());
-    }
-    if effective.starts_with("ollama") {
-        return Some("ollama_cloud".to_string());
-    }
-    if effective.starts_with("cloudflare") || effective.starts_with("cf-") {
-        return Some("cloudflare".to_string());
-    }
-    if effective.starts_with("aihubmix") {
-        return Some("aihubmix".to_string());
-    }
-    if effective.starts_with("fireworks") {
-        return Some("fireworks".to_string());
-    }
-    if effective.starts_with("cerebras") {
-        return Some("cerebras".to_string());
-    }
-    if effective.starts_with("samba") {
-        return Some("sambanova".to_string());
     }
     if effective.starts_with("stepfun") {
         return Some("stepfun".to_string());
@@ -696,4 +836,64 @@ fn pricing_to_per_m(value: Option<serde_json::Value>) -> Option<f64> {
         _ => None,
     }
     .map(|price| price * 1_000_000.0)
+}
+
+fn build_provider_catalog(
+    billing_provider: &str,
+    upstream_provider: Option<String>,
+    status: &str,
+    stale: bool,
+    errors: Vec<String>,
+    model_count: usize,
+    source_kind: &str,
+    source_url: Option<String>,
+    fetched_at: &str,
+) -> PricingProviderCatalog {
+    PricingProviderCatalog {
+        billing_provider: billing_provider.to_string(),
+        upstream_provider,
+        status: status.to_string(),
+        stale,
+        errors,
+        model_count,
+        source_kind: source_kind.to_string(),
+        source_url,
+        fetched_at: fetched_at.to_string(),
+    }
+}
+
+fn coverage_mode_source_kind(mode: CoverageMode) -> &'static str {
+    match mode {
+        CoverageMode::OfficialApi => "official_api",
+        CoverageMode::OfficialDoc => "official_doc",
+        CoverageMode::FallbackOnly => "fallback_only",
+    }
+}
+
+fn coverage_source_url(namespace: ProviderNamespace, provider: &str) -> Option<&'static str> {
+    match (namespace, provider) {
+        (ProviderNamespace::Billing, "anthropic")
+        | (ProviderNamespace::Upstream, "anthropic") => Some("https://www.anthropic.com/pricing"),
+        (ProviderNamespace::Billing, "openai") | (ProviderNamespace::Upstream, "openai") => {
+            Some("https://openai.com/api/pricing/")
+        }
+        (ProviderNamespace::Billing, "google") | (ProviderNamespace::Upstream, "google") => {
+            Some("https://ai.google.dev/gemini-api/docs/pricing")
+        }
+        (ProviderNamespace::Billing, "openrouter") => Some(OPENROUTER_CATALOG_URL),
+        (ProviderNamespace::Billing, "moonshot") | (ProviderNamespace::Upstream, "moonshot") => {
+            Some("https://platform.moonshot.ai/docs/pricing/chat")
+        }
+        (ProviderNamespace::Billing, "zai") | (ProviderNamespace::Upstream, "zai") => {
+            Some("https://docs.z.ai/guides/models")
+        }
+        (ProviderNamespace::Billing, "ollama_cloud") => Some("https://ollama.com/cloud"),
+        (ProviderNamespace::Upstream, "deepseek") => Some("https://api-docs.deepseek.com/quick_start/pricing"),
+        (ProviderNamespace::Upstream, "mistral") => Some("https://docs.mistral.ai/getting-started/pricing/"),
+        (ProviderNamespace::Upstream, "meta") => Some("https://www.llama.com/llama-api/pricing/"),
+        (ProviderNamespace::Upstream, "qwen") => Some("https://www.alibabacloud.com/help/en/model-studio/getting-started/models"),
+        (ProviderNamespace::Upstream, "xai") => Some("https://docs.x.ai/docs/models"),
+        (ProviderNamespace::Upstream, "cohere") => Some("https://cohere.com/pricing"),
+        _ => None,
+    }
 }

@@ -7,9 +7,11 @@ use cc_statistics_lib::pricing_cache::{
     save_cached_catalog,
 };
 use cc_statistics_lib::pricing_providers::{
-    alias_keys, app_source_to_billing_provider, billing_provider_coverage, classify_upstream_provider,
-    load_or_refresh_catalog_with_fetcher, normalize_model_id, resolve_catalog_entry,
-    upstream_provider_coverage, CoverageMode,
+    alias_keys, app_source_to_billing_provider, billing_provider_coverage,
+    billing_provider_fetch_plan, classify_upstream_provider, fetch_upstream_provider_entries,
+    load_or_refresh_catalog_with_fetcher, merge_provider_refresh_batches, normalize_model_id,
+    resolve_catalog_entry, upstream_provider_coverage, upstream_provider_fetch_plan, CoverageMode,
+    PricingFetchContext, ProviderNamespace,
 };
 use chrono::{Duration, Utc};
 use std::fs;
@@ -488,6 +490,8 @@ fn pricing_catalog_canonical_provider_helpers_cover_account_sources() {
         classify_upstream_provider("gemini-2.5-pro"),
         Some("google".to_string())
     );
+    assert_eq!(classify_upstream_provider("ollama/custom-model"), None);
+    assert_eq!(classify_upstream_provider("fireworks/custom-model"), None);
     assert!(alias_keys("anthropic/claude-sonnet-4-5")
         .iter()
         .any(|alias| alias == "claude-sonnet-4-5"));
@@ -631,6 +635,119 @@ fn pricing_catalog_resolver_rejects_ambiguous_substrings() {
         resolve_catalog_entry("claude_code", "claude-sonnet-4", &catalog).is_none(),
         "ambiguous substring matches should not guess"
     );
+}
+
+#[test]
+fn pricing_catalog_fetch_plans_follow_coverage_matrix() {
+    let openrouter = billing_provider_fetch_plan("openrouter").expect("openrouter plan");
+    assert_eq!(openrouter.namespace, ProviderNamespace::Billing);
+    assert_eq!(openrouter.mode, CoverageMode::OfficialApi);
+    assert_eq!(openrouter.source_kind, "official_api");
+    assert_eq!(
+        openrouter.source_url.as_deref(),
+        Some("https://openrouter.ai/api/v1/models")
+    );
+
+    let anthropic = billing_provider_fetch_plan("anthropic").expect("anthropic plan");
+    assert_eq!(anthropic.mode, CoverageMode::OfficialDoc);
+    assert_eq!(anthropic.source_kind, "official_doc");
+    assert!(anthropic
+        .source_url
+        .as_deref()
+        .is_some_and(|url| url.contains("anthropic.com")));
+
+    let cursor = billing_provider_fetch_plan("cursor").expect("cursor plan");
+    assert_eq!(cursor.mode, CoverageMode::FallbackOnly);
+    assert_eq!(cursor.source_kind, "fallback_only");
+    assert!(cursor.source_url.is_none());
+
+    let deepseek = upstream_provider_fetch_plan("deepseek").expect("deepseek plan");
+    assert_eq!(deepseek.namespace, ProviderNamespace::Upstream);
+    assert_eq!(deepseek.mode, CoverageMode::OfficialDoc);
+    assert_eq!(deepseek.source_kind, "official_doc");
+    assert!(deepseek
+        .source_url
+        .as_deref()
+        .is_some_and(|url| url.contains("deepseek")));
+
+    let yi = upstream_provider_fetch_plan("yi").expect("yi plan");
+    assert_eq!(yi.mode, CoverageMode::FallbackOnly);
+    assert_eq!(yi.source_kind, "fallback_only");
+    assert!(yi.source_url.is_none());
+}
+
+#[tokio::test]
+async fn pricing_catalog_upstream_fetch_scaffolding_uses_the_coverage_matrix() {
+    let context = PricingFetchContext {
+        fetched_at: "2026-03-26T00:00:00Z".to_string(),
+    };
+
+    let deepseek = fetch_upstream_provider_entries("deepseek", &context)
+        .await
+        .expect("deepseek should resolve through official docs");
+    assert_eq!(deepseek.provider.billing_provider, "deepseek");
+    assert_eq!(deepseek.provider.upstream_provider.as_deref(), Some("deepseek"));
+    assert_eq!(deepseek.provider.source_kind, "official_doc");
+    assert!(deepseek.provider.source_url.as_deref().is_some());
+    assert!(deepseek.models.is_empty());
+
+    let yi = fetch_upstream_provider_entries("yi", &context)
+        .await
+        .expect("yi should remain addressable even as fallback-only");
+    assert_eq!(yi.provider.billing_provider, "yi");
+    assert_eq!(yi.provider.source_kind, "fallback_only");
+    assert!(yi.provider.source_url.is_none());
+}
+
+#[test]
+fn pricing_catalog_provider_refresh_batches_merge_by_provider() {
+    let previous = sample_catalog_with_timestamp(
+        "2026-03-24T00:00:00Z",
+        vec![
+            sample_provider("anthropic", "ok", false, vec![], 1),
+            sample_provider("openrouter", "ok", false, vec![], 1),
+        ],
+        vec![
+            sample_model("anthropic", "claude-sonnet-4-5", "2026-03-24T00:00:00Z"),
+            sample_model("openrouter", "openai/gpt-4.1-mini", "2026-03-24T00:00:00Z"),
+        ],
+        false,
+        vec![],
+    );
+
+    let merged = merge_provider_refresh_batches(
+        Some(&previous),
+        vec![
+            sample_refresh(
+                sample_provider("anthropic", "error", true, vec!["anthropic failed".to_string()], 0),
+                vec![],
+            ),
+            sample_refresh(
+                sample_provider("openrouter", "ok", false, vec![], 1),
+                vec![sample_model(
+                    "openrouter",
+                    "anthropic/claude-opus-4-1",
+                    "2026-03-26T00:00:00Z",
+                )],
+            ),
+        ],
+    );
+
+    assert!(merged.stale);
+    assert_eq!(
+        merged
+            .providers
+            .iter()
+            .find(|provider| provider.billing_provider == "anthropic")
+            .map(|provider| provider.status.as_str()),
+        Some("error")
+    );
+    assert!(merged.models.iter().any(|entry| {
+        entry.billing_provider == "anthropic" && entry.model_id == "claude-sonnet-4-5"
+    }));
+    assert!(merged.models.iter().any(|entry| {
+        entry.billing_provider == "openrouter" && entry.model_id == "anthropic/claude-opus-4-1"
+    }));
 }
 
 #[tokio::test]
@@ -1084,6 +1201,13 @@ fn pricing_model(
         resolved_from: resolved_from.map(str::to_string),
         fetched_at: Utc::now().to_rfc3339(),
     }
+}
+
+fn sample_refresh(
+    provider: PricingProviderCatalog,
+    models: Vec<ModelPriceEntry>,
+) -> cc_statistics_lib::pricing_providers::ProviderRefreshResult {
+    cc_statistics_lib::pricing_providers::ProviderRefreshResult { provider, models }
 }
 
 fn env_lock() -> &'static Mutex<()> {
