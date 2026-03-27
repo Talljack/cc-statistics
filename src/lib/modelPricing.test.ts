@@ -98,9 +98,9 @@ describe('resolveModelPricing source-aware resolution', () => {
     );
 
     expect(resolved.source).toBe('dynamic');
-    expect(resolved.matchedModel).toBe('claude-sonnet-4-5');
-    expect(resolved.input).toBe(1);
-    expect(resolved.output).toBe(2);
+    expect(resolved.matchedModel).toBe('anthropic/claude-sonnet-4-5');
+    expect(resolved.input).toBe(5);
+    expect(resolved.output).toBe(7);
   });
 
   it('prefers tool pricing before upstream entries for tool sessions', () => {
@@ -128,6 +128,49 @@ describe('resolveModelPricing source-aware resolution', () => {
     expect(resolved.matchedModel).toBe('cursor/claude-sonnet-4-6');
     expect(resolved.input).toBe(1);
     expect(resolved.output).toBe(2);
+  });
+
+  it('uses session source to select different dynamic candidates for the same model', () => {
+    const catalog = [
+      candidate('cursor/claude-sonnet-4-5', 1, 2, {
+        billingProvider: 'cursor',
+        upstreamProvider: 'anthropic',
+        aliasKeys: ['claude-sonnet-4-5'],
+        sourceKind: 'fallback_only',
+        resolvedFrom: 'cursor',
+      }),
+      candidate('anthropic/claude-sonnet-4-5', 5, 7, {
+        billingProvider: 'openrouter',
+        upstreamProvider: 'anthropic',
+        sourceKind: 'official_api',
+        resolvedFrom: 'openrouter',
+      }),
+    ];
+
+    const cursorResolved = resolveModelPricing(
+      'claude-sonnet-4-5',
+      context({
+        appSource: 'cursor',
+        dynamicPricing: catalog,
+      })
+    );
+    const openrouterResolved = resolveModelPricing(
+      'claude-sonnet-4-5',
+      context({
+        appSource: 'openrouter',
+        dynamicPricing: catalog,
+      })
+    );
+
+    expect(cursorResolved.source).toBe('dynamic');
+    expect(cursorResolved.matchedModel).toBe('cursor/claude-sonnet-4-5');
+    expect(cursorResolved.input).toBe(1);
+    expect(cursorResolved.output).toBe(2);
+
+    expect(openrouterResolved.source).toBe('dynamic');
+    expect(openrouterResolved.matchedModel).toBe('anthropic/claude-sonnet-4-5');
+    expect(openrouterResolved.input).toBe(5);
+    expect(openrouterResolved.output).toBe(7);
   });
 
   it('matches alias keys like claude-sonnet-4.5 to claude-sonnet-4-5', () => {

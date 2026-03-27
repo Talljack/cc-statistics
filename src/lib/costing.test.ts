@@ -9,9 +9,10 @@ function modelPricing(
   input: number,
   output: number,
   cacheRead = 0,
-  cacheCreation = 0
+  cacheCreation = 0,
+  options: Partial<PricingCandidate> = {}
 ): PricingCandidate {
-  return { id, input, output, cacheRead, cacheCreation };
+  return { id, input, output, cacheRead, cacheCreation, ...options };
 }
 
 function customPricing(
@@ -228,6 +229,50 @@ describe('deriveCostMetrics', () => {
     expect(result.costByType.input + result.costByType.output).toBeCloseTo(result.totalCost);
     expect(result.costByType.cache_read).toBe(0);
     expect(result.costByType.cache_creation).toBe(0);
+  });
+
+  it('uses session source to pick different pricing for the same model id', () => {
+    const result = deriveCostMetrics(
+      [
+        session(
+          'session-cursor',
+          {
+            'anthropic/claude-sonnet-4-5': tokens(1_000_000, 0),
+          },
+          'cursor'
+        ),
+        session(
+          'session-openrouter',
+          {
+            'anthropic/claude-sonnet-4-5': tokens(1_000_000, 0),
+          },
+          'openrouter'
+        ),
+      ],
+      snapshot({
+        dynamicPricing: [
+          modelPricing('cursor/claude-sonnet-4-5', 1, 2, 0, 0, {
+            billingProvider: 'cursor',
+            upstreamProvider: 'anthropic',
+            sourceKind: 'fallback_only',
+            aliasKeys: ['claude-sonnet-4-5'],
+            resolvedFrom: 'cursor',
+          }),
+          modelPricing('anthropic/claude-sonnet-4-5', 5, 7, 0, 0, {
+            billingProvider: 'anthropic',
+            upstreamProvider: 'anthropic',
+            sourceKind: 'official_doc',
+          }),
+        ],
+      })
+    );
+
+    expect(result.costBySession).toEqual([
+      { key: 'cursor:session-cursor', totalCost: 1 },
+      { key: 'openrouter:session-openrouter', totalCost: 5 },
+    ]);
+    expect(result.costByModel['anthropic/claude-sonnet-4-5']).toBeCloseTo(6);
+    expect(result.totalCost).toBeCloseTo(6);
   });
 
   it('keeps mixed-model session totals exact', () => {

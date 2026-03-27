@@ -215,6 +215,11 @@ function appSourceToBillingProvider(appSource?: string): string | null {
   }
 }
 
+function normalizeProviderName(provider?: string | null): string | null {
+  if (!provider) return provider ?? null;
+  return normalizeModelName(provider);
+}
+
 function classifyUpstreamProvider(model: string): string | null {
   const normalized = normalizeModelName(model);
 
@@ -282,21 +287,22 @@ function appSourceTrack(appSource?: string): 'router' | 'tool' | 'direct' {
 }
 
 function providerPriority(appSource?: string, upstreamProvider?: string | null): string[] {
-  const billingProvider = appSourceToBillingProvider(appSource);
+  const billingProvider = normalizeProviderName(appSourceToBillingProvider(appSource));
+  const normalizedUpstreamProvider = normalizeProviderName(upstreamProvider);
   const priority: string[] = [];
 
   switch (appSourceTrack(appSource)) {
     case 'router':
-      if (upstreamProvider) priority.push(upstreamProvider);
+      if (normalizedUpstreamProvider) priority.push(normalizedUpstreamProvider);
       if (billingProvider) priority.push(billingProvider);
       break;
     case 'tool':
       if (billingProvider) priority.push(billingProvider);
-      if (upstreamProvider) priority.push(upstreamProvider);
+      if (normalizedUpstreamProvider) priority.push(normalizedUpstreamProvider);
       break;
     case 'direct':
       if (billingProvider) priority.push(billingProvider);
-      if (upstreamProvider) priority.push(upstreamProvider);
+      if (normalizedUpstreamProvider) priority.push(normalizedUpstreamProvider);
       priority.push('openrouter');
       break;
   }
@@ -305,10 +311,13 @@ function providerPriority(appSource?: string, upstreamProvider?: string | null):
 }
 
 function candidateMatchesProvider(candidate: PricingCandidate, provider: string): boolean {
+  const normalizedProvider = normalizeProviderName(provider);
+  if (!normalizedProvider) return false;
+
   return (
-    candidate.billingProvider === provider ||
-    candidate.upstreamProvider === provider ||
-    candidate.resolvedFrom === provider
+    normalizeProviderName(candidate.billingProvider) === normalizedProvider ||
+    normalizeProviderName(candidate.upstreamProvider) === normalizedProvider ||
+    normalizeProviderName(candidate.resolvedFrom) === normalizedProvider
   );
 }
 
