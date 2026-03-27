@@ -75,7 +75,8 @@ export function formatCost(usd: number): string {
  */
 export function calculateCustomCost(
   tokens: TokenUsage,
-  customPricing: Record<string, ModelPricing>
+  customPricing: Record<string, ModelPricing>,
+  appSource?: string
 ): number {
   const dynamicPricing = usePricingStore.getState().models.map((model) => ({
     id: model.id,
@@ -83,6 +84,11 @@ export function calculateCustomCost(
     output: model.output,
     cacheRead: model.cacheRead,
     cacheCreation: model.cacheWrite,
+    billingProvider: model.billingProvider,
+    upstreamProvider: model.upstreamProvider,
+    aliasKeys: model.aliasKeys,
+    sourceKind: model.sourceKind,
+    resolvedFrom: model.resolvedFrom,
   }));
 
   const snapshot: CostingSnapshot = {
@@ -91,5 +97,5 @@ export function calculateCustomCost(
     dynamicPricing,
   };
 
-  return deriveCostFromTokenUsage(tokens, snapshot);
+  return deriveCostFromTokenUsage(tokens, snapshot, appSource);
 }
