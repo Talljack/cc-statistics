@@ -137,11 +137,25 @@ pub async fn fetch_billing_provider_entries(
     provider: &str,
     ctx: &PricingFetchContext,
 ) -> Result<ProviderRefreshResult, String> {
+    fetch_billing_provider_entries_with_fetcher(provider, ctx, None, &fetch_openrouter_catalog)
+        .await
+}
+
+async fn fetch_billing_provider_entries_with_fetcher<F, Fut>(
+    provider: &str,
+    ctx: &PricingFetchContext,
+    previous: Option<&PricingCatalogResult>,
+    openrouter_fetcher: &F,
+) -> Result<ProviderRefreshResult, String>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<Vec<ModelPriceEntry>, String>>,
+{
     let plan = billing_provider_fetch_plan(provider)
         .ok_or_else(|| format!("Unsupported billing provider `{provider}`"))?;
 
     if provider == OPENROUTER_PROVIDER && plan.mode == CoverageMode::OfficialApi {
-        let models = fetch_openrouter_catalog().await?;
+        let models = openrouter_fetcher().await?;
         return Ok(ProviderRefreshResult {
             provider: build_provider_catalog(
                 &plan.provider,
@@ -158,13 +172,22 @@ pub async fn fetch_billing_provider_entries(
         });
     }
 
+    let previous_has_provider_models = previous_has_models(previous, provider);
+    let errors = if previous_has_provider_models {
+        vec![format!(
+            "Pricing adapter for billing provider `{provider}` is not implemented yet"
+        )]
+    } else {
+        vec![]
+    };
+
     Ok(ProviderRefreshResult {
         provider: build_provider_catalog(
             &plan.provider,
             None,
-            "ok",
-            false,
-            vec![],
+            if previous_has_provider_models { "error" } else { "ok" },
+            previous_has_provider_models,
+            errors,
             0,
             &plan.source_kind,
             plan.source_url.clone(),
@@ -738,64 +761,13 @@ where
         }
     }
 
-    match fetcher().await {
-        Ok(models) => {
-            let now = Utc::now();
-            let provider = PricingProviderCatalog {
-                billing_provider: OPENROUTER_PROVIDER.to_string(),
-                upstream_provider: None,
-                status: "ok".to_string(),
-                stale: false,
-                errors: vec![],
-                model_count: models.len(),
-                source_kind: "official_api".to_string(),
-                source_url: Some(OPENROUTER_CATALOG_URL.to_string()),
-                fetched_at: now.to_rfc3339(),
-            };
+    let context = PricingFetchContext::now();
+    let refreshes =
+        refresh_billing_provider_batches(cached.as_ref(), &context, &fetcher).await;
+    let catalog = merge_provider_refresh_batches(cached.as_ref(), refreshes);
 
-            let catalog = if let Some(previous) = cached {
-                merge_provider_refresh(&previous, vec![provider], models)
-            } else {
-                PricingCatalogResult {
-                    providers: vec![provider],
-                    models,
-                    fetched_at: now.to_rfc3339(),
-                    expires_at: (now + Duration::hours(24)).to_rfc3339(),
-                    stale: false,
-                    errors: vec![],
-                }
-            };
-
-            save_cached_catalog(&catalog)?;
-            Ok(catalog)
-        }
-        Err(error) => {
-            if let Some(previous) = cached {
-                let fallback = merge_provider_refresh(
-                    &previous,
-                    vec![PricingProviderCatalog {
-                        billing_provider: OPENROUTER_PROVIDER.to_string(),
-                        upstream_provider: None,
-                        status: "error".to_string(),
-                        stale: true,
-                        errors: vec![error.clone()],
-                        model_count: previous
-                            .models
-                            .iter()
-                            .filter(|model| model.billing_provider == OPENROUTER_PROVIDER)
-                            .count(),
-                        source_kind: "official_api".to_string(),
-                        source_url: Some(OPENROUTER_CATALOG_URL.to_string()),
-                        fetched_at: Utc::now().to_rfc3339(),
-                    }],
-                    vec![],
-                );
-                return Ok(fallback);
-            }
-
-            Err(error)
-        }
-    }
+    save_cached_catalog(&catalog)?;
+    Ok(catalog)
 }
 
 fn normalize_openrouter_model(model: OpenRouterModel, fetched_at: &str) -> ModelPriceEntry {
@@ -836,6 +808,83 @@ fn pricing_to_per_m(value: Option<serde_json::Value>) -> Option<f64> {
         _ => None,
     }
     .map(|price| price * 1_000_000.0)
+}
+
+async fn refresh_billing_provider_batches<F, Fut>(
+    previous: Option<&PricingCatalogResult>,
+    ctx: &PricingFetchContext,
+    openrouter_fetcher: &F,
+) -> Vec<ProviderRefreshResult>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<Vec<ModelPriceEntry>, String>>,
+{
+    let mut refreshes = Vec::with_capacity(BILLING_PROVIDER_COVERAGE.len());
+
+    for (provider, _) in BILLING_PROVIDER_COVERAGE {
+        let refresh = match fetch_billing_provider_entries_with_fetcher(
+            provider,
+            ctx,
+            previous,
+            openrouter_fetcher,
+        )
+        .await
+        {
+            Ok(refresh) => refresh,
+            Err(error) => build_failed_refresh(provider, ctx, previous, error),
+        };
+        refreshes.push(refresh);
+    }
+
+    refreshes
+}
+
+fn build_failed_refresh(
+    provider: &str,
+    ctx: &PricingFetchContext,
+    previous: Option<&PricingCatalogResult>,
+    error: String,
+) -> ProviderRefreshResult {
+    let plan = billing_provider_fetch_plan(provider).unwrap_or(ProviderFetchPlan {
+        namespace: ProviderNamespace::Billing,
+        provider: provider.to_string(),
+        mode: CoverageMode::FallbackOnly,
+        source_kind: "fallback_only".to_string(),
+        source_url: None,
+    });
+    let previous_model_count = previous
+        .map(|catalog| {
+            catalog
+                .models
+                .iter()
+                .filter(|entry| entry.billing_provider == provider)
+                .count()
+        })
+        .unwrap_or_default();
+
+    ProviderRefreshResult {
+        provider: build_provider_catalog(
+            provider,
+            None,
+            "error",
+            true,
+            vec![error],
+            previous_model_count,
+            &plan.source_kind,
+            plan.source_url,
+            &ctx.fetched_at,
+        ),
+        models: vec![],
+    }
+}
+
+fn previous_has_models(previous: Option<&PricingCatalogResult>, provider: &str) -> bool {
+    previous.is_some_and(|catalog| {
+        catalog
+            .models
+            .iter()
+            .any(|entry| entry.billing_provider == provider)
+    })
 }
 
 fn build_provider_catalog(

@@ -8,10 +8,11 @@ use cc_statistics_lib::pricing_cache::{
 };
 use cc_statistics_lib::pricing_providers::{
     alias_keys, app_source_to_billing_provider, billing_provider_coverage,
-    billing_provider_fetch_plan, classify_upstream_provider, fetch_upstream_provider_entries,
-    load_or_refresh_catalog_with_fetcher, merge_provider_refresh_batches, normalize_model_id,
-    resolve_catalog_entry, upstream_provider_coverage, upstream_provider_fetch_plan, CoverageMode,
-    PricingFetchContext, ProviderNamespace,
+    billing_provider_fetch_plan, classify_upstream_provider, fetch_billing_provider_entries,
+    fetch_upstream_provider_entries, load_or_refresh_catalog_with_fetcher,
+    merge_provider_refresh_batches, normalize_model_id, resolve_catalog_entry,
+    upstream_provider_coverage, upstream_provider_fetch_plan, CoverageMode, PricingFetchContext,
+    ProviderNamespace,
 };
 use chrono::{Duration, Utc};
 use std::fs;
@@ -156,7 +157,7 @@ async fn pricing_catalog_stale_cache_triggers_refresh_on_non_forced_reads() {
     assert!(!result.stale);
     assert_eq!(result.models.len(), 1);
     assert_eq!(result.models[0].model_id, "openai/gpt-4.1-mini");
-    assert_eq!(result.providers[0].status, "ok");
+    assert_eq!(provider_named(&result, "openrouter").status, "ok");
 
     std::env::remove_var("CC_STATISTICS_HOME");
 }
@@ -220,7 +221,10 @@ async fn pricing_catalog_recent_but_stale_merge_triggers_refresh_on_non_forced_r
 
     assert_eq!(fetch_calls.load(Ordering::SeqCst), 1);
     assert!(result.stale);
-    assert!(result.providers.iter().any(|provider| provider.status == "stale"));
+    assert_eq!(provider_named(&result, "anthropic").status, "error");
+    assert!(result.models.iter().any(|entry| {
+        entry.billing_provider == "anthropic" && entry.model_id == "claude-opus-4-1"
+    }));
 
     std::env::remove_var("CC_STATISTICS_HOME");
 }
@@ -242,14 +246,19 @@ async fn pricing_catalog_stale_cache_survives_refresh_failure() {
 
     assert!(result.stale);
     assert_eq!(result.models.len(), cache.models.len());
-    assert_eq!(result.providers[0].billing_provider, "openrouter");
-    assert_eq!(result.providers[0].status, "error");
-    assert_eq!(result.providers[0].errors, vec!["upstream refresh failed"]);
+    let openrouter = provider_named(&result, "openrouter");
+    assert_eq!(openrouter.billing_provider, "openrouter");
+    assert_eq!(openrouter.status, "error");
+    assert_eq!(openrouter.errors, vec!["upstream refresh failed"]);
     assert_eq!(result.errors, vec!["upstream refresh failed"]);
 
     let persisted = load_cached_catalog().unwrap().unwrap();
     assert_eq!(persisted.models.len(), cache.models.len());
-    assert_eq!(persisted.providers[0].status, "stale");
+    assert_eq!(provider_named(&persisted, "openrouter").status, "error");
+    assert_eq!(
+        provider_named(&persisted, "openrouter").errors,
+        vec!["upstream refresh failed"]
+    );
 
     std::env::remove_var("CC_STATISTICS_HOME");
 }
@@ -274,12 +283,14 @@ async fn pricing_catalog_invalid_cache_is_ignored_and_replaced_on_refresh() {
     .await
     .unwrap();
 
-    assert_eq!(result.providers.len(), 1);
-    assert_eq!(result.providers[0].status, "ok");
+    assert!(result.providers.len() >= 16);
+    assert_eq!(provider_named(&result, "openrouter").status, "ok");
+    assert_eq!(provider_named(&result, "anthropic").source_kind, "official_doc");
+    assert_eq!(provider_named(&result, "cursor").source_kind, "fallback_only");
     assert!(!result.stale);
 
     let persisted = load_cached_catalog().unwrap().unwrap();
-    assert_eq!(persisted.providers[0].status, "ok");
+    assert_eq!(provider_named(&persisted, "openrouter").status, "ok");
     assert_eq!(persisted.models[0].model_id, "openai/gpt-4.1-mini");
 
     std::env::remove_var("CC_STATISTICS_HOME");
@@ -580,24 +591,49 @@ fn pricing_catalog_resolver_prefers_tool_provider_before_upstream_for_tool_sourc
 fn pricing_catalog_resolver_treats_kimi_as_a_tool_provider_not_openrouter_fallback() {
     let catalog = sample_catalog_with_timestamp(
         "2026-03-26T00:00:00Z",
-        vec![sample_provider("openrouter", "ok", false, vec![], 1)],
-        vec![pricing_model(
-            "openrouter",
-            Some("anthropic"),
-            "anthropic/kimi-k2",
-            "kimi-k2",
-            vec!["kimi-k2"],
-            "official_api",
-            Some("openrouter"),
-        )],
+        vec![
+            sample_provider("kimi", "ok", false, vec![], 1),
+            sample_provider("moonshot", "ok", false, vec![], 1),
+            sample_provider("openrouter", "ok", false, vec![], 1),
+        ],
+        vec![
+            pricing_model(
+                "kimi",
+                Some("moonshot"),
+                "kimi/kimi-k2",
+                "kimi-k2",
+                vec!["kimi-k2"],
+                "fallback_only",
+                Some("kimi"),
+            ),
+            pricing_model(
+                "moonshot",
+                None,
+                "kimi-k2",
+                "kimi-k2",
+                vec!["kimi-k2"],
+                "official_doc",
+                Some("moonshot"),
+            ),
+            pricing_model(
+                "openrouter",
+                Some("moonshot"),
+                "moonshot/kimi-k2",
+                "kimi-k2",
+                vec!["kimi-k2"],
+                "official_api",
+                Some("openrouter"),
+            ),
+        ],
         false,
         vec![],
     );
 
-    assert!(
-        resolve_catalog_entry("kimi", "moonshot/kimi-k2", &catalog).is_none(),
-        "kimi should not fall through to openrouter after upstream lookup"
-    );
+    let resolved =
+        resolve_catalog_entry("kimi", "moonshot/kimi-k2", &catalog).expect("kimi should win");
+
+    assert_eq!(resolved.billing_provider, "kimi");
+    assert_eq!(resolved.source_kind, "fallback_only");
 }
 
 #[test]
@@ -724,6 +760,28 @@ async fn pricing_catalog_upstream_fetch_scaffolding_uses_the_coverage_matrix() {
     assert!(yi.provider.source_url.is_none());
 }
 
+#[tokio::test]
+async fn pricing_catalog_billing_fetch_scaffolding_uses_the_coverage_matrix() {
+    let context = PricingFetchContext {
+        fetched_at: "2026-03-26T00:00:00Z".to_string(),
+    };
+
+    let anthropic = fetch_billing_provider_entries("anthropic", &context)
+        .await
+        .expect("anthropic should resolve through official docs");
+    assert_eq!(anthropic.provider.billing_provider, "anthropic");
+    assert_eq!(anthropic.provider.source_kind, "official_doc");
+    assert!(anthropic.provider.source_url.as_deref().is_some());
+    assert!(anthropic.models.is_empty());
+
+    let cursor = fetch_billing_provider_entries("cursor", &context)
+        .await
+        .expect("cursor should remain addressable even as fallback-only");
+    assert_eq!(cursor.provider.billing_provider, "cursor");
+    assert_eq!(cursor.provider.source_kind, "fallback_only");
+    assert!(cursor.provider.source_url.is_none());
+}
+
 #[test]
 fn pricing_catalog_provider_refresh_batches_merge_by_provider() {
     let previous = sample_catalog_with_timestamp(
@@ -773,6 +831,54 @@ fn pricing_catalog_provider_refresh_batches_merge_by_provider() {
     assert!(merged.models.iter().any(|entry| {
         entry.billing_provider == "openrouter" && entry.model_id == "anthropic/claude-opus-4-1"
     }));
+}
+
+#[tokio::test]
+async fn pricing_catalog_runtime_refresh_preserves_previous_entries_for_unimplemented_providers() {
+    let _guard = env_lock().lock().unwrap();
+    let temp_home = make_temp_home("runtime-provider-merge");
+    std::env::set_var("CC_STATISTICS_HOME", &temp_home);
+
+    let previous = sample_catalog_with_timestamp(
+        "2026-03-24T00:00:00Z",
+        vec![
+            sample_provider("anthropic", "ok", false, vec![], 1),
+            sample_provider("openrouter", "ok", false, vec![], 1),
+        ],
+        vec![
+            sample_model("anthropic", "claude-opus-4-1", "2026-03-24T00:00:00Z"),
+            sample_model(
+                "openrouter",
+                "anthropic/claude-sonnet-4-5",
+                "2026-03-24T00:00:00Z",
+            ),
+        ],
+        false,
+        vec![],
+    );
+    save_cached_catalog(&previous).unwrap();
+
+    let result = load_or_refresh_catalog_with_fetcher(true, || async {
+        Ok(vec![sample_model(
+            "openrouter",
+            "openai/gpt-4.1-mini",
+            "2026-03-26T00:00:00Z",
+        )])
+    })
+    .await
+    .unwrap();
+
+    assert!(result.models.iter().any(|entry| {
+        entry.billing_provider == "anthropic" && entry.model_id == "claude-opus-4-1"
+    }));
+    assert!(result.models.iter().any(|entry| {
+        entry.billing_provider == "openrouter" && entry.model_id == "openai/gpt-4.1-mini"
+    }));
+    assert_eq!(provider_named(&result, "anthropic").status, "error");
+    assert_eq!(provider_named(&result, "openrouter").status, "ok");
+    assert!(result.stale);
+
+    std::env::remove_var("CC_STATISTICS_HOME");
 }
 
 #[tokio::test]
@@ -1154,6 +1260,17 @@ fn sample_catalog_with_timestamp(
         stale,
         errors,
     }
+}
+
+fn provider_named<'a>(
+    catalog: &'a PricingCatalogResult,
+    billing_provider: &str,
+) -> &'a PricingProviderCatalog {
+    catalog
+        .providers
+        .iter()
+        .find(|provider| provider.billing_provider == billing_provider)
+        .unwrap_or_else(|| panic!("missing provider `{billing_provider}`"))
 }
 
 fn sample_provider(
