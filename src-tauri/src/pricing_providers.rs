@@ -946,7 +946,7 @@ fn scaffold_status_for_provider(
         );
     }
 
-    ("stale", true, vec![])
+    ("pending", false, vec![])
 }
 
 fn build_provider_catalog(

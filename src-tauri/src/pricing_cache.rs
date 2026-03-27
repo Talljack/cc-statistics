@@ -142,7 +142,7 @@ pub fn merge_provider_refresh(
     let mut any_stale = false;
     let had_successful_refresh = refreshed_lookup
         .values()
-        .any(|provider| provider.status == "ok");
+        .any(|provider| matches!(provider.status.as_str(), "ok" | "pending"));
 
     for billing_provider in provider_order {
         let previous_provider = previous_providers.get(&billing_provider);
@@ -152,7 +152,7 @@ pub fn merge_provider_refresh(
             .unwrap_or_default();
 
         if let Some(provider) = refreshed_lookup.get(&billing_provider) {
-            if provider.status == "ok" {
+            if matches!(provider.status.as_str(), "ok" | "pending") {
                 let new_models = refreshed_models
                     .get(&billing_provider)
                     .cloned()
@@ -194,7 +194,7 @@ pub fn merge_provider_refresh(
 
     let last_success = providers
         .iter()
-        .filter(|provider| provider.status == "ok")
+        .filter(|provider| matches!(provider.status.as_str(), "ok" | "pending"))
         .filter_map(|provider| DateTime::parse_from_rfc3339(&provider.fetched_at).ok())
         .map(|date| date.with_timezone(&Utc))
         .max()
