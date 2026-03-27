@@ -4,6 +4,7 @@ use crate::pricing_cache::{
 };
 use chrono::{Duration, Utc};
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::future::Future;
 
 const OPENROUTER_CATALOG_URL: &str = "https://openrouter.ai/api/v1/models";
@@ -74,6 +75,459 @@ pub fn upstream_provider_coverage(provider: &str) -> Option<CoverageMode> {
     UPSTREAM_PROVIDER_COVERAGE
         .iter()
         .find_map(|(candidate, mode)| (*candidate == provider).then_some(*mode))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppSourceTrack {
+    Router,
+    Tool,
+    Direct,
+}
+
+pub fn app_source_to_billing_provider(source: &str) -> &str {
+    match source {
+        "claude_code" => "anthropic",
+        "codex" => "openai",
+        "gemini" => "google",
+        "openrouter" => OPENROUTER_PROVIDER,
+        "copilot" => "copilot",
+        "kimi_k2" => "moonshot",
+        "zai" => "zai",
+        "warp" => "warp",
+        "cursor" => "cursor",
+        "kimi" => "kimi",
+        "amp" => "amp",
+        "factory" => "factory",
+        "augment" => "augment",
+        "jetbrains_ai" => "jetbrains_ai",
+        "ollama_cloud" => "ollama_cloud",
+        "kiro" => "kiro",
+        other => other,
+    }
+}
+
+pub fn normalize_model_id(model: &str) -> String {
+    let mut normalized = model.trim().to_lowercase();
+
+    if let Some((head, _)) = normalized.split_once('[') {
+        normalized = head.trim().to_string();
+    }
+
+    if let Some(idx) = normalized.find(':').or_else(|| normalized.find('@')) {
+        normalized.truncate(idx);
+    }
+
+    normalized.retain(|c| !c.is_whitespace());
+    normalized = normalized.replace('_', "-").replace('.', "-");
+
+    while normalized.contains("--") {
+        normalized = normalized.replace("--", "-");
+    }
+
+    normalized = normalized.trim_matches('/').to_string();
+
+    if let Some(slash_index) = normalized.rfind('/') {
+        normalized = normalized[slash_index + 1..].to_string();
+    }
+
+    if let Some(date_start) = normalized.rfind('-') {
+        let suffix = &normalized[date_start + 1..];
+        if suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()) {
+            normalized.truncate(date_start);
+        }
+    }
+
+    normalized.trim_matches('-').to_string()
+}
+
+pub fn alias_keys(model: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let normalized = normalize_model_id(model);
+    if !normalized.is_empty() {
+        keys.push(normalized.clone());
+    }
+
+    let raw = model.trim().to_lowercase();
+    if !raw.is_empty() && raw != normalized {
+        keys.push(raw.clone());
+    }
+
+    if let Some(last_segment) = raw.rsplit('/').next() {
+        let last_segment = normalize_model_id(last_segment);
+        if !last_segment.is_empty() && last_segment != normalized {
+            keys.push(last_segment);
+        }
+    }
+
+    dedupe_strings(keys)
+}
+
+pub fn classify_upstream_provider(model: &str) -> Option<String> {
+    let lowered = model.trim().to_lowercase();
+    let effective = strip_routing_prefix(&lowered);
+
+    if effective.starts_with("claude") {
+        return Some("anthropic".to_string());
+    }
+    if effective.starts_with("gpt")
+        || effective.starts_with("o3")
+        || effective.starts_with("o4")
+        || effective.starts_with("o1")
+        || effective.starts_with("chatgpt")
+        || effective.starts_with("codex")
+        || effective.starts_with("dall-e")
+        || effective.starts_with("tts")
+        || effective.starts_with("whisper")
+    {
+        return Some("openai".to_string());
+    }
+    if effective.starts_with("gemini") {
+        return Some("google".to_string());
+    }
+    if effective.starts_with("deepseek") {
+        return Some("deepseek".to_string());
+    }
+    if effective.starts_with("kimi") || effective.starts_with("moonshot") {
+        return Some("moonshot".to_string());
+    }
+    if effective.starts_with("glm") {
+        return Some("zai".to_string());
+    }
+    if effective.starts_with("mistral")
+        || effective.starts_with("codestral")
+        || effective.starts_with("pixtral")
+        || effective.starts_with("ministral")
+    {
+        return Some("mistral".to_string());
+    }
+    if effective.starts_with("llama") || effective.starts_with("meta-llama") {
+        return Some("meta".to_string());
+    }
+    if effective.starts_with("qwen") {
+        return Some("qwen".to_string());
+    }
+    if effective.starts_with("grok") {
+        return Some("xai".to_string());
+    }
+    if effective.starts_with("command") || effective.starts_with("cohere") {
+        return Some("cohere".to_string());
+    }
+    if effective.starts_with("yi-") {
+        return Some("yi".to_string());
+    }
+    if effective.starts_with("baichuan") {
+        return Some("baichuan".to_string());
+    }
+    if effective.starts_with("doubao") || effective.starts_with("bytedance") {
+        return Some("bytedance".to_string());
+    }
+    if effective.starts_with("sensechat") || effective.starts_with("sensetime") {
+        return Some("sensetime".to_string());
+    }
+    if effective.starts_with("perplexity") || effective.starts_with("pplx") {
+        return Some("perplexity".to_string());
+    }
+    if effective.starts_with("minimax") {
+        return Some("minimax".to_string());
+    }
+    if effective.starts_with("azure") {
+        return Some("openai".to_string());
+    }
+    if effective.starts_with("ollama") {
+        return Some("ollama_cloud".to_string());
+    }
+    if effective.starts_with("cloudflare") || effective.starts_with("cf-") {
+        return Some("cloudflare".to_string());
+    }
+    if effective.starts_with("aihubmix") {
+        return Some("aihubmix".to_string());
+    }
+    if effective.starts_with("fireworks") {
+        return Some("fireworks".to_string());
+    }
+    if effective.starts_with("cerebras") {
+        return Some("cerebras".to_string());
+    }
+    if effective.starts_with("samba") {
+        return Some("sambanova".to_string());
+    }
+    if effective.starts_with("stepfun") {
+        return Some("stepfun".to_string());
+    }
+    if effective.starts_with("baidu") {
+        return Some("baidu".to_string());
+    }
+    if effective.starts_with("tencent") {
+        return Some("tencent".to_string());
+    }
+    if effective.starts_with("iflytek") {
+        return Some("iflytek".to_string());
+    }
+    if effective.starts_with("internlm") {
+        return Some("internlm".to_string());
+    }
+    if effective.starts_with("reka") {
+        return Some("reka".to_string());
+    }
+    if effective.starts_with("nous") || effective.starts_with("nousresearch") {
+        return Some("nous".to_string());
+    }
+
+    None
+}
+
+pub fn resolve_catalog_entry<'a>(
+    app_source: &str,
+    model: &str,
+    catalog: &'a PricingCatalogResult,
+) -> Option<&'a ModelPriceEntry> {
+    let normalized_query = normalize_model_id(model);
+    let query_aliases = alias_keys(model);
+    let upstream_provider = classify_upstream_provider(model);
+    let provider_priority = provider_priority(app_source, upstream_provider.as_deref());
+
+    for provider in provider_priority {
+        if let Some(entry) = best_entry_for_provider(
+            &provider,
+            model,
+            &normalized_query,
+            &query_aliases,
+            &catalog.models,
+        ) {
+            return Some(entry);
+        }
+    }
+
+    None
+}
+
+fn provider_priority(app_source: &str, upstream_provider: Option<&str>) -> Vec<String> {
+    let mut priority = Vec::new();
+    let billing_provider = app_source_to_billing_provider(app_source).to_string();
+
+    match app_source_track(app_source) {
+        AppSourceTrack::Router => {
+            if let Some(upstream) = upstream_provider {
+                priority.push(upstream.to_string());
+            }
+            priority.push(billing_provider);
+        }
+        AppSourceTrack::Tool => {
+            priority.push(billing_provider);
+            if let Some(upstream) = upstream_provider {
+                priority.push(upstream.to_string());
+            }
+        }
+        AppSourceTrack::Direct => {
+            priority.push(billing_provider);
+            if let Some(upstream) = upstream_provider {
+                priority.push(upstream.to_string());
+            }
+            priority.push(OPENROUTER_PROVIDER.to_string());
+        }
+    }
+
+    dedupe_strings(priority)
+}
+
+fn app_source_track(app_source: &str) -> AppSourceTrack {
+    match app_source {
+        "openrouter" => AppSourceTrack::Router,
+        "copilot" | "warp" | "cursor" | "amp" | "factory" | "augment" | "jetbrains_ai" | "kiro" => {
+            AppSourceTrack::Tool
+        }
+        _ => AppSourceTrack::Direct,
+    }
+}
+
+fn best_entry_for_provider<'a>(
+    provider: &str,
+    model: &str,
+    normalized_query: &str,
+    query_aliases: &[String],
+    models: &'a [ModelPriceEntry],
+) -> Option<&'a ModelPriceEntry> {
+    let provider_matches: Vec<(usize, u8, &ModelPriceEntry)> = models
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            provider_match_rank(entry, provider).map(|provider_rank| (index, provider_rank, entry))
+        })
+        .collect();
+
+    for provider_rank in 0..=2 {
+        let scoped: Vec<(usize, u8, &ModelPriceEntry)> = provider_matches
+            .iter()
+            .copied()
+            .filter(|(_, rank, _)| *rank == provider_rank)
+            .collect();
+
+        if scoped.is_empty() {
+            continue;
+        }
+
+        let exact_raw = select_best_entry(
+            scoped.iter().copied().filter(|(_, _, entry)| {
+                entry.model_id.eq_ignore_ascii_case(model)
+            }),
+        );
+        if exact_raw.is_some() {
+            return exact_raw;
+        }
+
+        let exact_normalized = select_best_entry(
+            scoped.iter().copied().filter(|(_, _, entry)| {
+                normalize_model_id(&entry.model_id) == normalized_query
+                    || entry.normalized_model_id == normalized_query
+            }),
+        );
+        if exact_normalized.is_some() {
+            return exact_normalized;
+        }
+
+        let exact_alias = select_best_entry(scoped.iter().copied().filter(|(_, _, entry)| {
+            entry.alias_keys.iter().any(|alias| {
+                let normalized_alias = normalize_model_id(alias);
+                query_aliases
+                    .iter()
+                    .any(|query_alias| normalize_model_id(query_alias) == normalized_alias)
+            })
+        }));
+        if exact_alias.is_some() {
+            return exact_alias;
+        }
+
+        let substring_matches: Vec<(usize, u8, &ModelPriceEntry)> = scoped
+            .into_iter()
+            .filter(|(_, _, entry)| {
+                let candidate = normalize_model_id(&entry.model_id);
+                let contains_normalized = !normalized_query.is_empty()
+                    && candidate.contains(normalized_query);
+                let alias_contains = entry.alias_keys.iter().any(|alias| {
+                    let normalized_alias = normalize_model_id(alias);
+                    !normalized_query.is_empty() && normalized_alias.contains(normalized_query)
+                });
+                contains_normalized || alias_contains
+            })
+            .collect();
+
+        if substring_matches.len() == 1 {
+            return Some(substring_matches[0].2);
+        }
+    }
+
+    None
+}
+
+fn provider_match_rank(entry: &ModelPriceEntry, provider: &str) -> Option<u8> {
+    if entry.billing_provider.eq_ignore_ascii_case(provider) {
+        return Some(0);
+    }
+    if entry
+        .upstream_provider
+        .as_deref()
+        .is_some_and(|upstream| upstream.eq_ignore_ascii_case(provider))
+    {
+        return Some(1);
+    }
+    if entry
+        .resolved_from
+        .as_deref()
+        .is_some_and(|resolved_from| resolved_from.eq_ignore_ascii_case(provider))
+    {
+        return Some(2);
+    }
+
+    None
+}
+
+fn select_best_entry<'a, I>(entries: I) -> Option<&'a ModelPriceEntry>
+where
+    I: Iterator<Item = (usize, u8, &'a ModelPriceEntry)>,
+{
+    entries
+        .min_by_key(|(index, provider_rank, entry)| {
+            (*provider_rank, source_kind_rank(&entry.source_kind), *index)
+        })
+        .map(|(_, _, entry)| entry)
+}
+
+fn source_kind_rank(source_kind: &str) -> u8 {
+    match source_kind {
+        "official_api" => 0,
+        "official_doc" => 1,
+        "fallback_only" => 2,
+        _ => 3,
+    }
+}
+
+fn dedupe_strings(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
+}
+
+fn strip_routing_prefix(model: &str) -> &str {
+    let mut current = model;
+    for prefix in [
+        "openrouter/",
+        "together/",
+        "groq/",
+        "openrouter-",
+        "together-",
+        "groq-",
+    ] {
+        if let Some(rest) = current.strip_prefix(prefix) {
+            current = rest;
+            break;
+        }
+    }
+
+    for prefix in [
+        "x-ai/",
+        "anthropic/",
+        "google/",
+        "meta-llama/",
+        "meta/",
+        "mistralai/",
+        "cohere/",
+        "deepseek/",
+        "qwen/",
+        "microsoft/",
+        "nvidia/",
+        "01-ai/",
+        "databricks/",
+        "amazon/",
+        "ai21/",
+        "zhipu/",
+        "zai/",
+        "moonshot/",
+        "baichuan/",
+        "bytedance/",
+        "minimax/",
+        "sensetime/",
+        "cloudflare/",
+        "aihubmix/",
+        "fireworks/",
+        "cerebras/",
+        "sambanova/",
+        "stepfun/",
+        "baidu/",
+        "tencent/",
+        "iflytek/",
+        "internlm/",
+        "reka/",
+        "nousresearch/",
+        "custom-proxy/",
+    ] {
+        if let Some(rest) = current.strip_prefix(prefix) {
+            return rest;
+        }
+    }
+
+    current
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,25 +661,22 @@ where
 fn normalize_openrouter_model(model: OpenRouterModel, fetched_at: &str) -> ModelPriceEntry {
     let normalized_model_id = model
         .canonical_slug
-        .clone()
-        .unwrap_or_else(|| {
-            model
-                .id
-                .split('/')
-                .next_back()
-                .unwrap_or(&model.id)
-                .to_string()
-        })
-        .to_lowercase();
-    let upstream_provider = model.id.split('/').next().map(str::to_string);
-    let alias_key = normalized_model_id.clone();
+        .as_deref()
+        .map(normalize_model_id)
+        .unwrap_or_else(|| normalize_model_id(&model.id));
+    let upstream_provider = classify_upstream_provider(&model.id);
+    let mut aliases = alias_keys(&model.id);
+    if let Some(canonical_slug) = model.canonical_slug.as_deref() {
+        aliases.extend(alias_keys(canonical_slug));
+    }
+    aliases = dedupe_strings(aliases);
 
     ModelPriceEntry {
         billing_provider: OPENROUTER_PROVIDER.to_string(),
         upstream_provider,
         model_id: model.id,
         normalized_model_id,
-        alias_keys: vec![alias_key],
+        alias_keys: aliases,
         input_per_m: pricing_to_per_m(model.pricing.prompt),
         output_per_m: pricing_to_per_m(model.pricing.completion),
         cache_read_per_m: pricing_to_per_m(model.pricing.input_cache_read),

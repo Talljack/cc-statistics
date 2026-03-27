@@ -7,8 +7,9 @@ use cc_statistics_lib::pricing_cache::{
     save_cached_catalog,
 };
 use cc_statistics_lib::pricing_providers::{
-    billing_provider_coverage, load_or_refresh_catalog_with_fetcher, upstream_provider_coverage,
-    CoverageMode,
+    alias_keys, app_source_to_billing_provider, billing_provider_coverage, classify_upstream_provider,
+    load_or_refresh_catalog_with_fetcher, normalize_model_id, resolve_catalog_entry,
+    upstream_provider_coverage, CoverageMode,
 };
 use chrono::{Duration, Utc};
 use std::fs;
@@ -467,6 +468,171 @@ fn pricing_catalog_one_provider_failure_preserves_only_that_providers_previous_e
     assert!(merged.stale);
 }
 
+#[test]
+fn pricing_catalog_canonical_provider_helpers_cover_account_sources() {
+    assert_eq!(app_source_to_billing_provider("claude_code"), "anthropic");
+    assert_eq!(app_source_to_billing_provider("codex"), "openai");
+    assert_eq!(app_source_to_billing_provider("gemini"), "google");
+    assert_eq!(app_source_to_billing_provider("kimi_k2"), "moonshot");
+    assert_eq!(app_source_to_billing_provider("openrouter"), "openrouter");
+    assert_eq!(app_source_to_billing_provider("cursor"), "cursor");
+
+    assert_eq!(normalize_model_id("OpenRouter/Anthropic/Claude_Sonnet-4.5 [beta]@preview"), "claude-sonnet-4-5");
+    assert_eq!(normalize_model_id("anthropic/claude-sonnet-4-5-20260326"), "claude-sonnet-4-5");
+
+    assert_eq!(
+        classify_upstream_provider("openrouter/anthropic/claude-sonnet-4-5"),
+        Some("anthropic".to_string())
+    );
+    assert_eq!(
+        classify_upstream_provider("gemini-2.5-pro"),
+        Some("google".to_string())
+    );
+    assert!(alias_keys("anthropic/claude-sonnet-4-5")
+        .iter()
+        .any(|alias| alias == "claude-sonnet-4-5"));
+}
+
+#[test]
+fn pricing_catalog_resolver_prefers_upstream_official_before_openrouter_for_openrouter_sources() {
+    let catalog = sample_catalog_with_timestamp(
+        "2026-03-26T00:00:00Z",
+        vec![
+            sample_provider("anthropic", "ok", false, vec![], 1),
+            sample_provider("openrouter", "ok", false, vec![], 1),
+        ],
+        vec![
+            pricing_model(
+                "anthropic",
+                None,
+                "claude-sonnet-4-5",
+                "claude-sonnet-4-5",
+                vec!["claude-sonnet-4-5"],
+                "official_doc",
+                Some("anthropic"),
+            ),
+            pricing_model(
+                "openrouter",
+                Some("anthropic"),
+                "anthropic/claude-sonnet-4-5",
+                "claude-sonnet-4-5",
+                vec!["claude-sonnet-4-5"],
+                "official_api",
+                Some("openrouter"),
+            ),
+        ],
+        false,
+        vec![],
+    );
+
+    let resolved = resolve_catalog_entry("openrouter", "anthropic/claude-sonnet-4-5", &catalog)
+        .expect("expected upstream official model to win before openrouter");
+
+    assert_eq!(resolved.billing_provider, "anthropic");
+    assert_eq!(resolved.source_kind, "official_doc");
+}
+
+#[test]
+fn pricing_catalog_resolver_prefers_tool_provider_before_upstream_for_tool_sources() {
+    let catalog = sample_catalog_with_timestamp(
+        "2026-03-26T00:00:00Z",
+        vec![
+            sample_provider("cursor", "ok", false, vec![], 1),
+            sample_provider("anthropic", "ok", false, vec![], 1),
+        ],
+        vec![
+            pricing_model(
+                "cursor",
+                Some("anthropic"),
+                "cursor/claude-sonnet-4-6",
+                "claude-sonnet-4-6",
+                vec!["claude-sonnet-4-6"],
+                "fallback_only",
+                Some("cursor"),
+            ),
+            pricing_model(
+                "anthropic",
+                None,
+                "claude-sonnet-4-6",
+                "claude-sonnet-4-6",
+                vec!["claude-sonnet-4-6"],
+                "official_doc",
+                Some("anthropic"),
+            ),
+        ],
+        false,
+        vec![],
+    );
+
+    let resolved = resolve_catalog_entry("cursor", "claude-sonnet-4-6", &catalog)
+        .expect("expected tool-native provider to win before upstream fallback");
+
+    assert_eq!(resolved.billing_provider, "cursor");
+    assert_eq!(resolved.source_kind, "fallback_only");
+}
+
+#[test]
+fn pricing_catalog_resolver_matches_normalized_and_alias_ids() {
+    let catalog = sample_catalog_with_timestamp(
+        "2026-03-26T00:00:00Z",
+        vec![sample_provider("openrouter", "ok", false, vec![], 1)],
+        vec![pricing_model(
+            "openrouter",
+            Some("anthropic"),
+            "anthropic/claude-sonnet-4-5",
+            "claude-sonnet-4-5",
+            vec!["claude-sonnet-4-5", "claude-sonnet-4.5-preview"],
+            "official_api",
+            Some("openrouter"),
+        )],
+        false,
+        vec![],
+    );
+
+    let normalized = resolve_catalog_entry("openrouter", "claude-sonnet-4.5", &catalog)
+        .expect("normalized id should match");
+    let aliased = resolve_catalog_entry("openrouter", "claude-sonnet-4.5-preview", &catalog)
+        .expect("alias id should match");
+
+    assert_eq!(normalized.model_id, "anthropic/claude-sonnet-4-5");
+    assert_eq!(aliased.model_id, "anthropic/claude-sonnet-4-5");
+}
+
+#[test]
+fn pricing_catalog_resolver_rejects_ambiguous_substrings() {
+    let catalog = sample_catalog_with_timestamp(
+        "2026-03-26T00:00:00Z",
+        vec![sample_provider("anthropic", "ok", false, vec![], 2)],
+        vec![
+            pricing_model(
+                "anthropic",
+                None,
+                "claude-sonnet-4-5",
+                "claude-sonnet-4-5",
+                vec!["claude-sonnet-4-5"],
+                "official_doc",
+                Some("anthropic"),
+            ),
+            pricing_model(
+                "anthropic",
+                None,
+                "claude-sonnet-4-6",
+                "claude-sonnet-4-6",
+                vec!["claude-sonnet-4-6"],
+                "official_doc",
+                Some("anthropic"),
+            ),
+        ],
+        false,
+        vec![],
+    );
+
+    assert!(
+        resolve_catalog_entry("claude_code", "claude-sonnet-4", &catalog).is_none(),
+        "ambiguous substring matches should not guess"
+    );
+}
+
 #[tokio::test]
 async fn pricing_catalog_commands_return_expected_shape() {
     let _guard = env_lock().lock().unwrap();
@@ -891,6 +1057,32 @@ fn sample_model(billing_provider: &str, model_id: &str, fetched_at: &str) -> Mod
         source_url: Some("https://example.com/model".to_string()),
         resolved_from: Some(billing_provider.to_string()),
         fetched_at: fetched_at.to_string(),
+    }
+}
+
+fn pricing_model(
+    billing_provider: &str,
+    upstream_provider: Option<&str>,
+    model_id: &str,
+    normalized_model_id: &str,
+    alias_keys: Vec<&str>,
+    source_kind: &str,
+    resolved_from: Option<&str>,
+) -> ModelPriceEntry {
+    ModelPriceEntry {
+        billing_provider: billing_provider.to_string(),
+        upstream_provider: upstream_provider.map(str::to_string),
+        model_id: model_id.to_string(),
+        normalized_model_id: normalized_model_id.to_string(),
+        alias_keys: alias_keys.into_iter().map(str::to_string).collect(),
+        input_per_m: Some(3.0),
+        output_per_m: Some(15.0),
+        cache_read_per_m: Some(0.3),
+        cache_write_per_m: Some(3.75),
+        source_kind: source_kind.to_string(),
+        source_url: Some("https://example.com/model".to_string()),
+        resolved_from: resolved_from.map(str::to_string),
+        fetched_at: Utc::now().to_rfc3339(),
     }
 }
 
