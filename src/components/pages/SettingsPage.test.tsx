@@ -141,8 +141,8 @@ beforeEach(() => {
 });
 
 describe('SettingsPage pricing catalog integration', () => {
-  it('fetchPricing loads the pricing catalog through Tauri and surfaces catalog metadata in Settings', async () => {
-    const catalog = makeCatalog({ stale: true, errors: ['source unavailable'] });
+  it('fetchPricing loads the pricing catalog through Tauri and surfaces healthy snapshot metadata in Settings', async () => {
+    const catalog = makeCatalog();
     invokeMock.mockResolvedValueOnce(catalog);
 
     await usePricingStore.getState().fetchPricing();
@@ -153,10 +153,10 @@ describe('SettingsPage pricing catalog integration', () => {
       providers: catalog.providers,
       lastFetched: catalog.fetched_at,
       expiresAt: catalog.expires_at,
-      stale: true,
-      error: 'source unavailable',
+      stale: false,
+      error: null,
     });
-    expect(usePricingStore.getState().error).toBe('source unavailable');
+    expect(usePricingStore.getState().error).toBeNull();
     expect(usePricingStore.getState().models).toEqual([
       expect.objectContaining({
         id: 'anthropic/claude-sonnet-4-5',
@@ -173,7 +173,35 @@ describe('SettingsPage pricing catalog integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'settings.tabs.advanced' }));
     expect(screen.getByText(/1 settings\.pricing\.models/)).toBeInTheDocument();
     expect(screen.getByText(/settings\.pricing\.expires/)).toBeInTheDocument();
-    expect(screen.getByText('source unavailable')).toBeInTheDocument();
+    expect(screen.queryByText(/settings\.pricing\.stale/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/settings\.pricing\.refreshFailedFallback/)).not.toBeInTheDocument();
+  });
+
+  it('shows a not fetched state before any pricing catalog exists', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'settings.tabs.advanced' })[0]);
+
+    expect(screen.getByText('settings.pricing.notFetched')).toBeInTheDocument();
+  });
+
+  it('renders a stale cache indicator when the cached catalog is stale', () => {
+    const catalog = makeCatalog({ stale: true });
+    usePricingStore.setState({
+      catalog,
+      providers: catalog.providers,
+      models: catalog.models,
+      lastFetched: '2026-03-27T00:00:00Z',
+      expiresAt: '2026-03-28T00:00:00Z',
+      stale: true,
+      error: null,
+      isFetching: false,
+    });
+
+    render(<SettingsPage />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'settings.tabs.advanced' })[0]);
+
+    expect(screen.getByText(/settings\.pricing\.stale/)).toBeInTheDocument();
+    expect(screen.getByText(/settings\.pricing\.expires/)).toBeInTheDocument();
   });
 
   it('manual refresh uses the refresh command, shows fetching state, and preserves previous models on failure', async () => {
@@ -222,6 +250,7 @@ describe('SettingsPage pricing catalog integration', () => {
       expect(usePricingStore.getState().models).toHaveLength(1);
       expect(screen.getByText(/1 settings\.pricing\.models/)).toBeInTheDocument();
       expect(screen.getByText('refresh failed')).toBeInTheDocument();
+      expect(screen.getByText('settings.pricing.refreshFailedFallback')).toBeInTheDocument();
     });
   });
 });

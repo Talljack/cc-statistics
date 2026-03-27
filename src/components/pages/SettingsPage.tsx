@@ -465,6 +465,7 @@ function AdvancedTab() {
     refreshPricing,
   } =
     usePricingStore();
+  const hasPricingSnapshot = pricingModels.length > 0;
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [newProviderName, setNewProviderName] = useState('');
   const [newProviderKeyword, setNewProviderKeyword] = useState('');
@@ -523,7 +524,7 @@ function AdvancedTab() {
             <div>
               <div className="text-sm font-medium">{t('settings.pricing.dynamic')}</div>
               <div className="text-xs text-[#808080] mt-0.5">
-                {pricingModels.length > 0 ? (
+                {hasPricingSnapshot ? (
                   <>
                     {pricingModels.length} {t('settings.pricing.models')}
                     {lastFetched && (
@@ -537,7 +538,7 @@ function AdvancedTab() {
                         · {t('settings.pricing.expires')} {new Date(expiresAt).toLocaleString()}
                       </span>
                     )}
-                    {stale && <span className="ml-2 text-amber-400">· stale</span>}
+                    {stale && <span className="ml-2 text-amber-400">· {t('settings.pricing.stale')}</span>}
                   </>
                 ) : pricingError ? (
                   <span className="text-[#ef4444]">{pricingError}</span>
@@ -545,8 +546,11 @@ function AdvancedTab() {
                   t('settings.pricing.notFetched')
                 )}
               </div>
-              {pricingModels.length > 0 && pricingError && (
+              {hasPricingSnapshot && pricingError && (
                 <div className="text-xs text-[#ef4444] mt-1">{pricingError}</div>
+              )}
+              {hasPricingSnapshot && pricingError && (
+                <div className="text-xs text-[#606060] mt-1">{t('settings.pricing.refreshFailedFallback')}</div>
               )}
             </div>
           </div>

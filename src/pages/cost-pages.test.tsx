@@ -428,4 +428,38 @@ describe('cost-driven pages', () => {
     expect(screen.queryByText('$999.00')).not.toBeInTheDocument();
     expect(screen.getByText('project-a')).toBeInTheDocument();
   });
+
+  it('keeps Dashboard, CostBreakdown, Sessions, and Report on the same derived total', () => {
+    const sessions = [
+      makeSession({ id: 'shared-a', project: 'shared-project', model: 'model-a', input: 1_000_000, cacheRead: 1_000_000, legacyCost: 700 }),
+      makeSession({ id: 'shared-b', project: 'shared-project', model: 'model-b', output: 1_000_000, cacheCreation: 1_000_000, legacyCost: 800, timestamp: '2026-03-24T09:00:00+08:00' }),
+    ];
+    const stats = makeStatistics({
+      sessions: 2,
+      instructions: 2,
+      modelBuckets: {
+        'model-a': makeModelTokens(1_000_000, 0, 1_000_000, 0, 700),
+        'model-b': makeModelTokens(0, 1_000_000, 0, 1_000_000, 800),
+      },
+      legacyCost: 999,
+    });
+
+    mockUseStatistics.mockReturnValue({ data: stats, isLoading: false, refetch: vi.fn(), isRefetching: false });
+    mockUseSessions.mockReturnValue({ data: sessions, isLoading: false, refetch: vi.fn(), isRefetching: false });
+
+    const dashboard = renderWithProviders(<Dashboard />);
+    expect(dashboard.getAllByText('Cost:$3.50').length).toBeGreaterThanOrEqual(1);
+    dashboard.unmount();
+
+    const breakdown = renderWithProviders(<CostBreakdown />);
+    expect(within(breakdown.container).getByRole('heading', { level: 2 }).textContent).toContain('$3.50');
+    breakdown.unmount();
+
+    const sessionsView = renderWithProviders(<Sessions />);
+    expect(sessionsView.getAllByText('$3.50').length).toBeGreaterThanOrEqual(1);
+    sessionsView.unmount();
+
+    const reportView = renderWithProviders(<Report />);
+    expect(reportView.getAllByText('$3.50').length).toBeGreaterThanOrEqual(2);
+  });
 });
