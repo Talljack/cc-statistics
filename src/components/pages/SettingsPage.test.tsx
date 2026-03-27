@@ -189,7 +189,22 @@ describe('SettingsPage pricing catalog integration', () => {
     usePricingStore.setState({
       catalog,
       providers: catalog.providers,
-      models: catalog.models,
+      models: [
+        {
+          id: 'anthropic/claude-sonnet-4-5',
+          name: 'anthropic/claude-sonnet-4-5',
+          provider: 'openrouter',
+          input: 3,
+          output: 15,
+          cacheRead: 0.3,
+          cacheWrite: 3.75,
+          billingProvider: 'openrouter',
+          upstreamProvider: 'anthropic',
+          aliasKeys: ['claude-sonnet-4-5'],
+          sourceKind: 'official_api',
+          resolvedFrom: 'openrouter',
+        },
+      ],
       lastFetched: '2026-03-27T00:00:00Z',
       expiresAt: '2026-03-28T00:00:00Z',
       stale: true,
