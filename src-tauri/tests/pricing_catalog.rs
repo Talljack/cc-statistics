@@ -556,7 +556,7 @@ fn pricing_catalog_freshness_uses_a_24_hour_window() {
 }
 
 #[test]
-fn billing_provider_matrix_is_complete() {
+fn pricing_catalog_billing_provider_matrix_is_complete() {
     let expected = [
         ("anthropic", CoverageMode::OfficialDoc),
         ("openai", CoverageMode::OfficialDoc),
@@ -588,7 +588,7 @@ fn billing_provider_matrix_is_complete() {
 }
 
 #[test]
-fn upstream_provider_matrix_is_complete() {
+fn pricing_catalog_upstream_provider_matrix_is_complete() {
     let expected = [
         ("anthropic", CoverageMode::OfficialDoc),
         ("openai", CoverageMode::OfficialDoc),
@@ -630,7 +630,7 @@ fn upstream_provider_matrix_is_complete() {
 }
 
 #[test]
-fn missing_coverage_entries_fail_loudly() {
+fn pricing_catalog_missing_coverage_entries_fail_loudly() {
     let expected = [
         ("anthropic", CoverageMode::OfficialDoc),
         ("openrouter", CoverageMode::OfficialApi),
@@ -650,7 +650,7 @@ fn missing_coverage_entries_fail_loudly() {
 }
 
 #[test]
-fn fallback_only_providers_still_remain_addressable_by_the_merged_resolver() {
+fn pricing_catalog_fallback_only_providers_still_remain_addressable_by_the_merged_resolver() {
     for provider in [
         "copilot",
         "warp",
