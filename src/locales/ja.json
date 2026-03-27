@@ -100,6 +100,7 @@
   "settings.pricing.dynamic": "動的価格データ",
   "settings.pricing.models": "モデル",
   "settings.pricing.updated": "更新",
+  "settings.pricing.expires": "有効期限",
   "settings.pricing.notFetched": "未取得",
   "settings.pricing.fetching": "取得中...",
   "settings.pricing.refresh": "更新",

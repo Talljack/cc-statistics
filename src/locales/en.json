@@ -100,6 +100,7 @@
   "settings.pricing.dynamic": "Dynamic Pricing Data",
   "settings.pricing.models": "models",
   "settings.pricing.updated": "Updated",
+  "settings.pricing.expires": "Expires",
   "settings.pricing.notFetched": "Not fetched",
   "settings.pricing.fetching": "Fetching...",
   "settings.pricing.refresh": "Refresh",

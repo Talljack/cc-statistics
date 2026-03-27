@@ -172,7 +172,7 @@ describe('SettingsPage pricing catalog integration', () => {
     render(<SettingsPage />);
     fireEvent.click(screen.getByRole('button', { name: 'settings.tabs.advanced' }));
     expect(screen.getByText(/1 settings\.pricing\.models/)).toBeInTheDocument();
-    expect(screen.getByText(/Expires/)).toBeInTheDocument();
+    expect(screen.getByText(/settings\.pricing\.expires/)).toBeInTheDocument();
     expect(screen.getByText('source unavailable')).toBeInTheDocument();
   });
 

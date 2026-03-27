@@ -534,7 +534,7 @@ function AdvancedTab() {
                     )}
                     {expiresAt && (
                       <span className="ml-2">
-                        · Expires {new Date(expiresAt).toLocaleString()}
+                        · {t('settings.pricing.expires')} {new Date(expiresAt).toLocaleString()}
                       </span>
                     )}
                     {stale && <span className="ml-2 text-amber-400">· stale</span>}
