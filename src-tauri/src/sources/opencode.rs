@@ -519,7 +519,7 @@ fn build_normalized_session(
                     cost_usd: if cost > 0.0 {
                         cost
                     } else if !model_id.is_empty() {
-                        crate::parser::calculate_cost(
+                        crate::parser::calculate_cost_for_source("opencode",
                             &model_id,
                             input,
                             output,
@@ -816,7 +816,7 @@ fn parse_assistant_message(value: &serde_json::Value, stats: &mut SessionStats) 
         } else {
             // Fallback: calculate cost from model name + tokens
             let calc_cost =
-                crate::parser::calculate_cost(model_id, input, output, cache_read, cache_creation);
+                crate::parser::calculate_cost_for_source("opencode",model_id, input, output, cache_read, cache_creation);
             model_tokens.cost_usd += calc_cost;
             stats.cost_usd += calc_cost;
         }

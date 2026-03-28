@@ -331,9 +331,12 @@ fn parse_normalized_codex_session(
                         .or_else(|| primary_model.clone())
                         .unwrap_or_else(|| "unknown".to_string());
                     let output = delta.output + delta.reasoning_output;
-                    let cost_usd = crate::parser::calculate_cost(
+                    // OpenAI's input_tokens INCLUDES cached_input_tokens,
+                    // so deduct to avoid double-counting
+                    let non_cached_input = delta.input.saturating_sub(delta.cached_input);
+                    let cost_usd = crate::parser::calculate_cost_for_source("codex",
                         &model,
-                        delta.input,
+                        non_cached_input,
                         output,
                         delta.cached_input,
                         0,
@@ -341,7 +344,7 @@ fn parse_normalized_codex_session(
                     let record = NormalizedRecord::Token(TokenRecord {
                         timestamp,
                         model,
-                        input: delta.input,
+                        input: non_cached_input,
                         output,
                         cache_read: delta.cached_input,
                         cache_creation: 0,
@@ -473,7 +476,8 @@ struct CodexTokenSnapshot {
 
 impl CodexTokenSnapshot {
     fn total(self) -> u64 {
-        self.input + self.cached_input + self.output + self.reasoning_output
+        // input already includes cached_input, so don't add cached_input again
+        self.input + self.output + self.reasoning_output
     }
 
     fn delta_since(self, previous: Option<Self>) -> Self {
@@ -874,11 +878,12 @@ fn parse_codex_jsonl(path: &Path) -> Option<SessionStats> {
     }
 
     // Apply cumulative token counts
-    // input_tokens -> tokens.input
+    // OpenAI's input_tokens INCLUDES cached_input_tokens, so deduct to avoid double-counting
+    // input_tokens - cached_input_tokens -> tokens.input (non-cached only)
     // cached_input_tokens -> tokens.cache_read
     // output_tokens + reasoning_output_tokens -> tokens.output
     // cache_creation = 0
-    stats.tokens.input = last_input;
+    stats.tokens.input = last_input.saturating_sub(last_cached_input);
     stats.tokens.cache_read = last_cached_input;
     stats.tokens.output = last_output + last_reasoning_output;
     stats.tokens.cache_creation = 0;
@@ -889,7 +894,7 @@ fn parse_codex_jsonl(path: &Path) -> Option<SessionStats> {
 
     // Populate by_model with the primary model
     if let Some(ref model) = stats.primary_model {
-        let cost = crate::parser::calculate_cost(
+        let cost = crate::parser::calculate_cost_for_source("codex",
             model,
             stats.tokens.input,
             stats.tokens.output,
@@ -1205,7 +1210,7 @@ fn query_sqlite_sessions(
         stats.tokens.output = output_tokens;
 
         if let Some(ref m) = model {
-            let cost = crate::parser::calculate_cost(m, input_tokens, output_tokens, 0, 0);
+            let cost = crate::parser::calculate_cost_for_source("codex",m, input_tokens, output_tokens, 0, 0);
             stats.cost_usd = cost;
             let mt = stats.tokens.by_model.entry(m.clone()).or_default();
             mt.input = input_tokens;
