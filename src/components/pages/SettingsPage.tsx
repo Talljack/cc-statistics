@@ -870,7 +870,7 @@ function AboutTab() {
             <p className="text-xs text-[#606060] mt-2">{t('update.upToDate')}</p>
           )}
           {updateStatus === 'error' && updateError && (
-            <p className="text-xs text-red-400 mt-2">{updateError}</p>
+            <p className="text-xs text-red-400 mt-2">{t(updateError.summaryKey)}</p>
           )}
         </div>
         <p className="text-xs text-[#606060] mt-3 max-w-sm mx-auto">{t('about.appDesc')}</p>

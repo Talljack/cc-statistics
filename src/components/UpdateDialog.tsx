@@ -1,7 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useUpdateStore } from '../stores/updateStore';
 import { useTranslation } from '../lib/i18n';
-import { X, Download, RotateCcw, Loader2, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { X, Download, RotateCcw, Loader2, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Copy, ChevronDown, ChevronUp } from 'lucide-react';
+
+const LATEST_RELEASE_URL = 'https://github.com/Talljack/cc-statistics/releases/latest';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -18,6 +21,8 @@ export function UpdateDialog() {
     setDialogOpen, downloadAndInstall, installUpdate, checkForUpdate,
   } = useUpdateStore();
   const { t } = useTranslation();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -29,12 +34,36 @@ export function UpdateDialog() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [dialogOpen, status, setDialogOpen]);
 
+  useEffect(() => {
+    if (status !== 'error') {
+      setDetailsOpen(false);
+      setCopied(false);
+    }
+  }, [status, error]);
+
   if (!dialogOpen) return null;
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget && status !== 'downloading') {
       setDialogOpen(false);
     }
+  };
+
+  const retryAction = useMemo(() => {
+    if (!error) return checkForUpdate;
+    if (error.stage === 'download') return downloadAndInstall;
+    if (error.stage === 'install') return installUpdate;
+    return checkForUpdate;
+  }, [checkForUpdate, downloadAndInstall, error, installUpdate]);
+
+  const openReleasePage = async () => {
+    await openUrl(LATEST_RELEASE_URL);
+  };
+
+  const copyDiagnostics = async () => {
+    if (!error?.technicalDetails || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(error.technicalDetails);
+    setCopied(true);
   };
 
   // State C: Ready to Restart
@@ -140,8 +169,79 @@ export function UpdateDialog() {
         {/* Error */}
         {status === 'error' && (
           <div className="px-6 pb-2">
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-              <p className="text-sm text-red-400">{t('update.errorTitle')}: {error}</p>
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-red-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-red-300">
+                    {t(error?.titleKey || 'update.errorTitle')}
+                  </p>
+                  <p className="text-sm text-red-200/90 leading-relaxed mt-1">
+                    {t(error?.summaryKey || 'update.errorTitle')}
+                  </p>
+
+                  {error?.suggestionKeys.length ? (
+                    <div className="mt-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-red-200/60 mb-2">
+                        {t('update.nextSteps')}
+                      </p>
+                      <ul className="space-y-1.5">
+                        {error.suggestionKeys.map((suggestionKey) => (
+                          <li key={suggestionKey} className="text-sm text-red-100/90 leading-relaxed">
+                            {`\u2022 ${t(suggestionKey)}`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {error?.url && (
+                    <div className="mt-3 rounded-lg border border-red-500/15 bg-black/15 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wider text-red-200/55 mb-1">
+                        {t('update.requestUrl')}
+                      </p>
+                      <p className="text-xs font-mono text-red-100/85 break-all">{error.url}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={openReleasePage}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/20 px-3 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/10 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      {t('update.openReleasePage')}
+                    </button>
+                    <button
+                      onClick={copyDiagnostics}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/20 px-3 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {copied ? t('update.copiedDiagnostics') : t('update.copyDiagnostics')}
+                    </button>
+                    <button
+                      onClick={() => setDetailsOpen((open) => !open)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/20 px-3 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/10 transition-colors"
+                    >
+                      {detailsOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      {detailsOpen ? t('update.hideTechnicalDetails') : t('update.showTechnicalDetails')}
+                    </button>
+                  </div>
+
+                  {detailsOpen && error?.technicalDetails && (
+                    <div className="mt-3 rounded-lg border border-red-500/15 bg-black/25 p-3">
+                      <p className="text-[11px] uppercase tracking-wider text-red-200/55 mb-2">
+                        {t('update.technicalDetails')}
+                      </p>
+                      <pre className="text-xs font-mono text-red-100/90 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                        {error.technicalDetails}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -183,7 +283,7 @@ export function UpdateDialog() {
 
           {status === 'error' && (
             <button
-              onClick={checkForUpdate}
+              onClick={retryAction}
               className="px-5 py-2.5 rounded-lg bg-[#3b82f6] text-sm font-medium text-white hover:bg-[#2563eb] transition-colors shadow-lg shadow-blue-500/20"
             >
               {t('common.retry')}
