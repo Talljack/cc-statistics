@@ -738,9 +738,10 @@ pub fn get_preset_models() -> Vec<String> {
 
 #[tauri::command]
 pub async fn get_account_usage(
+    app: tauri::AppHandle,
     _enabled_sources: Option<SourceConfig>,
 ) -> Result<AccountUsageResult, String> {
-    let providers = crate::account_providers::fetch_all().await;
+    let providers = crate::account_providers::fetch_all_streaming(&app).await;
     Ok(AccountUsageResult { providers })
 }
 

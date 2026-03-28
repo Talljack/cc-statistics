@@ -212,13 +212,14 @@ export function AccountUsage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data, isLoading, isRefetching, error } = useAccountUsage();
+  const { data, isLoading, isRefetching, isStreaming, error } = useAccountUsage();
 
   // Track whether we ever had providers — if yes and now empty, it's likely a network issue
   const hadDataRef = useRef(false);
   const providers = data?.providers || [];
   if (providers.length > 0) hadDataRef.current = true;
-  const fetchLikelyFailed = providers.length === 0 && (!!error || hadDataRef.current);
+  const isLoadingProviders = isLoading || isStreaming;
+  const fetchLikelyFailed = !isLoadingProviders && providers.length === 0 && (!!error || hadDataRef.current);
 
   // Live countdown timer
   const [, setTick] = useState(0);
@@ -230,39 +231,6 @@ export function AccountUsage() {
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['account-usage'] });
   }, [queryClient]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
-        <Header onRefresh={() => {}} isRefreshing={false} />
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="flex items-center gap-3 mb-6">
-            <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors">
-              <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
-            </button>
-            <div className="flex items-center gap-2">
-              <User className="w-5 h-5 text-[#f97316]" />
-              <h2 className="text-xl font-semibold">{t('account.title')}</h2>
-            </div>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {[1, 2].map(i => (
-              <div key={i} className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-5 animate-pulse">
-                <div className="flex items-center gap-3 mb-5">
-                  <div className="w-3 h-3 rounded-full bg-[#2a2a2a]" />
-                  <div className="h-5 w-24 bg-[#2a2a2a] rounded" />
-                </div>
-                <div className="space-y-4">
-                  <div className="h-3 bg-[#2a2a2a] rounded-full" />
-                  <div className="h-3 bg-[#2a2a2a] rounded-full w-3/4" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
@@ -282,7 +250,9 @@ export function AccountUsage() {
               <h2 className="text-xl font-semibold">
                 {t('account.title')}
                 <span className="text-[#a0a0a0] text-sm font-normal ml-2">
-                  {providers.length} {t('account.providers')}
+                  {isLoadingProviders && providers.length > 0
+                    ? `${providers.length}…`
+                    : `${providers.length} ${t('account.providers')}`}
                 </span>
               </h2>
             </div>
@@ -292,7 +262,7 @@ export function AccountUsage() {
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#2a2a2a] hover:bg-[#333] text-sm transition-colors"
             disabled={isRefetching}
           >
-            <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isRefetching || isLoadingProviders ? 'animate-spin' : ''}`} />
             {t('common.refresh')}
           </button>
         </div>
@@ -303,7 +273,7 @@ export function AccountUsage() {
           </div>
         )}
 
-        {providers.length === 0 ? (
+        {!isLoadingProviders && providers.length === 0 ? (
           <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center">
             {fetchLikelyFailed ? (
               <>
@@ -330,8 +300,20 @@ export function AccountUsage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {providers.map((provider) => (
-              <ProviderCard key={provider.source} usage={provider} t={t} />
+              <ProviderCard key={provider.source + (provider.email || '')} usage={provider} t={t} />
             ))}
+            {isLoadingProviders && (
+              <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-5 animate-pulse">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-3 h-3 rounded-full bg-[#2a2a2a]" />
+                  <div className="h-5 w-24 bg-[#2a2a2a] rounded" />
+                </div>
+                <div className="space-y-4">
+                  <div className="h-3 bg-[#2a2a2a] rounded-full" />
+                  <div className="h-3 bg-[#2a2a2a] rounded-full w-3/4" />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

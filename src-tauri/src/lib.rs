@@ -36,6 +36,12 @@ pub fn run() {
         ])
         .setup(|app| {
             tray::setup_tray(app)?;
+            // Fetch pricing catalog in background so it's ready for cost calculations
+            tauri::async_runtime::spawn(async {
+                if let Err(e) = pricing_providers::get_catalog(false).await {
+                    eprintln!("Background pricing catalog fetch failed: {}", e);
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

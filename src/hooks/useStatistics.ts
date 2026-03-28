@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo, FileChange, AccountUsageResult } from '../types/statistics';
+import { listen } from '@tauri-apps/api/event';
+import { useState, useEffect, useRef } from 'react';
+import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo, FileChange, AccountUsageResult, ProviderUsage } from '../types/statistics';
 import { useSettingsStore } from '../stores/settingsStore';
 import { serializeTimeRangeForQuery, type ActiveTimeRange } from '../lib/timeRanges';
 
@@ -124,10 +126,48 @@ export function useCodeChangesDetail(project: string | null, activeRange: Active
 
 export function useAccountUsage() {
   const enabledSources = useSettingsStore((s) => s.enabledSources);
-  return useQuery<AccountUsageResult>({
+  const [streamingProviders, setStreamingProviders] = useState<ProviderUsage[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const fetchIdRef = useRef(0);
+
+  // Listen for per-provider events from the backend
+  useEffect(() => {
+    const unlisten = listen<ProviderUsage>('account-usage-provider-ready', (event) => {
+      setStreamingProviders((prev) => {
+        // Deduplicate by source+email
+        const key = event.payload.source + (event.payload.email || '');
+        if (prev.some((p) => p.source + (p.email || '') === key)) return prev;
+        return [...prev, event.payload];
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  const query = useQuery<AccountUsageResult>({
     queryKey: ['account-usage', enabledSources],
-    queryFn: () => invoke<AccountUsageResult>('get_account_usage', { enabledSources }),
+    queryFn: async () => {
+      const id = ++fetchIdRef.current;
+      setStreamingProviders([]);
+      setIsStreaming(true);
+      const result = await invoke<AccountUsageResult>('get_account_usage', { enabledSources });
+      // Only update if this is still the latest fetch
+      if (fetchIdRef.current === id) {
+        setIsStreaming(false);
+      }
+      return result;
+    },
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
   });
+
+  // Use streaming providers while loading, final result once complete
+  const providers = isStreaming || query.isLoading
+    ? streamingProviders
+    : (query.data?.providers || []);
+
+  return {
+    ...query,
+    data: { providers } as AccountUsageResult,
+    isStreaming,
+  };
 }

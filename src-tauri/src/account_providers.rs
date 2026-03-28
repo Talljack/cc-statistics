@@ -11,6 +11,12 @@ use crate::models::ProviderUsage;
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
+// Gemini CLI ships these installed-app OAuth credentials in its own source.
+// Reusing them keeps our account usage fetch aligned with the official CLI.
+const GEMINI_CLI_OAUTH_CLIENT_ID: &str =
+    "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
+const GEMINI_CLI_OAUTH_CLIENT_SECRET: &str = "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";
+
 fn make_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -58,12 +64,57 @@ fn capitalize(s: &str) -> String {
     }
 }
 
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
+
 // ---------------------------------------------------------------------------
 // 1. Claude Code
 // ---------------------------------------------------------------------------
 
-pub async fn fetch_claude() -> Result<ProviderUsage, String> {
-    let creds = read_claude_credentials()?;
+/// Fetch usage for all Claude Code accounts found in the Keychain.
+pub async fn fetch_claude_all() -> Vec<ProviderUsage> {
+    // Run blocking Keychain operations off the async runtime
+    let all_creds = match tokio::task::spawn_blocking(read_all_claude_credentials).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Provider fetch skipped: Claude credential read panicked: {}", e);
+            return Vec::new();
+        }
+    };
+    if all_creds.is_empty() {
+        eprintln!("Provider fetch skipped: No Claude credentials found");
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+    let client = match make_client() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Provider fetch skipped: {}", e);
+            return Vec::new();
+        }
+    };
+
+    for (service_name, creds) in &all_creds {
+        match fetch_claude_one(&client, service_name, creds).await {
+            Ok(usage) => results.push(usage),
+            Err(e) => eprintln!("Claude account {} skipped: {}", service_name, e),
+        }
+    }
+    results
+}
+
+async fn fetch_claude_one(
+    client: &reqwest::Client,
+    _service_name: &str,
+    creds: &serde_json::Value,
+) -> Result<ProviderUsage, String> {
     let access_token = creds
         .pointer("/claudeAiOauth/accessToken")
         .or_else(|| creds.get("accessToken"))
@@ -92,7 +143,13 @@ pub async fn fetch_claude() -> Result<ProviderUsage, String> {
         capitalize(&plan_type)
     };
 
-    let client = make_client()?;
+    // Try to extract email from the credentials
+    let email = creds
+        .pointer("/claudeAiOauth/email")
+        .or_else(|| creds.get("email"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     let resp = client
         .get("https://api.anthropic.com/api/oauth/usage")
         .header("Authorization", format!("Bearer {}", access_token))
@@ -114,17 +171,16 @@ pub async fn fetch_claude() -> Result<ProviderUsage, String> {
         .await
         .map_err(|e| format!("Parse Claude response: {}", e))?;
 
+    // API returns utilization as a percentage (0-100), not a fraction
     let session_used = body
         .pointer("/five_hour/utilization")
         .and_then(|v| v.as_f64())
-        .unwrap_or(0.0)
-        * 100.0;
+        .unwrap_or(0.0);
     let session_reset = parse_reset_secs(&body, "/five_hour/resets_at");
 
     let weekly_used = body
         .pointer("/seven_day/utilization")
-        .and_then(|v| v.as_f64())
-        .map(|v| v * 100.0);
+        .and_then(|v| v.as_f64());
     let weekly_reset = parse_reset_secs(&body, "/seven_day/resets_at");
 
     Ok(ProviderUsage {
@@ -135,68 +191,137 @@ pub async fn fetch_claude() -> Result<ProviderUsage, String> {
         weekly_used_percent: weekly_used,
         weekly_reset_seconds: weekly_reset,
         limit_reached: session_used >= 100.0 || weekly_used.unwrap_or(0.0) >= 100.0,
-        email: None,
+        email,
         credits_balance: None,
     })
 }
 
-fn read_claude_credentials() -> Result<serde_json::Value, String> {
+/// Enumerate all Claude Code credential entries from macOS Keychain.
+/// Falls back to file-based credentials if no Keychain entries found.
+fn read_all_claude_credentials() -> Vec<(String, serde_json::Value)> {
+    let mut results = Vec::new();
+
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("security")
-            .args([
-                "find-generic-password",
-                "-s",
-                "Claude Code-credentials",
-                "-w",
-            ])
-            .output();
-        if let Ok(o) = out {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout);
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(s.trim()) {
-                    return Ok(v);
+        // Dump keychain to find all "Claude Code-credentials*" service names
+        if let Ok(out) = std::process::Command::new("security")
+            .args(["dump-keychain"])
+            .output()
+        {
+            let dump = String::from_utf8_lossy(&out.stdout);
+            let mut service_names: Vec<String> = Vec::new();
+            for line in dump.lines() {
+                let trimmed = line.trim();
+                // Match: "svce"<blob>="Claude Code-credentials..."
+                if let Some(rest) = trimmed.strip_prefix("\"svce\"<blob>=\"") {
+                    if let Some(name) = rest.strip_suffix('"') {
+                        if name.starts_with("Claude Code-credentials") {
+                            if !service_names.contains(&name.to_string()) {
+                                service_names.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+                // Also match: 0x00000007 <blob>="Claude Code-credentials..."
+                if trimmed.starts_with("0x00000007") {
+                    if let Some(start) = trimmed.find("=\"") {
+                        let after = &trimmed[start + 2..];
+                        if let Some(end) = after.find('"') {
+                            let name = &after[..end];
+                            if name.starts_with("Claude Code-credentials") {
+                                if !service_names.contains(&name.to_string()) {
+                                    service_names.push(name.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for svc in &service_names {
+                if let Ok(o) = std::process::Command::new("security")
+                    .args(["find-generic-password", "-s", svc, "-w"])
+                    .output()
+                {
+                    if o.status.success() {
+                        let s = String::from_utf8_lossy(&o.stdout);
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s.trim()) {
+                            results.push((svc.clone(), v));
+                        }
+                    }
                 }
             }
         }
     }
-    let home = dirs::home_dir().ok_or("No home dir")?;
-    for path in [
-        home.join(".claude").join(".credentials.json"),
-        home.join(".claude").join("credentials.json"),
-    ] {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-                return Ok(v);
+
+    // Fallback to file-based credentials if nothing found in Keychain
+    if results.is_empty() {
+        if let Some(home) = dirs::home_dir() {
+            for path in [
+                home.join(".claude").join(".credentials.json"),
+                home.join(".claude").join("credentials.json"),
+            ] {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                        results.push((path.display().to_string(), v));
+                    }
+                }
             }
         }
     }
-    Err("No Claude credentials found".to_string())
+
+    results
 }
 
 // ---------------------------------------------------------------------------
-// 2. Codex (OpenAI ChatGPT)
+// 2. Codex (OpenAI ChatGPT) — multi-account
 // ---------------------------------------------------------------------------
 
-pub async fn fetch_codex() -> Result<ProviderUsage, String> {
-    let home = dirs::home_dir().ok_or("No home dir")?;
-    let auth_path = home.join(".codex").join("auth.json");
-    let auth: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(&auth_path)
-            .map_err(|e| format!("Read ~/.codex/auth.json: {}", e))?,
-    )
-    .map_err(|e| format!("Parse auth.json: {}", e))?;
+/// Fetch usage for all Codex accounts found.
+pub async fn fetch_codex_all() -> Vec<ProviderUsage> {
+    let all_creds = match tokio::task::spawn_blocking(read_all_codex_credentials).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Provider fetch skipped: Codex credential read failed: {}", e);
+            return Vec::new();
+        }
+    };
+    if all_creds.is_empty() {
+        eprintln!("Provider fetch skipped: No Codex credentials found");
+        return Vec::new();
+    }
 
+    let client = match make_client() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Provider fetch skipped: {}", e);
+            return Vec::new();
+        }
+    };
+
+    let mut results = Vec::new();
+    for (label, auth) in &all_creds {
+        match fetch_codex_one(&client, auth).await {
+            Ok(usage) => results.push(usage),
+            Err(e) => eprintln!("Codex account {} skipped: {}", label, e),
+        }
+    }
+    results
+}
+
+async fn fetch_codex_one(
+    client: &reqwest::Client,
+    auth: &serde_json::Value,
+) -> Result<ProviderUsage, String> {
     let access_token = auth
         .pointer("/tokens/access_token")
         .and_then(|v| v.as_str())
-        .ok_or("No access_token in ~/.codex/auth.json")?;
+        .ok_or("No access_token in Codex credentials")?;
     let account_id = auth
         .pointer("/tokens/account_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let client = make_client()?;
     let resp = client
         .get("https://chatgpt.com/backend-api/wham/usage")
         .header("Authorization", format!("Bearer {}", access_token))
@@ -263,22 +388,85 @@ pub async fn fetch_codex() -> Result<ProviderUsage, String> {
     })
 }
 
+/// Discover all Codex credential files: ~/.codex/auth*.json + providers.json extras.
+fn read_all_codex_credentials() -> Vec<(String, serde_json::Value)> {
+    let mut results = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        let codex_dir = home.join(".codex");
+        // Scan auth*.json files in ~/.codex/
+        if let Ok(entries) = std::fs::read_dir(&codex_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("auth") && name.ends_with(".json") {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                            // Verify it has tokens
+                            if v.pointer("/tokens/access_token").is_some() {
+                                results.push((name.clone(), v));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Additional paths from providers.json
+    let cfg = provider_config();
+    if let Some(paths) = cfg.get("codex_auth_paths").and_then(|v| v.as_array()) {
+        for p in paths {
+            if let Some(path_str) = p.as_str() {
+                let path = expand_tilde(path_str);
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if v.pointer("/tokens/access_token").is_some() {
+                            results.push((path_str.to_string(), v));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    results
+}
+
 // ---------------------------------------------------------------------------
-// 3. Gemini CLI
+// 3. Gemini CLI — multi-account
 // ---------------------------------------------------------------------------
 
-pub async fn fetch_gemini() -> Result<ProviderUsage, String> {
-    let token = get_gemini_access_token().await?;
+/// Fetch usage for all Gemini accounts found.
+pub async fn fetch_gemini_all() -> Vec<ProviderUsage> {
+    let all_creds = match tokio::task::spawn_blocking(read_all_gemini_credentials).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Provider fetch skipped: Gemini credential read failed: {}", e);
+            return Vec::new();
+        }
+    };
+    if all_creds.is_empty() {
+        eprintln!("Provider fetch skipped: No Gemini credentials found");
+        return Vec::new();
+    }
 
-    let client = make_client()?;
-    let resp = client
-        .post("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({}))
-        .send()
-        .await
-        .map_err(|e| format!("Gemini quota API failed: {}", e))?;
+    let mut results = Vec::new();
+    for (label, creds_path) in &all_creds {
+        match fetch_gemini_one(creds_path).await {
+            Ok(usage) => results.push(usage),
+            Err(e) => eprintln!("Gemini account {} skipped: {}", label, e),
+        }
+    }
+    results
+}
+
+async fn fetch_gemini_one(creds_path: &std::path::Path) -> Result<ProviderUsage, String> {
+    let mut token = get_gemini_access_token_from(creds_path, false).await?;
+    let mut resp = request_gemini_quota(&token).await?;
+
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+        || resp.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        token = get_gemini_access_token_from(creds_path, true).await?;
+        resp = request_gemini_quota(&token).await?;
+    }
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -291,47 +479,41 @@ pub async fn fetch_gemini() -> Result<ProviderUsage, String> {
         .await
         .map_err(|e| format!("Parse Gemini response: {}", e))?;
 
-    // Response shape varies; try multiple paths
-    let used_percent = body
-        .pointer("/quotaStatus/usedPercent")
-        .or_else(|| body.pointer("/usedPercent"))
-        .and_then(|v| v.as_f64())
-        .unwrap_or_else(|| {
-            // Fallback: compute from used/limit
-            let used = body
-                .pointer("/quotaStatus/used")
-                .or_else(|| body.pointer("/used"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            let limit = body
-                .pointer("/quotaStatus/limit")
-                .or_else(|| body.pointer("/limit"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            if limit > 0.0 {
-                used / limit * 100.0
-            } else {
-                0.0
+    let buckets = body.get("buckets").and_then(|v| v.as_array());
+
+    let (used_percent, reset_secs) = if let Some(buckets) = buckets {
+        let mut min_remaining: f64 = 1.0;
+        let mut earliest_reset: i64 = 0;
+        for b in buckets {
+            if let Some(r) = b.get("remainingFraction").and_then(|v| v.as_f64()) {
+                if r < min_remaining {
+                    min_remaining = r;
+                }
             }
-        });
+            if earliest_reset == 0 {
+                if let Some(rt) = b.get("resetTime").and_then(|v| v.as_str()) {
+                    if let Ok(dt) = DateTime::parse_from_rfc3339(rt) {
+                        earliest_reset =
+                            (dt.with_timezone(&Utc) - Utc::now()).num_seconds().max(0);
+                    }
+                }
+            }
+        }
+        ((1.0 - min_remaining) * 100.0, earliest_reset)
+    } else {
+        (0.0, 0i64)
+    };
 
-    let reset_secs = body
-        .pointer("/quotaStatus/resetAt")
-        .or_else(|| body.pointer("/resetAt"))
-        .and_then(|v| v.as_str())
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| (dt.with_timezone(&Utc) - Utc::now()).num_seconds().max(0))
-        .unwrap_or(0);
+    // Infer plan type from settings in the same directory as creds
+    let plan_type = creds_path
+        .parent()
+        .map(|dir| read_gemini_plan_type_from(dir))
+        .unwrap_or_else(|| "Free".to_string());
 
-    let plan_type = body
-        .pointer("/planInfo/type")
-        .or_else(|| body.pointer("/planType"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("Free")
-        .to_string();
-
-    // Try to get email from the id_token stored in oauth_creds
-    let email = read_gemini_email();
+    // Email from google_accounts.json or id_token
+    let email = creds_path
+        .parent()
+        .and_then(|dir| read_gemini_email_from(dir, creds_path));
 
     Ok(ProviderUsage {
         source: "gemini".to_string(),
@@ -346,9 +528,32 @@ pub async fn fetch_gemini() -> Result<ProviderUsage, String> {
     })
 }
 
-async fn get_gemini_access_token() -> Result<String, String> {
-    let home = dirs::home_dir().ok_or("No home dir")?;
-    let creds_path = home.join(".gemini").join("oauth_creds.json");
+async fn request_gemini_quota(token: &str) -> Result<reqwest::Response, String> {
+    make_client()?
+        .post("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| format!("Gemini quota API failed: {}", e))
+}
+
+fn gemini_oauth_client_credentials(config: &serde_json::Value) -> (String, String) {
+    let client_id = cfg_str(config, "gemini_client_id")
+        .or_else(|| std::env::var("GEMINI_CLIENT_ID").ok())
+        .unwrap_or_else(|| GEMINI_CLI_OAUTH_CLIENT_ID.to_string());
+    let client_secret = cfg_str(config, "gemini_client_secret")
+        .or_else(|| std::env::var("GEMINI_CLIENT_SECRET").ok())
+        .unwrap_or_else(|| GEMINI_CLI_OAUTH_CLIENT_SECRET.to_string());
+
+    (client_id, client_secret)
+}
+
+async fn get_gemini_access_token_from(
+    creds_path: &std::path::Path,
+    force_refresh: bool,
+) -> Result<String, String> {
     let creds: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&creds_path)
             .map_err(|e| format!("Read ~/.gemini/oauth_creds.json: {}", e))?,
@@ -366,7 +571,7 @@ async fn get_gemini_access_token() -> Result<String, String> {
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     let now_ms = Utc::now().timestamp_millis();
-    if expiry_ms > now_ms + 60_000 {
+    if !force_refresh && expiry_ms > now_ms + 60_000 {
         // Token still valid (60s buffer)
         return Ok(access_token.to_string());
     }
@@ -377,16 +582,7 @@ async fn get_gemini_access_token() -> Result<String, String> {
         .and_then(|v| v.as_str())
         .ok_or("No refresh_token in Gemini credentials")?;
     let cfg = provider_config();
-    let client_id = cfg_str(&cfg, "gemini_client_id")
-        .or_else(|| std::env::var("GEMINI_CLIENT_ID").ok())
-        .ok_or(
-            "No Gemini OAuth client_id (set gemini_client_id in ~/.cc-statistics/providers.json or GEMINI_CLIENT_ID env)",
-        )?;
-    let client_secret = cfg_str(&cfg, "gemini_client_secret")
-        .or_else(|| std::env::var("GEMINI_CLIENT_SECRET").ok())
-        .ok_or(
-            "No Gemini OAuth client_secret (set gemini_client_secret in ~/.cc-statistics/providers.json or GEMINI_CLIENT_SECRET env)",
-        )?;
+    let (client_id, client_secret) = gemini_oauth_client_credentials(&cfg);
 
     let client = make_client()?;
     let resp = client
@@ -440,12 +636,41 @@ async fn get_gemini_access_token() -> Result<String, String> {
     Ok(new_token)
 }
 
-fn read_gemini_email() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let creds_path = home.join(".gemini").join("oauth_creds.json");
+fn read_gemini_plan_type_from(gemini_dir: &std::path::Path) -> String {
+    let settings_path = gemini_dir.join("settings.json");
+    if let Ok(content) = std::fs::read_to_string(&settings_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+            let auth_type = v
+                .get("selectedAuthType")
+                .or_else(|| v.pointer("/security/auth/selectedType"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            return match auth_type {
+                "oauth-personal" => "Google One AI Pro".to_string(),
+                "oauth-enterprise" => "Enterprise".to_string(),
+                _ => "Free".to_string(),
+            };
+        }
+    }
+    "Free".to_string()
+}
+
+fn read_gemini_email_from(
+    gemini_dir: &std::path::Path,
+    creds_path: &std::path::Path,
+) -> Option<String> {
+    // Prefer google_accounts.json active field
+    let accounts_path = gemini_dir.join("google_accounts.json");
+    if let Ok(content) = std::fs::read_to_string(&accounts_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(email) = v.get("active").and_then(|v| v.as_str()) {
+                return Some(email.to_string());
+            }
+        }
+    }
+    // Fallback: decode from id_token JWT in the creds file
     let creds: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&creds_path).ok()?).ok()?;
-    // Decode email from id_token JWT payload (no signature verification needed here)
+        serde_json::from_str(&std::fs::read_to_string(creds_path).ok()?).ok()?;
     let id_token = creds.get("id_token").and_then(|v| v.as_str())?;
     let parts: Vec<&str> = id_token.split('.').collect();
     if parts.len() < 2 {
@@ -457,6 +682,42 @@ fn read_gemini_email() -> Option<String> {
         .get("email")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+/// Discover all Gemini credential files: ~/.gemini/oauth_creds*.json + providers.json extras.
+fn read_all_gemini_credentials() -> Vec<(String, PathBuf)> {
+    let mut results = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        let gemini_dir = home.join(".gemini");
+        if let Ok(entries) = std::fs::read_dir(&gemini_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("oauth_creds") && name.ends_with(".json") {
+                    // Verify it has a refresh_token
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if v.get("refresh_token").is_some() {
+                                results.push((name.clone(), entry.path()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Additional paths from providers.json
+    let cfg = provider_config();
+    if let Some(paths) = cfg.get("gemini_creds_paths").and_then(|v| v.as_array()) {
+        for p in paths {
+            if let Some(path_str) = p.as_str() {
+                let path = expand_tilde(path_str);
+                if path.is_file() {
+                    results.push((path_str.to_string(), path));
+                }
+            }
+        }
+    }
+    results
 }
 
 fn base64_decode_nopad(s: &str) -> Option<Vec<u8>> {
@@ -495,6 +756,32 @@ fn base64_decode_nopad(s: &str) -> Option<Vec<u8>> {
         i += 4;
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_oauth_credentials_default_to_cli_constants() {
+        let cfg = serde_json::json!({});
+        let (client_id, client_secret) = gemini_oauth_client_credentials(&cfg);
+
+        assert_eq!(client_id, GEMINI_CLI_OAUTH_CLIENT_ID);
+        assert_eq!(client_secret, GEMINI_CLI_OAUTH_CLIENT_SECRET);
+    }
+
+    #[test]
+    fn gemini_oauth_credentials_allow_config_override() {
+        let cfg = serde_json::json!({
+            "gemini_client_id": "custom-client-id",
+            "gemini_client_secret": "custom-client-secret"
+        });
+        let (client_id, client_secret) = gemini_oauth_client_credentials(&cfg);
+
+        assert_eq!(client_id, "custom-client-id");
+        assert_eq!(client_secret, "custom-client-secret");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1449,89 +1736,91 @@ fn parse_kiro_json(body: &serde_json::Value) -> Result<ProviderUsage, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Master fetch — runs all providers in parallel, returns only successes
+// Master fetch — runs all providers in parallel, emits events as each completes
 // ---------------------------------------------------------------------------
 
-pub async fn fetch_all() -> Vec<ProviderUsage> {
-    tokio::time::timeout(std::time::Duration::from_secs(15), fetch_all_inner())
-        .await
-        .unwrap_or_else(|_| {
-            eprintln!("fetch_all timed out after 15s");
-            Vec::new()
-        })
+/// Streaming fetch: spawns all provider fetches in parallel, emits a Tauri event
+/// for each provider as it completes, and returns the full list at the end.
+pub async fn fetch_all_streaming(app: &tauri::AppHandle) -> Vec<ProviderUsage> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        fetch_all_streaming_inner(app),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        eprintln!("fetch_all_streaming timed out after 15s");
+        Vec::new()
+    })
 }
 
-async fn fetch_all_inner() -> Vec<ProviderUsage> {
-    // Async providers
-    let (
-        claude,
-        codex,
-        gemini,
-        openrouter,
-        copilot,
-        kimi_k2,
-        zai,
-        warp,
-        cursor,
-        kimi,
-        amp,
-        factory,
-        augment,
-        ollama_cloud,
-        kiro,
-    ) = tokio::join!(
-        fetch_claude(),
-        fetch_codex(),
-        fetch_gemini(),
-        fetch_openrouter(),
-        fetch_copilot(),
-        fetch_kimi_k2(),
-        fetch_zai(),
-        fetch_warp(),
-        fetch_cursor(),
-        fetch_kimi(),
-        fetch_amp(),
-        fetch_factory(),
-        fetch_augment(),
-        fetch_ollama_cloud(),
-        fetch_kiro(),
-    );
+async fn fetch_all_streaming_inner(app: &tauri::AppHandle) -> Vec<ProviderUsage> {
+    use tauri::Emitter;
+    use tokio::sync::mpsc;
 
-    let async_results = [
-        claude,
-        codex,
-        gemini,
-        openrouter,
-        copilot,
-        kimi_k2,
-        zai,
-        warp,
-        cursor,
-        kimi,
-        amp,
-        factory,
-        augment,
-        ollama_cloud,
-        kiro,
-    ];
+    let (tx, mut rx) = mpsc::unbounded_channel::<ProviderUsage>();
 
-    // Sync providers (file reads)
-    let jetbrains = fetch_jetbrains_ai();
+    // Multi-account providers (return Vec<ProviderUsage>)
+    let tx_c = tx.clone();
+    tokio::spawn(async move {
+        for p in fetch_claude_all().await {
+            let _ = tx_c.send(p);
+        }
+    });
+    let tx_c = tx.clone();
+    tokio::spawn(async move {
+        for p in fetch_codex_all().await {
+            let _ = tx_c.send(p);
+        }
+    });
+    let tx_c = tx.clone();
+    tokio::spawn(async move {
+        for p in fetch_gemini_all().await {
+            let _ = tx_c.send(p);
+        }
+    });
 
-    let mut providers: Vec<ProviderUsage> = async_results
-        .into_iter()
-        .filter_map(|r| {
-            if let Err(ref e) = r {
-                eprintln!("Provider fetch skipped: {}", e);
-            }
-            r.ok()
-        })
-        .collect();
+    // Single-account async providers
+    macro_rules! spawn_single {
+        ($fetch_fn:expr, $tx:expr) => {{
+            let tx_c = $tx.clone();
+            tokio::spawn(async move {
+                match $fetch_fn.await {
+                    Ok(p) => { let _ = tx_c.send(p); }
+                    Err(e) => eprintln!("Provider fetch skipped: {}", e),
+                }
+            });
+        }};
+    }
+    spawn_single!(fetch_openrouter(), tx);
+    spawn_single!(fetch_copilot(), tx);
+    spawn_single!(fetch_kimi_k2(), tx);
+    spawn_single!(fetch_zai(), tx);
+    spawn_single!(fetch_warp(), tx);
+    spawn_single!(fetch_cursor(), tx);
+    spawn_single!(fetch_kimi(), tx);
+    spawn_single!(fetch_amp(), tx);
+    spawn_single!(fetch_factory(), tx);
+    spawn_single!(fetch_augment(), tx);
+    spawn_single!(fetch_ollama_cloud(), tx);
+    spawn_single!(fetch_kiro(), tx);
 
-    if let Ok(jb) = jetbrains {
-        providers.push(jb);
-    } else if let Err(e) = jetbrains {
-        eprintln!("JetBrains AI fetch skipped: {}", e);
+    // Sync provider (file read) — run in blocking task
+    let tx_c = tx.clone();
+    tokio::task::spawn_blocking(move || {
+        match fetch_jetbrains_ai() {
+            Ok(p) => { let _ = tx_c.send(p); }
+            Err(e) => eprintln!("JetBrains AI fetch skipped: {}", e),
+        }
+    });
+
+    // Drop our own sender so rx closes when all spawned tasks finish
+    drop(tx);
+
+    // Collect results, emitting an event for each as it arrives
+    let mut providers = Vec::new();
+    while let Some(provider) = rx.recv().await {
+        let _ = app.emit("account-usage-provider-ready", &provider);
+        providers.push(provider);
     }
 
     providers
