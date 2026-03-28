@@ -422,7 +422,7 @@ fn parse_gemini_session(path: &std::path::Path) -> Option<SessionStats> {
 
     // Calculate cost using model name and token counts
     for (model, mt) in stats.tokens.by_model.iter_mut() {
-        let cost = crate::parser::calculate_cost(
+        let cost = crate::parser::calculate_cost_for_source("gemini",
             model,
             mt.input,
             mt.output,
@@ -546,7 +546,7 @@ fn parse_normalized_gemini_session(
 
                     if input + output + cache_read > 0 {
                         let cost_usd =
-                            crate::parser::calculate_cost(&model, input, output, cache_read, 0);
+                            crate::parser::calculate_cost_for_source("gemini",&model, input, output, cache_read, 0);
                         let record = NormalizedRecord::Token(TokenRecord {
                             timestamp,
                             model,

@@ -483,7 +483,7 @@ fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession
                             cost_usd: if cost > 0.0 {
                                 cost
                             } else {
-                                crate::parser::calculate_cost(
+                                crate::parser::calculate_cost_for_source("openclaw",
                                     &model,
                                     input,
                                     output,
@@ -770,7 +770,7 @@ fn parse_assistant_message(
             stats.cost_usd += cost;
         } else {
             let calc_cost =
-                crate::parser::calculate_cost(model_str, input, output, cache_read, cache_write);
+                crate::parser::calculate_cost_for_source("openclaw",model_str, input, output, cache_read, cache_write);
             model_tokens.cost_usd += calc_cost;
             stats.cost_usd += calc_cost;
         }
