@@ -295,46 +295,38 @@ pub async fn fetch_gemini() -> Result<ProviderUsage, String> {
         .await
         .map_err(|e| format!("Parse Gemini response: {}", e))?;
 
-    // Response shape varies; try multiple paths
-    let used_percent = body
-        .pointer("/quotaStatus/usedPercent")
-        .or_else(|| body.pointer("/usedPercent"))
-        .and_then(|v| v.as_f64())
-        .unwrap_or_else(|| {
-            // Fallback: compute from used/limit
-            let used = body
-                .pointer("/quotaStatus/used")
-                .or_else(|| body.pointer("/used"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            let limit = body
-                .pointer("/quotaStatus/limit")
-                .or_else(|| body.pointer("/limit"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            if limit > 0.0 {
-                used / limit * 100.0
-            } else {
-                0.0
+    // API returns { "buckets": [ { "modelId", "remainingFraction", "resetTime", "tokenType" } ] }
+    // Find the bucket with the lowest remainingFraction (most used model = worst case).
+    let buckets = body
+        .get("buckets")
+        .and_then(|v| v.as_array());
+
+    let (used_percent, reset_secs) = if let Some(buckets) = buckets {
+        let mut min_remaining: f64 = 1.0;
+        let mut earliest_reset: i64 = 0;
+        for b in buckets {
+            if let Some(r) = b.get("remainingFraction").and_then(|v| v.as_f64()) {
+                if r < min_remaining {
+                    min_remaining = r;
+                }
             }
-        });
+            if earliest_reset == 0 {
+                if let Some(rt) = b.get("resetTime").and_then(|v| v.as_str()) {
+                    if let Ok(dt) = DateTime::parse_from_rfc3339(rt) {
+                        earliest_reset = (dt.with_timezone(&Utc) - Utc::now()).num_seconds().max(0);
+                    }
+                }
+            }
+        }
+        ((1.0 - min_remaining) * 100.0, earliest_reset)
+    } else {
+        (0.0, 0i64)
+    };
 
-    let reset_secs = body
-        .pointer("/quotaStatus/resetAt")
-        .or_else(|| body.pointer("/resetAt"))
-        .and_then(|v| v.as_str())
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| (dt.with_timezone(&Utc) - Utc::now()).num_seconds().max(0))
-        .unwrap_or(0);
+    // Infer plan type from ~/.gemini/settings.json auth type
+    let plan_type = read_gemini_plan_type();
 
-    let plan_type = body
-        .pointer("/planInfo/type")
-        .or_else(|| body.pointer("/planType"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("Free")
-        .to_string();
-
-    // Try to get email from the id_token stored in oauth_creds
+    // Try email from google_accounts.json first, then id_token
     let email = read_gemini_email();
 
     Ok(ProviderUsage {
@@ -457,12 +449,44 @@ async fn get_gemini_access_token(force_refresh: bool) -> Result<String, String> 
     Ok(new_token)
 }
 
+fn read_gemini_plan_type() -> String {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return "Free".to_string(),
+    };
+    let settings_path = home.join(".gemini").join("settings.json");
+    if let Ok(content) = std::fs::read_to_string(&settings_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+            let auth_type = v
+                .get("selectedAuthType")
+                .or_else(|| v.pointer("/security/auth/selectedType"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            return match auth_type {
+                "oauth-personal" => "Google One AI Pro".to_string(),
+                "oauth-enterprise" => "Enterprise".to_string(),
+                _ => "Free".to_string(),
+            };
+        }
+    }
+    "Free".to_string()
+}
+
 fn read_gemini_email() -> Option<String> {
     let home = dirs::home_dir()?;
+    // Prefer google_accounts.json active field
+    let accounts_path = home.join(".gemini").join("google_accounts.json");
+    if let Ok(content) = std::fs::read_to_string(&accounts_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(email) = v.get("active").and_then(|v| v.as_str()) {
+                return Some(email.to_string());
+            }
+        }
+    }
+    // Fallback: decode from id_token JWT
     let creds_path = home.join(".gemini").join("oauth_creds.json");
     let creds: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&creds_path).ok()?).ok()?;
-    // Decode email from id_token JWT payload (no signature verification needed here)
     let id_token = creds.get("id_token").and_then(|v| v.as_str())?;
     let parts: Vec<&str> = id_token.split('.').collect();
     if parts.len() < 2 {
