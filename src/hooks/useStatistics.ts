@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useState, useEffect, useRef } from 'react';
-import type { Statistics, ProjectInfo, SessionInfo, InstructionInfo, FileChange, AccountUsageResult, ProviderUsage } from '../types/statistics';
+import type { Statistics, ProjectInfo, SessionInfo, SessionMessage, InstructionInfo, FileChange, AccountUsageResult, ProviderUsage } from '../types/statistics';
 import { useSettingsStore } from '../stores/settingsStore';
 import { serializeTimeRangeForQuery, type ActiveTimeRange } from '../lib/timeRanges';
 
@@ -52,6 +52,15 @@ export function useSessions(project: string | null, activeRange: ActiveTimeRange
       enabledSources,
     }),
     staleTime: 60 * 1000,
+  });
+}
+
+export function useSessionMessages(sessionId: string | null, source: string) {
+  return useQuery<SessionMessage[]>({
+    queryKey: ['session-messages', sessionId, source],
+    queryFn: () => invoke<SessionMessage[]>('get_session_messages', { sessionId, source }),
+    enabled: !!sessionId,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -130,11 +139,9 @@ export function useAccountUsage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const fetchIdRef = useRef(0);
 
-  // Listen for per-provider events from the backend
   useEffect(() => {
     const unlisten = listen<ProviderUsage>('account-usage-provider-ready', (event) => {
       setStreamingProviders((prev) => {
-        // Deduplicate by source+email
         const key = event.payload.source + (event.payload.email || '');
         if (prev.some((p) => p.source + (p.email || '') === key)) return prev;
         return [...prev, event.payload];
@@ -150,7 +157,6 @@ export function useAccountUsage() {
       setStreamingProviders([]);
       setIsStreaming(true);
       const result = await invoke<AccountUsageResult>('get_account_usage', { enabledSources });
-      // Only update if this is still the latest fetch
       if (fetchIdRef.current === id) {
         setIsStreaming(false);
       }
@@ -160,7 +166,6 @@ export function useAccountUsage() {
     refetchInterval: 60 * 1000,
   });
 
-  // Use streaming providers while loading, final result once complete
   const providers = isStreaming || query.isLoading
     ? streamingProviders
     : (query.data?.providers || []);

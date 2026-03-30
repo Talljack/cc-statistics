@@ -9,6 +9,8 @@
     "updater:default",
     "process:default",
     "fs:default",
+    "dialog:default",
+    "notification:default",
     {
       "identifier": "fs:allow-read-dir",
       "allow": [{ "path": "$HOME/.claude" }]

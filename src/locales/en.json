@@ -316,5 +316,21 @@
   "account.infoNote": "Usage data is fetched in real-time from official APIs, matching the provider dashboards.",
   "account.fetchFailed": "Failed to fetch usage data",
   "account.fetchFailedDesc": "This may be due to an unstable network connection or a temporarily unavailable service. Please try again later.",
-  "account.retry": "Retry"
+  "account.retry": "Retry",
+
+  "export.button": "Export",
+  "settings.alerts.title": "Budget Alerts",
+  "settings.alerts.desc": "Get notified when usage reaches your limits",
+  "settings.alerts.enable": "Enable Alerts",
+  "settings.alerts.enableDesc": "Show system notifications when thresholds are reached",
+  "settings.alerts.dailyCost": "Daily Cost Limit ($)",
+  "settings.alerts.dailyCostDesc": "Alert when daily cost reaches this amount (0 = disabled)",
+  "settings.alerts.dailyTokens": "Daily Token Limit",
+  "settings.alerts.dailyTokensDesc": "Alert when daily tokens reach this count (0 = disabled)",
+  "settings.alerts.sessionWindow": "Session Window Warning (%)",
+  "sessionDetail.title": "Session Replay",
+  "sessionDetail.loading": "Loading conversation...",
+  "sessionDetail.noData": "No conversation content available",
+  "sessionDetail.unsupported": "Conversation replay not available",
+  "sessionDetail.unsupportedDesc": "Only Claude Code and Openclaw sessions include conversation content"
 }

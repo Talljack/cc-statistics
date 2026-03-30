@@ -10,6 +10,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import type { SessionSortField } from '../../stores/settingsStore';
+import { AlertSettings } from '../settings/AlertSettings';
 import { TimeRangeManagementSection } from '../settings/TimeRangeManagementSection';
 import {
   Sun,
@@ -43,6 +44,7 @@ const languages: { label: string; value: Language }[] = [
   { label: 'English', value: 'en' },
   { label: '日本語', value: 'ja' },
 ];
+
 
 const sortFieldKeys: { key: string; value: SessionSortField }[] = [
   { key: 'settings.sort.time', value: 'timestamp' },
@@ -205,7 +207,6 @@ function GeneralTab() {
 
   return (
     <div className="space-y-6">
-      {/* Language */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.language.title')}</h3>
         <p className="text-xs text-[#808080] mb-3">{t('settings.language.desc')}</p>
@@ -227,7 +228,6 @@ function GeneralTab() {
         </div>
       </section>
 
-      {/* Theme */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.appearance.title')}</h3>
         <p className="text-xs text-[#808080] mb-3">{t('settings.appearance.desc')}</p>
@@ -250,10 +250,8 @@ function GeneralTab() {
         </div>
       </section>
 
-      {/* Time Range Management */}
       <TimeRangeManagementSection />
 
-      {/* Cost Display */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.cost.title')}</h3>
         <p className="text-xs text-[#808080] mb-3">{t('settings.cost.desc')}</p>
@@ -266,7 +264,6 @@ function GeneralTab() {
         />
       </section>
 
-      {/* Dashboard Cards */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.cards.title')}</h3>
         <p className="text-xs text-[#808080] mb-3">{t('settings.cards.desc')}</p>
@@ -283,7 +280,6 @@ function GeneralTab() {
         </div>
       </section>
 
-      {/* Dashboard Chart Display */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.charts.title')}</h3>
         <p className="text-xs text-[#808080] mb-3">{t('settings.charts.desc')}</p>
@@ -294,7 +290,6 @@ function GeneralTab() {
         </div>
       </section>
 
-      {/* Session Sort */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.sort.title')}</h3>
         <p className="text-xs text-[#808080] mb-3">{t('settings.sort.desc')}</p>
@@ -348,7 +343,6 @@ function GeneralTab() {
         </div>
       </section>
 
-      {/* Auto-Refresh */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.autoRefresh.title')}</h3>
         <p className="text-xs text-[#808080] mb-3">{t('settings.autoRefresh.desc')}</p>
@@ -383,6 +377,8 @@ function GeneralTab() {
           )}
         </div>
       </section>
+
+      <AlertSettings Toggle={Toggle} SettingItem={SettingItem} />
     </div>
   );
 }

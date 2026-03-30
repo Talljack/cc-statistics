@@ -18,6 +18,7 @@ import { ToolUsageChart } from '../components/charts/ToolUsageChart';
 import { SkillUsageChart } from '../components/charts/SkillUsageChart';
 import { McpUsageChart } from '../components/charts/McpUsageChart';
 import { formatTokens, formatNumber, formatCost } from '../lib/utils';
+import { useAlerts } from '../hooks/useAlerts';
 import { useCostMetrics } from '../hooks/useCostMetrics';
 import { deriveCostMetrics } from '../lib/costing';
 import { MessageSquare, FileText, Clock, Cpu, DollarSign, Zap, Plug } from 'lucide-react';
@@ -66,6 +67,10 @@ export function Dashboard() {
     selectedProvider
   );
   const costMetrics = useCostMetrics(sessions);
+  const dashboardTotalTokens = stats
+    ? stats.tokens.input + stats.tokens.output + stats.tokens.cache_read + stats.tokens.cache_creation
+    : 0;
+  useAlerts(costMetrics.totalCost, dashboardTotalTokens);
 
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);

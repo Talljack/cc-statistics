@@ -316,5 +316,21 @@
   "account.infoNote": "使用量データは公式APIからリアルタイムで取得されており、プロバイダーのダッシュボードと一致します。",
   "account.fetchFailed": "使用量データの取得に失敗しました",
   "account.fetchFailedDesc": "ネットワーク接続が不安定か、サービスが一時的に利用できない可能性があります。しばらくしてからもう一度お試しください。",
-  "account.retry": "再試行"
+  "account.retry": "再試行",
+
+  "export.button": "エクスポート",
+  "settings.alerts.title": "予算アラート",
+  "settings.alerts.desc": "使用量が制限に達したときに通知を受け取る",
+  "settings.alerts.enable": "アラートを有効化",
+  "settings.alerts.enableDesc": "閾値に達したときにシステム通知を表示",
+  "settings.alerts.dailyCost": "日次コスト制限 ($)",
+  "settings.alerts.dailyCostDesc": "日次コストがこの金額に達した場合にアラート (0 = 無効)",
+  "settings.alerts.dailyTokens": "日次トークン制限",
+  "settings.alerts.dailyTokensDesc": "日次トークンがこの数に達した場合にアラート (0 = 無効)",
+  "settings.alerts.sessionWindow": "セッションウィンドウ警告 (%)",
+  "sessionDetail.title": "セッションリプレイ",
+  "sessionDetail.loading": "会話を読み込み中...",
+  "sessionDetail.noData": "利用可能な会話コンテンツがありません",
+  "sessionDetail.unsupported": "会話リプレイは利用できません",
+  "sessionDetail.unsupportedDesc": "Claude Code と Openclaw のセッションのみ会話コンテンツが含まれます"
 }

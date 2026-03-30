@@ -10,6 +10,7 @@ import { McpServers } from './pages/McpServers';
 import { Report } from './pages/Report';
 import { CodeChangesDetail } from './pages/CodeChangesDetail';
 import { AccountUsage } from './pages/AccountUsage';
+import { SessionDetail } from './pages/SessionDetail';
 import { UpdateDialog } from './components/UpdateDialog';
 import { usePricingStore } from './stores/pricingStore';
 import { useUpdateStore } from './stores/updateStore';
@@ -52,6 +53,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/sessions" element={<Sessions />} />
+        <Route path="/session/:id" element={<SessionDetail />} />
         <Route path="/instructions" element={<Instructions />} />
         <Route path="/cost" element={<CostBreakdown />} />
         <Route path="/skills" element={<Skills />} />

@@ -99,7 +99,8 @@ export function Sessions() {
                   {sortedSessions.map((session) => (
                     <tr
                       key={`${session.source}:${session.session_id}`}
-                      className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors"
+                      className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors cursor-pointer"
+                      onClick={() => navigate(`/session/${session.session_id}?source=${encodeURIComponent(session.source)}&project=${encodeURIComponent(session.project_name)}&model=${encodeURIComponent(session.model)}`)}
                     >
                       <td className="px-4 py-3 whitespace-nowrap text-[#a0a0a0]">
                         {formatTimestamp(session.timestamp)}

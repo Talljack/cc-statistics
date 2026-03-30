@@ -2,11 +2,13 @@ pub mod account_providers;
 pub mod aggregation;
 pub mod classification;
 pub mod commands;
+pub mod export;
 pub mod models;
 pub mod normalized;
 mod parser;
 pub mod pricing_cache;
 pub mod pricing_providers;
+pub mod session_reader;
 pub mod sources;
 pub mod time_ranges;
 mod tray;
@@ -20,13 +22,17 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             get_projects,
             get_statistics,
             get_sessions,
+            get_session_messages,
             get_instructions,
             get_available_providers,
             get_code_changes_detail,
+            export_report,
             update_tray_stats,
             detect_sources,
             get_preset_models,

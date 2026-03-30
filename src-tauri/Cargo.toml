@@ -32,6 +32,8 @@ thiserror = "2"
 rusqlite = { version = "0.33", features = ["bundled"] }
 walkdir = "2"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-notification = "2.3.3"
 
 [dev-dependencies]
 filetime = "0.2"

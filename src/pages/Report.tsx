@@ -5,6 +5,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useStatistics, useSessions } from '../hooks/useStatistics';
 import { useCostMetrics } from '../hooks/useCostMetrics';
 import { Header } from '../components/layout/Header';
+import { ExportButton } from '../components/export/ExportButton';
 import { formatTokens, formatNumber, formatCost, formatDuration } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 import {
@@ -104,6 +105,8 @@ export function Report() {
     ? stats.tokens.input + stats.tokens.output + stats.tokens.cache_read + stats.tokens.cache_creation
     : 0;
 
+  const exportTitle = `CC Statistics Report — ${selectedProject || 'All Projects'}`;
+
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
       <Header onRefresh={handleRefresh} isRefreshing={false} />
@@ -111,17 +114,20 @@ export function Report() {
       <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="flex items-center gap-3 mb-6">
-            <button
-              onClick={() => navigate('/')}
-              className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
-            </button>
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-[#3b82f6]" />
-              <h2 className="text-xl font-semibold">{t('report.title')}</h2>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate('/')}
+                className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+              </button>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-[#3b82f6]" />
+                <h2 className="text-xl font-semibold">{t('report.title')}</h2>
+              </div>
             </div>
+            <ExportButton sessions={sessions ?? []} title={exportTitle} />
           </div>
 
           {/* Core Metrics */}
