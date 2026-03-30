@@ -332,5 +332,20 @@
   "sessionDetail.loading": "加载对话中...",
   "sessionDetail.noData": "没有可用的对话内容",
   "sessionDetail.unsupported": "会话回放不可用",
-  "sessionDetail.unsupportedDesc": "仅 Claude Code 和 Openclaw 会话包含对话内容"
+  "sessionDetail.unsupportedDesc": "仅 Claude Code 和 Openclaw 会话包含对话内容",
+  "shortcuts.title": "键盘快捷键",
+  "shortcuts.refresh": "刷新数据",
+  "shortcuts.today": "切换到今天",
+  "shortcuts.week": "切换到本周",
+  "shortcuts.month": "切换到本月",
+  "shortcuts.all": "切换到全部",
+  "shortcuts.dashboard": "前往仪表板",
+  "shortcuts.sessions": "前往会话页",
+  "shortcuts.report": "前往报告页",
+  "shortcuts.cost": "前往费用页",
+  "shortcuts.account": "前往账户用量页",
+  "shortcuts.settings": "打开设置",
+  "shortcuts.help": "显示快捷键帮助",
+  "shortcuts.close": "关闭对话框或设置",
+  "shortcuts.hint": "按 ? 查看快捷键"
 }

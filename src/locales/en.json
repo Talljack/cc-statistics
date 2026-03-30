@@ -332,5 +332,20 @@
   "sessionDetail.loading": "Loading conversation...",
   "sessionDetail.noData": "No conversation content available",
   "sessionDetail.unsupported": "Conversation replay not available",
-  "sessionDetail.unsupportedDesc": "Only Claude Code and Openclaw sessions include conversation content"
+  "sessionDetail.unsupportedDesc": "Only Claude Code and Openclaw sessions include conversation content",
+  "shortcuts.title": "Keyboard Shortcuts",
+  "shortcuts.refresh": "Refresh data",
+  "shortcuts.today": "Switch to Today",
+  "shortcuts.week": "Switch to Week",
+  "shortcuts.month": "Switch to Month",
+  "shortcuts.all": "Switch to All",
+  "shortcuts.dashboard": "Go to Dashboard",
+  "shortcuts.sessions": "Go to Sessions",
+  "shortcuts.report": "Go to Report",
+  "shortcuts.cost": "Go to Cost Breakdown",
+  "shortcuts.account": "Go to Account Usage",
+  "shortcuts.settings": "Open Settings",
+  "shortcuts.help": "Show shortcut help",
+  "shortcuts.close": "Close dialog or settings",
+  "shortcuts.hint": "Press ? to view shortcuts"
 }

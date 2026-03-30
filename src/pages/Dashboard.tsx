@@ -1,3 +1,5 @@
+import { ShortcutHelpDialog } from '../components/shortcuts/ShortcutHelpDialog';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -80,7 +82,6 @@ export function Dashboard() {
   const isRefreshing = isRefetching || isSessionsRefetching || isAnimating;
   const isLoading = statsLoading || sessionsLoading;
 
-  // Set lastUpdated on initial data load
   useEffect(() => {
     if (stats && sessions && !initialLoadRef.current) {
       initialLoadRef.current = true;
@@ -88,7 +89,6 @@ export function Dashboard() {
     }
   }, [sessions, stats]);
 
-  // Use refs for values that change reference on rehydration but don't need to re-trigger the effect
   const dynamicPricingRef = useRef(dynamicPricing);
   dynamicPricingRef.current = dynamicPricing;
   const customPricingRef = useRef(customPricing);
@@ -149,12 +149,9 @@ export function Dashboard() {
         },
       });
     } catch {
-      // ignore tray sync errors
     }
   }, [customProviders, enabledSources]);
 
-  // Sync tray stats once after initial data loads, then on refresh
-  const traySyncedRef = useRef(false);
   useEffect(() => {
     if (stats && sessions && !traySyncedRef.current) {
       traySyncedRef.current = true;
@@ -162,7 +159,9 @@ export function Dashboard() {
     }
   }, [stats, sessions, syncTrayTodayStats]);
 
-  const handleRefresh = async () => {
+  const traySyncedRef = useRef(false);
+
+  const handleRefresh = useCallback(async () => {
     setIsAnimating(true);
     try {
       const minDelay = new Promise(r => setTimeout(r, 800));
@@ -171,16 +170,15 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       await Promise.all([refetch(), refetchSessions(), minDelay]);
       setLastUpdated(new Date().toISOString());
-      // Sync tray after refresh
       syncTrayTodayStats();
     } catch {
-      // ignore refresh errors
     } finally {
       setIsAnimating(false);
     }
-  };
+  }, [queryClient, refetch, refetchSessions, syncTrayTodayStats]);
 
-  // Auto-refresh
+  const { helpOpen, setHelpOpen, shortcuts } = useKeyboardShortcuts(handleRefresh);
+
   useEffect(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -198,13 +196,14 @@ export function Dashboard() {
         clearInterval(intervalRef.current);
       }
     };
-  }, [autoRefreshEnabled, autoRefreshInterval]);
+  }, [autoRefreshEnabled, autoRefreshInterval, handleRefresh]);
 
   if (currentView === 'settings') {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
         <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
         <SettingsPage />
+        <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
       </div>
     );
   }
@@ -212,17 +211,14 @@ export function Dashboard() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex flex-col items-center justify-center gap-6">
-        {/* Logo */}
         <div className="relative">
           <div className="w-20 h-20 bg-gradient-to-br from-[#3b82f6] to-[#6366f1] rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/30 animate-pulse">
             <span className="text-white font-bold text-4xl">C</span>
           </div>
-          {/* Orbit ring */}
           <div className="absolute -inset-4 border-2 border-[#3b82f6]/20 rounded-full animate-[spin_3s_linear_infinite]" />
           <div className="absolute -inset-4 border-2 border-transparent border-t-[#3b82f6]/60 rounded-full animate-[spin_1.5s_linear_infinite]" />
         </div>
 
-        {/* Text */}
         <div className="text-center">
           <h1 className="text-xl font-semibold mb-2">
             CC <span className="text-[#a0a0a0]">Statistics</span>
@@ -262,99 +258,18 @@ export function Dashboard() {
 
   const displayCost = costMetrics.totalCost;
 
-  // Collect visible cards
   const cards: React.ReactNode[] = [];
-  if (showSessionsCard) {
-    cards.push(
-      <StatCard
-        key="sessions"
-        title={t('dashboard.sessions')}
-        value={formatNumber(stats.sessions)}
-        icon={<MessageSquare className="w-5 h-5" />}
-        color="#3b82f6"
-        onClick={() => navigate('/sessions')}
-      />
-    );
-  }
-  if (showInstructionsCard) {
-    cards.push(
-      <StatCard
-        key="instructions"
-        title={t('dashboard.instructions')}
-        value={formatNumber(stats.instructions)}
-        icon={<FileText className="w-5 h-5" />}
-        color="#22c55e"
-        onClick={() => navigate('/instructions')}
-      />
-    );
-  }
-  if (showDurationCard) {
-    cards.push(
-      <StatCard
-        key="duration"
-        title={t('dashboard.duration')}
-        value={stats.duration_formatted}
-        icon={<Clock className="w-5 h-5" />}
-        color="#a855f7"
-      />
-    );
-  }
-  if (showTokensCard) {
-    cards.push(
-      <StatCard
-        key="tokens"
-        title={t('dashboard.tokens')}
-        value={formatTokens(totalTokens)}
-        icon={<Cpu className="w-5 h-5" />}
-        color="#f59e0b"
-      />
-    );
-  }
-  if (showCost && showCostCard) {
-    cards.push(
-      <StatCard
-        key="cost"
-        title={t('dashboard.cost')}
-        value={formatCost(displayCost)}
-        icon={<DollarSign className="w-5 h-5" />}
-        color="#ef4444"
-        onClick={() => navigate('/cost')}
-      />
-    );
-  }
+  if (showSessionsCard) cards.push(<StatCard key="sessions" title={t('dashboard.sessions')} value={formatNumber(stats.sessions)} icon={<MessageSquare className="w-5 h-5" />} color="#3b82f6" onClick={() => navigate('/sessions')} />);
+  if (showInstructionsCard) cards.push(<StatCard key="instructions" title={t('dashboard.instructions')} value={formatNumber(stats.instructions)} icon={<FileText className="w-5 h-5" />} color="#22c55e" onClick={() => navigate('/instructions')} />);
+  if (showDurationCard) cards.push(<StatCard key="duration" title={t('dashboard.duration')} value={stats.duration_formatted} icon={<Clock className="w-5 h-5" />} color="#a855f7" />);
+  if (showTokensCard) cards.push(<StatCard key="tokens" title={t('dashboard.tokens')} value={formatTokens(totalTokens)} icon={<Cpu className="w-5 h-5" />} color="#f59e0b" />);
+  if (showCost && showCostCard) cards.push(<StatCard key="cost" title={t('dashboard.cost')} value={formatCost(displayCost)} icon={<DollarSign className="w-5 h-5" />} color="#ef4444" onClick={() => navigate('/cost')} />);
   const skillCount = Object.values(stats.skill_usage).reduce((s, c) => s + c, 0);
-  if (showSkillsCard && skillCount > 0) {
-    cards.push(
-      <StatCard
-        key="skills"
-        title={t('dashboard.skills')}
-        value={formatNumber(skillCount)}
-        icon={<Zap className="w-5 h-5" />}
-        color="#22c55e"
-        onClick={() => navigate('/skills')}
-      />
-    );
-  }
+  if (showSkillsCard && skillCount > 0) cards.push(<StatCard key="skills" title={t('dashboard.skills')} value={formatNumber(skillCount)} icon={<Zap className="w-5 h-5" />} color="#22c55e" onClick={() => navigate('/skills')} />);
   const mcpCount = Object.values(stats.mcp_usage).reduce((s, c) => s + c, 0);
-  if (showMcpCard && mcpCount > 0) {
-    cards.push(
-      <StatCard
-        key="mcp"
-        title={t('dashboard.mcp')}
-        value={formatNumber(mcpCount)}
-        icon={<Plug className="w-5 h-5" />}
-        color="#06b6d4"
-        onClick={() => navigate('/mcp')}
-      />
-    );
-  }
+  if (showMcpCard && mcpCount > 0) cards.push(<StatCard key="mcp" title={t('dashboard.mcp')} value={formatNumber(mcpCount)} icon={<Plug className="w-5 h-5" />} color="#06b6d4" onClick={() => navigate('/mcp')} />);
 
-  // Determine grid columns based on card count
-  const gridCols = cards.length <= 4
-    ? 'md:grid-cols-2 2xl:grid-cols-4'
-    : 'md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5';
-
-  // Chart visibility
+  const gridCols = cards.length <= 4 ? 'md:grid-cols-2 2xl:grid-cols-4' : 'md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5';
   const hasToolData = showToolUsage && Object.keys(stats.tool_usage).length > 0;
   const hasMcpData = showMcpUsage && Object.keys(stats.mcp_usage).length > 0;
   const hasSkillData = showSkillUsage && Object.keys(stats.skill_usage).length > 0;
@@ -365,33 +280,20 @@ export function Dashboard() {
       <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
 
       <main className="flex-1 p-6 overflow-auto">
-        {/* Stats Cards */}
-        {cards.length > 0 && (
-          <div className={`grid grid-cols-1 gap-4 mb-6 ${gridCols}`}>
-            {cards}
-          </div>
-        )}
-
-        {/* Charts Row */}
+        {cards.length > 0 && <div className={`grid grid-cols-1 gap-4 mb-6 ${gridCols}`}>{cards}</div>}
         <div className="grid grid-cols-1 gap-6 mb-6 xl:grid-cols-2">
           <DevTimeChart devTime={stats.dev_time} />
           <CodeChanges codeChanges={stats.code_changes} onClick={() => navigate('/code-changes')} />
         </div>
-
-        {/* Token Chart */}
         <div className="mb-6">
           <TokenChart tokens={stats.tokens} costByModel={costMetrics.costByModel} />
         </div>
-
-        {/* Tool/MCP Usage Charts (conditional) */}
         {hasAnyUsageChart && (
           <div className={`grid grid-cols-1 gap-6 mb-6 ${hasToolData && hasMcpData ? 'xl:grid-cols-2' : ''}`}>
             {hasToolData && <ToolUsageChart toolUsage={stats.tool_usage} />}
             {hasMcpData && <McpUsageChart mcpUsage={stats.mcp_usage} />}
           </div>
         )}
-
-        {/* Skill Usage Chart (conditional) */}
         {hasSkillData && (
           <div className="mb-6">
             <SkillUsageChart skillUsage={stats.skill_usage} />
@@ -399,11 +301,8 @@ export function Dashboard() {
         )}
       </main>
 
-      <Footer
-        lastUpdated={lastUpdated ?? undefined}
-        onRefresh={handleRefresh}
-        isRefreshing={isRefreshing}
-      />
+      <Footer lastUpdated={lastUpdated ?? undefined} onRefresh={handleRefresh} isRefreshing={isRefreshing} />
+      <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
     </div>
   );
 }

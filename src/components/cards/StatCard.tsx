@@ -10,7 +10,7 @@ interface StatCardProps {
 export function StatCard({ title, value, icon, color, trend, onClick }: StatCardProps) {
   return (
     <div
-      className={`bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a] relative overflow-hidden group hover:border-[#333] transition-colors${onClick ? ' cursor-pointer' : ''}`}
+      className={`bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)] relative overflow-hidden group hover:border-[var(--color-border-strong)] transition-colors${onClick ? ' cursor-pointer' : ''}`}
       onClick={onClick}
     >
       <div
@@ -18,7 +18,7 @@ export function StatCard({ title, value, icon, color, trend, onClick }: StatCard
         style={{ backgroundColor: color }}
       />
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[#a0a0a0] text-sm font-medium">{title}</span>
+        <span className="text-[var(--color-text-secondary)] text-sm font-medium">{title}</span>
         <div
           className="p-2 rounded-lg"
           style={{ backgroundColor: `${color}15` }}
@@ -34,7 +34,7 @@ export function StatCard({ title, value, icon, color, trend, onClick }: StatCard
       {trend !== undefined && (
         <div
           className="text-sm mt-1 font-medium"
-          style={{ color: trend >= 0 ? '#22c55e' : '#ef4444' }}
+          style={{ color: trend >= 0 ? 'var(--color-accent-green)' : 'var(--color-accent-red)' }}
         >
           {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
         </div>

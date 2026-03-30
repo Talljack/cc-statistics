@@ -1,19 +1,20 @@
+@import './styles/theme.css';
 @import "tailwindcss";
 
 @theme {
-  --color-background: #0f0f0f;
-  --color-card: #1a1a1a;
-  --color-border: #2a2a2a;
-  --color-primary: #ffffff;
-  --color-secondary: #a0a0a0;
+  --color-background: var(--color-background);
+  --color-card: var(--color-card);
+  --color-border: var(--color-border);
+  --color-primary: var(--color-primary);
+  --color-secondary: var(--color-secondary);
 
-  --color-session: #3b82f6;
-  --color-instruction: #22c55e;
-  --color-duration: #a855f7;
-  --color-tokens: #f59e0b;
+  --color-session: var(--color-session);
+  --color-instruction: var(--color-instruction);
+  --color-duration: var(--color-duration);
+  --color-tokens: var(--color-tokens);
 
-  --color-positive: #22c55e;
-  --color-negative: #ef4444;
+  --color-positive: var(--color-positive);
+  --color-negative: var(--color-negative);
 
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -31,7 +32,6 @@ body {
   box-sizing: border-box;
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -50,7 +50,6 @@ body {
   background: var(--color-secondary);
 }
 
-/* Refresh spin animation */
 @keyframes refresh-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

@@ -21,7 +21,7 @@ export function SessionDetail() {
   const noConversation = !isLoading && !error && !unsupportedSource && (!messages || messages.length === 0);
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={() => {}} isRefreshing={false} />
 
       <main className="flex-1 p-6 overflow-auto">
@@ -29,16 +29,16 @@ export function SessionDetail() {
           <div className="flex items-center gap-3 mb-6">
             <button
               onClick={() => navigate('/sessions')}
-              className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+              className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+              <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
             </button>
             <div>
               <div className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-[#3b82f6]" />
+                <MessageSquare className="w-5 h-5 text-[var(--color-accent-blue)]" />
                 <h2 className="text-xl font-semibold">{t('sessionDetail.title')}</h2>
               </div>
-              <div className="text-xs text-[#606060] mt-0.5">
+              <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
                 {project && <span>{project}</span>}
                 {model && <span className="ml-2">· {model}</span>}
                 {source && <span className="ml-2">· {source}</span>}
@@ -47,27 +47,27 @@ export function SessionDetail() {
           </div>
 
           {isLoading && (
-            <div className="text-center py-12 text-[#a0a0a0]">{t('sessionDetail.loading')}</div>
+            <div className="text-center py-12 text-[var(--color-text-secondary)]">{t('sessionDetail.loading')}</div>
           )}
 
           {error && (
-            <div className="bg-[#1a1a1a] rounded-xl p-6 border border-[#ef4444]/30 text-center">
-              <p className="text-[#ef4444] text-sm">{String(error)}</p>
+            <div className="bg-[var(--color-bg-surface)] rounded-xl p-6 border text-center" style={{ borderColor: 'color-mix(in srgb, var(--color-accent-red) 30%, transparent)' }}>
+              <p className="text-[var(--color-accent-red)] text-sm">{String(error)}</p>
             </div>
           )}
 
           {!isLoading && unsupportedSource && (
-            <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center">
-              <MessageSquare className="w-12 h-12 text-[#606060] mx-auto mb-3" />
-              <p className="text-[#a0a0a0] mb-1">{t('sessionDetail.unsupported')}</p>
-              <p className="text-sm text-[#606060]">{t('sessionDetail.unsupportedDesc')}</p>
+            <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center">
+              <MessageSquare className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-3" />
+              <p className="text-[var(--color-text-secondary)] mb-1">{t('sessionDetail.unsupported')}</p>
+              <p className="text-sm text-[var(--color-text-muted)]">{t('sessionDetail.unsupportedDesc')}</p>
             </div>
           )}
 
           {noConversation && (
-            <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center">
-              <MessageSquare className="w-12 h-12 text-[#606060] mx-auto mb-3" />
-              <p className="text-[#a0a0a0]">{t('sessionDetail.noData')}</p>
+            <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center">
+              <MessageSquare className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-3" />
+              <p className="text-[var(--color-text-secondary)]">{t('sessionDetail.noData')}</p>
             </div>
           )}
 

@@ -12,6 +12,7 @@ import { CodeChangesDetail } from './pages/CodeChangesDetail';
 import { AccountUsage } from './pages/AccountUsage';
 import { SessionDetail } from './pages/SessionDetail';
 import { UpdateDialog } from './components/UpdateDialog';
+import { useTheme } from './hooks/useTheme';
 import { usePricingStore } from './stores/pricingStore';
 import { useUpdateStore } from './stores/updateStore';
 
@@ -45,6 +46,8 @@ function UpdateChecker() {
 }
 
 function App() {
+  useTheme();
+
   return (
     <QueryClientProvider client={queryClient}>
       <PricingLoader />
