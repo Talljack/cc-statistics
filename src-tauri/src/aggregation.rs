@@ -690,7 +690,7 @@ mod tests {
         };
 
         // Filter by Anthropic: should include only Anthropic tokens but ALSO code changes + instructions
-        let provider = Some("Anthropic".to_string());
+        let provider = Some(vec!["Anthropic".to_string()]);
         let stats = aggregate_statistics(&sessions, &range, &provider, &[]);
         assert_eq!(stats.sessions, 1);
         assert_eq!(stats.tokens.input, 10); // only Anthropic tokens
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(stats.instructions, 1);
 
         // Filter by OpenAI: should include only OpenAI tokens and also code changes
-        let provider = Some("OpenAI".to_string());
+        let provider = Some(vec!["OpenAI".to_string()]);
         let stats = aggregate_statistics(&sessions, &range, &provider, &[]);
         assert_eq!(stats.sessions, 1);
         assert_eq!(stats.tokens.input, 3); // only OpenAI tokens
@@ -829,12 +829,12 @@ mod tests {
         };
 
         let anthropic_details =
-            aggregate_code_changes_detail(&sessions, &range, &Some("Anthropic".to_string()), &[]);
+            aggregate_code_changes_detail(&sessions, &range, &Some(vec!["Anthropic".to_string()]), &[]);
         assert_eq!(anthropic_details.len(), 1);
         assert_eq!(anthropic_details[0].file_path, "src/main.rs");
 
         let openai_details =
-            aggregate_code_changes_detail(&sessions, &range, &Some("OpenAI".to_string()), &[]);
+            aggregate_code_changes_detail(&sessions, &range, &Some(vec!["OpenAI".to_string()]), &[]);
         assert!(openai_details.is_empty());
     }
 

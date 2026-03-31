@@ -18,24 +18,72 @@ interface HeaderSelectOption {
   value: string;
 }
 
-function HeaderSelect({
-  value,
+function formatSelectionSummary(
+  selectedValues: string[],
+  options: HeaderSelectOption[],
+  placeholder: string,
+  language: string,
+) {
+  if (selectedValues.length === 0) {
+    return placeholder;
+  }
+
+  const selectedLabels = options
+    .filter((option) => selectedValues.includes(option.value))
+    .map((option) => option.label);
+
+  if (selectedLabels.length <= 2) {
+    return selectedLabels.join(', ');
+  }
+
+  if (language === 'zh') {
+    return `已选 ${selectedLabels.length} 项`;
+  }
+  if (language === 'ja') {
+    return `${selectedLabels.length}件を選択`;
+  }
+  return `${selectedLabels.length} selected`;
+}
+
+function getSelectAllLabel(language: string) {
+  if (language === 'zh') return '全选';
+  if (language === 'ja') return 'すべて選択';
+  return 'Select all';
+}
+
+function getClearLabel(language: string) {
+  if (language === 'zh') return '清空';
+  if (language === 'ja') return 'クリア';
+  return 'Clear';
+}
+
+function getConfirmLabel(language: string) {
+  if (language === 'zh') return '确定';
+  if (language === 'ja') return '完了';
+  return 'OK';
+}
+
+function HeaderMultiSelect({
+  selectedValues,
   options,
   placeholder,
   onChange,
   className,
+  disabled = false,
 }: {
-  value: string;
+  selectedValues: string[];
   options: HeaderSelectOption[];
   placeholder: string;
-  onChange: (value: string) => void;
+  onChange: (values: string[]) => void;
   className?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-
-  const selected = options.find((option) => option.value === value);
+  const { language } = useTranslation();
+  const summary = formatSelectionSummary(selectedValues, options, placeholder, language);
+  const allSelected = options.length > 0 && selectedValues.length === options.length;
 
   useEffect(() => {
     if (!open) return;
@@ -68,25 +116,56 @@ function HeaderSelect({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          'w-full flex items-center justify-between gap-3 rounded-2xl border border-[var(--color-border-base)] bg-[var(--color-bg-elevated)] px-5 py-3 text-left text-sm shadow-[0_1px_2px_rgba(15,23,42,0.05),0_6px_18px_rgba(15,23,42,0.06)] transition-all',
+          'h-11 w-full flex items-center justify-between gap-2.5 rounded-xl border border-[var(--color-border-base)] bg-[color:color-mix(in_srgb,var(--color-bg-hover)_72%,var(--color-bg-surface))] px-3.5 py-2 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60',
           open
-            ? 'border-[var(--color-accent-blue)] bg-[var(--color-bg-surface)] shadow-[0_10px_30px_rgba(37,99,235,0.12)]'
-            : 'hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-surface)]'
+            ? 'border-[color:color-mix(in_srgb,var(--color-accent-blue)_30%,var(--color-border-base))] bg-[var(--color-bg-surface)] shadow-[0_8px_24px_rgba(15,23,42,0.08)]'
+            : 'hover:border-[var(--color-border-strong)] hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_48%,var(--color-bg-surface))]'
         )}
       >
-        <span className={cn(selected ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]', 'truncate')}>
-          {selected?.label ?? placeholder}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={cn(
+            'truncate text-sm font-medium',
+            selectedValues.length > 0
+              ? 'text-[var(--color-text-primary)]'
+              : 'text-[var(--color-text-secondary)]'
+          )}>
+            {summary}
+          </span>
+          {selectedValues.length > 0 && (
+            <span className="shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--color-accent-blue)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--color-accent-blue)_10%,var(--color-bg-surface))] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--color-accent-blue)]">
+              {selectedValues.length}
+            </span>
+          )}
+        </div>
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[color:color-mix(in_srgb,var(--color-bg-hover)_82%,var(--color-bg-surface))] text-[var(--color-text-tertiary)]">
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
         </span>
-        <ChevronDown className={cn('h-4 w-4 shrink-0 text-[var(--color-text-tertiary)] transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-50 overflow-hidden rounded-2xl border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] p-1.5 shadow-[0_22px_50px_rgba(15,23,42,0.18)] backdrop-blur">
-          <div className="max-h-72 overflow-y-auto">
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-2xl border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] p-2 shadow-[0_18px_40px_rgba(15,23,42,0.14)] backdrop-blur">
+          <div className="mb-2 flex items-center justify-between rounded-xl bg-[color:color-mix(in_srgb,var(--color-bg-hover)_82%,var(--color-bg-surface))] px-3 py-2">
+            <span className="text-xs font-medium text-[var(--color-text-secondary)]">{placeholder}</span>
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              disabled={selectedValues.length === 0}
+              className="text-xs font-medium text-[var(--color-accent-blue)] transition-opacity hover:opacity-80 disabled:opacity-40"
+            >
+              {getClearLabel(language)}
+            </button>
+          </div>
+          <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
+            {options.length === 0 && (
+              <div className="rounded-xl border border-dashed border-[var(--color-border-base)] px-3 py-4 text-center text-sm text-[var(--color-text-secondary)]">
+                No options
+              </div>
+            )}
             {options.map((option) => {
-              const isSelected = option.value === value;
+              const isSelected = selectedValues.includes(option.value);
 
               return (
                 <button
@@ -95,24 +174,52 @@ function HeaderSelect({
                   role="option"
                   aria-selected={isSelected}
                   onClick={() => {
-                    onChange(option.value);
-                    setOpen(false);
-                    buttonRef.current?.focus();
+                    const nextValues = isSelected
+                      ? selectedValues.filter((value) => value !== option.value)
+                      : [...selectedValues, option.value];
+                    onChange(nextValues);
                   }}
                   className={cn(
-                    'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm transition-all',
+                    'flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all',
                     isSelected
-                      ? 'bg-[color:color-mix(in_srgb,var(--color-accent-blue)_14%,var(--color-bg-surface))] text-[var(--color-accent-blue)]'
-                      : 'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]'
+                      ? 'border-[color:color-mix(in_srgb,var(--color-accent-blue)_32%,transparent)] bg-[color:color-mix(in_srgb,var(--color-accent-blue)_14%,var(--color-bg-surface))] text-[var(--color-accent-blue)]'
+                      : 'border-transparent text-[var(--color-text-primary)] hover:border-[var(--color-border-base)] hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_82%,var(--color-bg-surface))]'
                   )}
                 >
-                  <span className="truncate">{option.label}</span>
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                    {isSelected && <Check className="h-4 w-4" />}
+                  <span className="truncate font-medium">{option.label}</span>
+                  <span
+                    className={cn(
+                      'flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors',
+                      isSelected
+                        ? 'border-[var(--color-accent-blue)] bg-[var(--color-accent-blue)] text-white'
+                        : 'border-[var(--color-border-strong)] bg-[var(--color-bg-surface)] text-transparent'
+                    )}
+                  >
+                    <Check className="h-3.5 w-3.5" />
                   </span>
                 </button>
               );
             })}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-[var(--color-border-base)] bg-[color:color-mix(in_srgb,var(--color-bg-hover)_82%,var(--color-bg-surface))] p-1.5">
+            <button
+              type="button"
+              onClick={() => onChange(options.map((option) => option.value))}
+              disabled={options.length === 0 || allSelected}
+              className="flex-1 rounded-lg px-3 py-2 text-xs font-medium text-[var(--color-accent-blue)] transition-colors hover:bg-[var(--color-bg-surface)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {getSelectAllLabel(language)}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                buttonRef.current?.focus();
+              }}
+              className="flex-1 rounded-lg bg-[color:color-mix(in_srgb,var(--color-accent-blue)_12%,var(--color-bg-surface))] px-3 py-2 text-xs font-semibold text-[var(--color-accent-blue)] transition-colors hover:bg-[color:color-mix(in_srgb,var(--color-accent-blue)_18%,var(--color-bg-surface))]"
+            >
+              {getConfirmLabel(language)}
+            </button>
           </div>
         </div>
       )}
@@ -121,24 +228,18 @@ function HeaderSelect({
 }
 
 export function Header({ onRefresh, isRefreshing }: HeaderProps) {
-  const { selectedProject, selectedProvider, setProject, setProvider } = useFilterStore();
+  const { selectedProjects, selectedProviders, setProjects, setProviders } = useFilterStore();
   const { data: projects } = useProjects();
   const { data: providers } = useAvailableProviders();
   const { currentView, setView } = useAppStore();
   const { t } = useTranslation();
   const { status: updateStatus, setDialogOpen } = useUpdateStore();
   const projectOptions = useMemo<HeaderSelectOption[]>(
-    () => [
-      { label: t('header.allProjects'), value: '' },
-      ...(projects?.map((project) => ({ label: project.name, value: project.name })) ?? []),
-    ],
+    () => projects?.map((project) => ({ label: project.name, value: project.name })) ?? [],
     [projects, t]
   );
   const providerOptions = useMemo<HeaderSelectOption[]>(
-    () => [
-      { label: t('header.allProviders'), value: '' },
-      ...(providers?.map((provider) => ({ label: provider, value: provider })) ?? []),
-    ],
+    () => providers?.map((provider) => ({ label: provider, value: provider })) ?? [],
     [providers, t]
   );
 
@@ -161,7 +262,7 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
 
   return (
     <header className="bg-[var(--color-bg-surface)] border-b border-[var(--color-border-base)] px-6 py-4 sticky top-0 z-50">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-6">
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-8 h-8 bg-gradient-to-br from-[var(--color-accent-blue)] to-[#6366f1] rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
             <span className="text-white font-bold text-lg">C</span>
@@ -171,24 +272,22 @@ export function Header({ onRefresh, isRefreshing }: HeaderProps) {
           </h1>
         </div>
 
-        <div className="flex flex-1 min-w-0 items-center justify-end gap-2.5">
-          <HeaderSelect
-            value={selectedProject || ''}
+        <div className="flex flex-1 min-w-0 flex-wrap items-center justify-start gap-2.5">
+          <HeaderMultiSelect
+            selectedValues={selectedProjects}
             options={projectOptions}
             placeholder={t('header.allProjects')}
-            onChange={(value) => setProject(value || null)}
-            className="w-[280px] max-w-[280px] shrink"
+            onChange={setProjects}
+            className="w-[210px] max-w-[210px] shrink-0"
           />
 
-          {providers && providers.length > 1 && (
-            <HeaderSelect
-              value={selectedProvider || ''}
-              options={providerOptions}
-              placeholder={t('header.allProviders')}
-              onChange={(value) => setProvider(value || null)}
-              className="w-[220px] max-w-[220px] shrink"
-            />
-          )}
+          <HeaderMultiSelect
+            selectedValues={selectedProviders}
+            options={providerOptions}
+            placeholder={t('header.allProviders')}
+            onChange={setProviders}
+            className="w-[210px] max-w-[210px] shrink-0"
+          />
 
           <HeaderTimeRangeControl />
 

@@ -443,10 +443,8 @@ fn parse_normalized_codex_session(
         .as_deref()
         .map(project_name_from_cwd)
         .unwrap_or_else(|| "unknown".to_string());
-    if let Some(wanted_project) = project {
-        if !project_name.eq_ignore_ascii_case(wanted_project) {
-            return None;
-        }
+    if !project_matches_filters(project, &project_name) {
+        return None;
     }
 
     let provider = primary_model
@@ -609,6 +607,9 @@ fn extract_codex_instruction_text(text: &str) -> Option<String> {
     if text.is_empty() {
         return None;
     }
+    if is_codex_internal_worker_prompt(&text) {
+        return None;
+    }
 
     Some(text)
 }
@@ -722,10 +723,11 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
             if let Some((tag, close_tag)) = [
                 ("environment_context", "</environment_context>"),
                 ("user_instructions", "</user_instructions>"),
+                ("INSTRUCTIONS", "</INSTRUCTIONS>"),
             ]
             .iter()
             .find(|(tag, _)| trimmed.starts_with(&format!("<{}>", tag)))
-            {
+        {
                 if let Some(close_index) = trimmed.find(close_tag) {
                     let after_close = &trimmed[close_index + close_tag.len()..];
                     remaining = after_close;
@@ -753,6 +755,34 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
     }
 
     stripped
+}
+
+fn is_codex_internal_worker_prompt(text: &str) -> bool {
+    let normalized = text.trim().to_ascii_lowercase();
+
+    if normalized.is_empty() {
+        return false;
+    }
+
+    if normalized.contains("## superpowers system") {
+        return true;
+    }
+
+    let markers = [
+        "## what was requested",
+        "## your job",
+        "implementation under review",
+        "file:line references",
+        "spec compliant",
+        "report:",
+    ];
+
+    let match_count = markers
+        .iter()
+        .filter(|marker| normalized.contains(**marker))
+        .count();
+
+    match_count >= 2
 }
 
 fn extract_tag_value(text: &str, tag: &str) -> Option<String> {
@@ -1236,14 +1266,6 @@ fn matches_provider(
 
 fn model_to_provider(model: &str, custom_providers: &[CustomProviderDef]) -> Option<String> {
     crate::commands::model_to_provider(model, custom_providers)
-}
-
-fn model_matches_provider(
-    model: &str,
-    provider: &str,
-    custom_providers: &[CustomProviderDef],
-) -> bool {
-    crate::commands::model_matches_provider(model, provider, custom_providers)
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ export function useStatistics(projects: string[], activeRange: ActiveTimeRange, 
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
     }),
+    placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
   });
 }
@@ -59,6 +60,7 @@ export function useSessions(projects: string[], activeRange: ActiveTimeRange, pr
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
     }),
+    placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
   });
 }
@@ -90,7 +92,9 @@ export function useInstructions(projects: string[], activeRange: ActiveTimeRange
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
     }),
-    staleTime: 60 * 1000,
+    placeholderData: (previousData) => previousData,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 
@@ -141,6 +145,7 @@ export function useCodeChangesDetail(projects: string[], activeRange: ActiveTime
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
     }),
+    placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
   });
 }

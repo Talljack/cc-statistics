@@ -440,7 +440,7 @@ fn parse_gemini_session(path: &std::path::Path) -> Option<SessionStats> {
 
 fn parse_normalized_gemini_session(
     path: &std::path::Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Option<NormalizedSession> {
     let content = fs::read_to_string(path).ok()?;
@@ -458,10 +458,8 @@ fn parse_normalized_gemini_session(
         .unwrap_or("unknown")
         .to_string();
 
-    if let Some(project) = project {
-        if !project_name.eq_ignore_ascii_case(project) {
-            return None;
-        }
+    if !project_matches_filters(project, &project_name) {
+        return None;
     }
 
     let mut session = NormalizedSession {

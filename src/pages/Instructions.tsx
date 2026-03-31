@@ -13,8 +13,36 @@ export function Instructions() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[var(--color-bg-base)] flex items-center justify-center">
-        <div className="text-[var(--color-text-secondary)]">{t('instructions.loading')}</div>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
+        <Header onRefresh={() => {}} isRefreshing={false} />
+
+        <main className="flex-1 p-6 overflow-auto">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-9 h-9 rounded-lg bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] animate-pulse" />
+            <div className="h-7 w-44 rounded bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] animate-pulse" />
+          </div>
+
+          <div className="space-y-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={index}
+                className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] p-4 animate-pulse"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="h-3 w-28 rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-3 w-20 rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-3 w-16 rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-3 w-14 rounded bg-[var(--color-bg-hover)]" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-4 w-full rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-4 w-[92%] rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-4 w-[68%] rounded bg-[var(--color-bg-hover)]" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </main>
       </div>
     );
   }

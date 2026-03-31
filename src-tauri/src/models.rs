@@ -208,8 +208,9 @@ pub struct ProviderUsage {
     pub weekly_reset_seconds: i64,
     /// Whether the rate limit has been reached
     pub limit_reached: bool,
-    /// Extra info like email, credits balance
+    /// Extra info like email, account name, credits balance
     pub email: Option<String>,
+    pub account_name: Option<String>,
     pub credits_balance: Option<f64>,
 }
 

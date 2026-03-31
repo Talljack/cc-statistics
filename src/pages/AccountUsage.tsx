@@ -190,14 +190,19 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
           </>
         )}
 
-        {/* Footer: email + credits (for window-based providers that also have credits) */}
-        {(usage.email || (!isCreditsOnly && usage.creditsBalance != null)) && (
+        {/* Footer: account info + credits */}
+        {(usage.email || usage.accountName || (!isCreditsOnly && usage.creditsBalance != null)) && (
           <div className="flex items-center gap-3 pt-2 border-t border-[var(--color-border-base)]">
-            {usage.email && (
-              <div className="text-xs text-[var(--color-text-muted)] truncate">{usage.email}</div>
-            )}
+            <div className="flex items-center gap-2 min-w-0">
+              {usage.accountName && (
+                <span className="text-xs font-medium text-[var(--color-text-secondary)] shrink-0">{usage.accountName}</span>
+              )}
+              {usage.email && (
+                <span className="text-xs text-[var(--color-text-muted)] truncate">{usage.email}</span>
+              )}
+            </div>
             {!isCreditsOnly && usage.creditsBalance != null && (
-              <div className="text-xs text-[var(--color-text-secondary)] ml-auto">
+              <div className="text-xs text-[var(--color-text-secondary)] ml-auto shrink-0">
                 Credits: ${usage.creditsBalance.toFixed(2)}
               </div>
             )}

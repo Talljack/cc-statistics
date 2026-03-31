@@ -95,9 +95,9 @@ vi.mock('../hooks/useCostMetrics', () => ({
 
 vi.mock('../stores/filterStore', () => ({
   useFilterStore: () => ({
-    selectedProject: null,
+    selectedProjects: [],
     activeTimeRange: { kind: 'built_in', key: 'today' },
-    selectedProvider: null,
+    selectedProviders: [],
   }),
 }));
 

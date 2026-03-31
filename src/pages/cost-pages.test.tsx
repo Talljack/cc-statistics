@@ -220,9 +220,9 @@ beforeEach(() => {
     },
   });
   useFilterStore.setState({
-    selectedProject: null,
+    selectedProjects: [],
     activeTimeRange: { kind: 'built_in', key: 'today' },
-    selectedProvider: null,
+    selectedProviders: [],
   });
   useAppStore.setState({ currentView: 'dashboard' });
   usePricingStore.setState({
@@ -277,9 +277,9 @@ describe('cost-driven pages', () => {
     });
 
     useFilterStore.setState({
-      selectedProject: 'filtered-project',
+      selectedProjects: ['filtered-project'],
       activeTimeRange: { kind: 'built_in', key: 'week' },
-      selectedProvider: 'OpenAI',
+      selectedProviders: ['OpenAI'],
     });
 
     mockUseStatistics.mockReturnValue({

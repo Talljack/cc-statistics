@@ -53,7 +53,13 @@ export function Dashboard() {
   const dynamicPricing = usePricingStore((state) => state.models);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { data: stats, isLoading: statsLoading, refetch, isRefetching } = useStatistics(
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    isFetching: isStatsFetching,
+    refetch,
+    isRefetching,
+  } = useStatistics(
     selectedProjects,
     activeTimeRange,
     selectedProviders
@@ -61,6 +67,7 @@ export function Dashboard() {
   const {
     data: sessions,
     isLoading: sessionsLoading,
+    isFetching: isSessionsFetching,
     refetch: refetchSessions,
     isRefetching: isSessionsRefetching,
   } = useSessions(
@@ -79,8 +86,10 @@ export function Dashboard() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initialLoadRef = useRef(false);
 
-  const isRefreshing = isRefetching || isSessionsRefetching || isAnimating;
+  const isFetching = isStatsFetching || isRefetching || isSessionsRefetching || isSessionsFetching;
+  const isRefreshing = isFetching || isAnimating;
   const isLoading = statsLoading || sessionsLoading;
+  const showDashboardSkeleton = isLoading || isFetching;
 
   useEffect(() => {
     if (stats && sessions && !initialLoadRef.current) {
@@ -208,30 +217,38 @@ export function Dashboard() {
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col items-center justify-center gap-6">
-        <div className="relative">
-          <div className="w-20 h-20 bg-gradient-to-br from-[#3b82f6] to-[#6366f1] rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/30 animate-pulse">
-            <span className="text-white font-bold text-4xl">C</span>
-          </div>
-          <div className="absolute -inset-4 border-2 border-[#3b82f6]/20 rounded-full animate-[spin_3s_linear_infinite]" />
-          <div className="absolute -inset-4 border-2 border-transparent border-t-[#3b82f6]/60 rounded-full animate-[spin_1.5s_linear_infinite]" />
-        </div>
+  if (showDashboardSkeleton) {
+    const enabledCardCount = [
+      showSessionsCard,
+      showInstructionsCard,
+      showDurationCard,
+      showTokensCard,
+      showCost && showCostCard,
+      showSkillsCard,
+      showMcpCard,
+    ].filter(Boolean).length;
+    const skeletonGridCols =
+      enabledCardCount <= 4 ? 'md:grid-cols-2 2xl:grid-cols-4' : 'md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5';
 
-        <div className="text-center">
-          <h1 className="text-xl font-semibold mb-2">
-            CC <span className="text-[var(--color-text-secondary)]">Statistics</span>
-          </h1>
-          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-            <div className="flex gap-1">
-              <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_infinite]" />
-              <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_0.15s_infinite]" />
-              <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_0.3s_infinite]" />
-            </div>
-            <span>{t('dashboard.loading')}</span>
-          </div>
-        </div>
+    return (
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
+        <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
+        <main className="flex-1 p-6 overflow-auto">
+          <DashboardSkeleton
+            cardCount={enabledCardCount}
+            gridCols={skeletonGridCols}
+            showUsageCharts={showToolUsage || showMcpUsage}
+            splitUsageCharts={showToolUsage && showMcpUsage}
+            showSkillChart={showSkillUsage}
+          />
+        </main>
+        <Footer
+          lastUpdated={lastUpdated ?? undefined}
+          onRefresh={handleRefresh}
+          onOpenShortcuts={() => setHelpOpen(true)}
+          isRefreshing={isRefreshing}
+        />
+        <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
       </div>
     );
   }
@@ -309,5 +326,91 @@ export function Dashboard() {
       />
       <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
     </div>
+  );
+}
+
+function DashboardSkeleton({
+  cardCount,
+  gridCols,
+  showUsageCharts,
+  splitUsageCharts,
+  showSkillChart,
+}: {
+  cardCount: number;
+  gridCols: string;
+  showUsageCharts: boolean;
+  splitUsageCharts: boolean;
+  showSkillChart: boolean;
+}) {
+  const cards = Array.from({ length: Math.max(cardCount, 4) });
+
+  return (
+    <>
+      <div className={`grid grid-cols-1 gap-4 mb-6 ${gridCols}`}>
+        {cards.map((_, index) => (
+          <div
+            key={index}
+            className="relative overflow-hidden rounded-xl border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] p-5 animate-pulse"
+          >
+            <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl bg-[var(--color-bg-active)]" />
+            <div className="mb-4 flex items-center justify-between">
+              <div className="h-4 w-20 rounded bg-[var(--color-bg-hover)]" />
+              <div className="h-10 w-10 rounded-lg bg-[var(--color-bg-hover)]" />
+            </div>
+            <div className="h-9 w-28 rounded bg-[var(--color-bg-hover)]" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 mb-6 xl:grid-cols-2">
+        {[0, 1].map((index) => (
+          <div
+            key={index}
+            className="rounded-xl border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] p-5 animate-pulse"
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <div className="h-5 w-28 rounded bg-[var(--color-bg-hover)]" />
+              <div className="h-4 w-16 rounded bg-[var(--color-bg-hover)]" />
+            </div>
+            <div className="h-64 rounded-xl bg-[var(--color-bg-hover)]" />
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-6 rounded-xl border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] p-5 animate-pulse">
+        <div className="mb-5 flex items-center justify-between">
+          <div className="h-5 w-32 rounded bg-[var(--color-bg-hover)]" />
+          <div className="h-4 w-20 rounded bg-[var(--color-bg-hover)]" />
+        </div>
+        <div className="h-72 rounded-xl bg-[var(--color-bg-hover)]" />
+      </div>
+
+      {showUsageCharts && (
+        <div className={`grid grid-cols-1 gap-6 mb-6 ${splitUsageCharts ? 'xl:grid-cols-2' : ''}`}>
+          {Array.from({ length: splitUsageCharts ? 2 : 1 }).map((_, index) => (
+            <div
+              key={index}
+              className="rounded-xl border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] p-5 animate-pulse"
+            >
+              <div className="mb-5 flex items-center justify-between">
+                <div className="h-5 w-24 rounded bg-[var(--color-bg-hover)]" />
+                <div className="h-4 w-14 rounded bg-[var(--color-bg-hover)]" />
+              </div>
+              <div className="h-64 rounded-xl bg-[var(--color-bg-hover)]" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showSkillChart && (
+        <div className="mb-6 rounded-xl border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] p-5 animate-pulse">
+          <div className="mb-5 flex items-center justify-between">
+            <div className="h-5 w-24 rounded bg-[var(--color-bg-hover)]" />
+            <div className="h-4 w-16 rounded bg-[var(--color-bg-hover)]" />
+          </div>
+          <div className="h-64 rounded-xl bg-[var(--color-bg-hover)]" />
+        </div>
+      )}
+    </>
   );
 }

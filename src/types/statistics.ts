@@ -128,6 +128,7 @@ export interface ProviderUsage {
   weeklyResetSeconds: number;
   limitReached: boolean;
   email: string | null;
+  accountName: string | null;
   creditsBalance: number | null;
 }
 
