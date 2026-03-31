@@ -512,11 +512,11 @@ fn extract_codex_skill_name_from_payload(payload: &Value) -> Option<String> {
         .or_else(|| payload.pointer("/message/content"))
         .or_else(|| payload.pointer("/payload/content"))?;
     match content {
-        Value::String(text) => extract_codex_skill_name(text),
+        Value::String(text) => extract_codex_skill_name_from_text(text),
         Value::Array(items) => items
             .iter()
             .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
-            .find_map(extract_codex_skill_name),
+            .find_map(extract_codex_skill_name_from_text),
         _ => None,
     }
 }
@@ -565,14 +565,20 @@ fn extract_codex_skill_name(text: &str) -> Option<String> {
     Some(name)
 }
 
+fn extract_codex_skill_name_from_text(text: &str) -> Option<String> {
+    let text = text.trim_start();
+    let start = text.find("<skill>")?;
+    let skill_text = &text[start..];
+    extract_codex_skill_name(skill_text)
+}
+
 fn extract_codex_instruction_text(text: &str) -> Option<String> {
-    let text = text.trim();
-    if text.is_empty() || is_codex_injected_message(text) || extract_codex_skill_name(text).is_some()
-    {
+    let text = strip_codex_skill_blocks(text).trim().to_string();
+    if text.is_empty() || is_codex_injected_message(&text) {
         return None;
     }
 
-    Some(text.to_string())
+    Some(text)
 }
 
 fn extract_codex_instruction_block_text(item: &Value) -> Option<String> {
@@ -583,6 +589,27 @@ fn extract_codex_instruction_block_text(item: &Value) -> Option<String> {
 
     let text = item.get("text").and_then(|value| value.as_str())?;
     extract_codex_instruction_text(text)
+}
+
+fn strip_codex_skill_blocks(text: &str) -> String {
+    let mut remaining = text;
+    let mut stripped = String::new();
+
+    while let Some(start) = remaining.find("<skill>") {
+        let before = &remaining[..start];
+        stripped.push_str(before);
+
+        let skill_section = &remaining[start..];
+        let Some(end) = skill_section.find("</skill>") else {
+            stripped.push_str(skill_section);
+            return stripped;
+        };
+
+        remaining = &skill_section[end + "</skill>".len()..];
+    }
+
+    stripped.push_str(remaining);
+    stripped
 }
 
 fn is_codex_injected_message(text: &str) -> bool {
