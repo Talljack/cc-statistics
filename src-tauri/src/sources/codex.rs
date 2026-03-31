@@ -573,8 +573,8 @@ fn extract_codex_skill_name_from_text(text: &str) -> Option<String> {
 }
 
 fn extract_codex_instruction_text(text: &str) -> Option<String> {
-    let text = strip_codex_skill_blocks(text).trim().to_string();
-    if text.is_empty() || is_codex_injected_message(&text) {
+    let text = strip_codex_legacy_string_segments(text).trim().to_string();
+    if text.is_empty() {
         return None;
     }
 
@@ -612,12 +612,51 @@ fn strip_codex_skill_blocks(text: &str) -> String {
     stripped
 }
 
-fn is_codex_injected_message(text: &str) -> bool {
-    let trimmed = text.trim_start();
-    trimmed.starts_with("<skill>")
-        || trimmed.starts_with("# AGENTS.md instructions")
-        || trimmed.contains("<environment_context>")
-        || trimmed.contains("<user_instructions>")
+fn strip_codex_legacy_string_segments(text: &str) -> String {
+    strip_codex_injected_setup_segments(&strip_codex_skill_blocks(text))
+}
+
+fn strip_codex_injected_setup_segments(text: &str) -> String {
+    let mut stripped = String::new();
+    let mut skipping_agents = false;
+    let mut skipping_xml_block: Option<&str> = None;
+
+    for line in text.lines() {
+        if skipping_agents {
+            if line.trim().is_empty() {
+                skipping_agents = false;
+            }
+            continue;
+        }
+
+        if let Some(tag) = skipping_xml_block {
+            if line.contains(&format!("</{}>", tag)) {
+                skipping_xml_block = None;
+            }
+            continue;
+        }
+
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("# AGENTS.md instructions") {
+            skipping_agents = true;
+            continue;
+        }
+        if trimmed.starts_with("<environment_context>") {
+            skipping_xml_block = Some("environment_context");
+            continue;
+        }
+        if trimmed.starts_with("<user_instructions>") {
+            skipping_xml_block = Some("user_instructions");
+            continue;
+        }
+
+        if !stripped.is_empty() {
+            stripped.push('\n');
+        }
+        stripped.push_str(line);
+    }
+
+    stripped
 }
 
 fn extract_tag_value(text: &str, tag: &str) -> Option<String> {

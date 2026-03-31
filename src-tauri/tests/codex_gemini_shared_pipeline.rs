@@ -461,6 +461,76 @@ fn codex_shared_pipeline_handles_mixed_skill_and_prompt_string_blocks() {
 }
 
 #[test]
+fn codex_shared_pipeline_strips_injected_setup_text_from_legacy_string_blocks() {
+    let home = unique_temp_dir("codex-setup-string-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-setup-string.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-03-31T11:20:00+08:00"),
+                "payload": {
+                    "id": "codex-setup-string-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-03-31T11:20:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": "# AGENTS.md instructions\n- keep this out of the instruction stream\n\nreal prompt after setup"
+                }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-03-31T11:20:06+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": "real prompt before setup\n\n# AGENTS.md instructions\n- keep this out of the instruction stream"
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 3, 31);
+
+    let range = absolute_day("2026-03-31");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 2);
+    assert_eq!(stats.tool_usage.get("Skill"), None);
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert_eq!(instructions.len(), 2);
+    assert!(instructions
+        .iter()
+        .any(|instruction| instruction.content == "real prompt after setup"));
+    assert!(instructions
+        .iter()
+        .any(|instruction| instruction.content == "real prompt before setup"));
+}
+
+#[test]
 fn gemini_shared_pipeline_extracts_instructions_tokens_and_zero_other_signals() {
     let home = unique_temp_dir("gemini-shared-home");
     let hash_dir = home.join(".gemini/tmp/hash-1");
