@@ -566,6 +566,10 @@ fn extract_codex_skill_name(text: &str) -> Option<String> {
 }
 
 fn extract_codex_skill_name_from_text(text: &str) -> Option<String> {
+    if codex_skill_block_is_embedded(text) {
+        return None;
+    }
+
     let mut collecting_skill_block = false;
     let mut skill_block = String::new();
 
@@ -620,6 +624,10 @@ fn extract_codex_instruction_block_text(item: &Value) -> Option<String> {
 }
 
 fn strip_codex_skill_blocks(text: &str) -> String {
+    if codex_skill_block_is_embedded(text) {
+        return text.to_string();
+    }
+
     let mut stripped = String::new();
 
     let mut skipping_skill_block = false;
@@ -656,6 +664,22 @@ fn strip_codex_skill_blocks(text: &str) -> String {
     }
 
     stripped
+}
+
+fn codex_skill_block_is_embedded(text: &str) -> bool {
+    let Some(open_index) = text.find("<skill>") else {
+        return false;
+    };
+    let Some(close_index) = text.rfind("</skill>") else {
+        return false;
+    };
+    if close_index < open_index {
+        return false;
+    }
+
+    let before = text[..open_index].trim();
+    let after = text[close_index + "</skill>".len()..].trim();
+    !before.is_empty() && !after.is_empty()
 }
 
 fn strip_codex_legacy_string_segments(text: &str) -> String {
