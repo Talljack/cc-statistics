@@ -1,6 +1,6 @@
 use cc_statistics_lib::aggregation::aggregate_statistics;
 use cc_statistics_lib::models::QueryTimeRange;
-use cc_statistics_lib::sources::{codex, gemini};
+use cc_statistics_lib::sources::{codex as codex_source, gemini as gemini_source};
 use chrono::DateTime;
 use serde_json::json;
 use std::env;
@@ -59,6 +59,46 @@ fn set_file_mtime(path: &Path, year: i32, month: u32, day: u32) {
         0,
     );
     filetime::set_file_mtime(path, mtime).unwrap();
+}
+
+mod codex {
+    use super::codex_source;
+    use cc_statistics_lib::models::QueryTimeRange;
+    use cc_statistics_lib::normalized::NormalizedSession;
+    use std::path::Path;
+
+    pub fn collect_normalized_sessions_from_home(
+        home: &Path,
+        project: Option<&str>,
+        query_range: &QueryTimeRange,
+    ) -> Vec<NormalizedSession> {
+        let project = project.map(|value| vec![value.to_string()]);
+        codex_source::collect_normalized_sessions_from_home(
+            home,
+            project.as_deref(),
+            query_range,
+        )
+    }
+}
+
+mod gemini {
+    use super::gemini_source;
+    use cc_statistics_lib::models::QueryTimeRange;
+    use cc_statistics_lib::normalized::NormalizedSession;
+    use std::path::Path;
+
+    pub fn collect_normalized_sessions_from_home(
+        home: &Path,
+        project: Option<&str>,
+        query_range: &QueryTimeRange,
+    ) -> Vec<NormalizedSession> {
+        let project = project.map(|value| vec![value.to_string()]);
+        gemini_source::collect_normalized_sessions_from_home(
+            home,
+            project.as_deref(),
+            query_range,
+        )
+    }
 }
 
 #[test]
@@ -170,10 +210,9 @@ fn codex_shared_pipeline_keeps_skill_tool_mcp_and_token_deltas() {
         ],
     );
 
-    let project_filter = vec!["codex-demo-project".to_string()];
     let sessions = codex::collect_normalized_sessions_from_home(
         &home,
-        Some(project_filter.as_slice()),
+        Some("codex-demo-project"),
         &absolute_day("2026-03-11"),
     );
     assert_eq!(sessions.len(), 1);
@@ -293,10 +332,9 @@ fn codex_shared_pipeline_excludes_assistant_messages_from_instructions() {
     set_file_mtime(&session_path, 2026, 3, 31);
 
     let range = absolute_day("2026-03-31");
-    let project_filter = vec!["codex-demo-project".to_string()];
     let sessions = codex::collect_normalized_sessions_from_home(
         &home,
-        Some(project_filter.as_slice()),
+        Some("codex-demo-project"),
         &range,
     );
     assert_eq!(sessions.len(), 1);
@@ -375,10 +413,9 @@ fn gemini_shared_pipeline_extracts_instructions_tokens_and_zero_other_signals() 
     );
     filetime::set_file_mtime(&gemini_path, mtime).unwrap();
 
-    let project_filter = vec!["gemini-demo-project".to_string()];
     let sessions = gemini::collect_normalized_sessions_from_home(
         &home,
-        Some(project_filter.as_slice()),
+        Some("gemini-demo-project"),
         &absolute_day("2026-03-11"),
     );
     assert_eq!(sessions.len(), 1);
