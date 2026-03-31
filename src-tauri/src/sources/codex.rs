@@ -375,11 +375,7 @@ fn parse_normalized_codex_session(
                             continue;
                         }
 
-                        let Some(content) = extract_codex_message_text(payload) else {
-                            continue;
-                        };
-
-                        if let Some(skill_name) = extract_codex_skill_name(&content) {
+                        if let Some(skill_name) = extract_codex_skill_name_from_payload(payload) {
                             let record = NormalizedRecord::Tool(ToolRecord {
                                 timestamp,
                                 name: "Skill".to_string(),
@@ -387,20 +383,16 @@ fn parse_normalized_codex_session(
                                 mcp_name: None,
                             });
                             records.push(record);
-                            continue;
                         }
 
                         let Some(content) = extract_codex_user_instruction(payload) else {
                             continue;
                         };
-
-                        if !is_codex_injected_message(&content) {
-                            let record = NormalizedRecord::Instruction(InstructionRecord {
-                                timestamp,
-                                content,
-                            });
-                            records.push(record);
-                        }
+                        let record = NormalizedRecord::Instruction(InstructionRecord {
+                            timestamp,
+                            content,
+                        });
+                        records.push(record);
                     }
                     "function_call" | "custom_tool_call" => {
                         let Some(name) = payload.get("name").and_then(|value| value.as_str())
@@ -514,26 +506,17 @@ fn extract_codex_timestamp(value: &Value) -> Option<DateTime<chrono::FixedOffset
         .and_then(|timestamp| DateTime::parse_from_rfc3339(timestamp).ok())
 }
 
-fn extract_codex_message_text(value: &Value) -> Option<String> {
-    let content = value
+fn extract_codex_skill_name_from_payload(payload: &Value) -> Option<String> {
+    let content = payload
         .get("content")
-        .or_else(|| value.pointer("/message/content"))
-        .or_else(|| value.pointer("/payload/content"))?;
+        .or_else(|| payload.pointer("/message/content"))
+        .or_else(|| payload.pointer("/payload/content"))?;
     match content {
-        Value::String(text) => {
-            let text = text.trim();
-            (!text.is_empty()).then(|| text.to_string())
-        }
-        Value::Array(items) => {
-            let text = items
-                .iter()
-                .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n");
-            (!text.is_empty()).then_some(text)
-        }
+        Value::String(text) => extract_codex_skill_name(text),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+            .find_map(extract_codex_skill_name),
         _ => None,
     }
 }
@@ -548,30 +531,23 @@ fn extract_codex_user_instruction(payload: &Value) -> Option<String> {
         .or_else(|| payload.pointer("/message/content"))
         .or_else(|| payload.pointer("/payload/content"))?;
 
-    let text = match content {
-        Value::String(text) => text.trim().to_string(),
-        Value::Array(items) => items
-            .iter()
-            .filter(|item| {
-                matches!(
-                    item.get("type").and_then(|value| value.as_str()),
-                    Some("input_text") | Some("text")
-                )
-            })
-            .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
-    };
-
-    let text = text.trim();
-    if text.is_empty() || is_codex_injected_message(text) {
-        return None;
+    match content {
+        Value::String(text) => extract_codex_instruction_text(text),
+        Value::Array(items) => {
+            let text = items
+                .iter()
+                .filter_map(extract_codex_instruction_block_text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let text = text.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        }
+        _ => None,
     }
-
-    Some(text.to_string())
 }
 
 fn extract_codex_skill_name(text: &str) -> Option<String> {
@@ -587,6 +563,26 @@ fn extract_codex_skill_name(text: &str) -> Option<String> {
     }
 
     Some(name)
+}
+
+fn extract_codex_instruction_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() || is_codex_injected_message(text) || extract_codex_skill_name(text).is_some()
+    {
+        return None;
+    }
+
+    Some(text.to_string())
+}
+
+fn extract_codex_instruction_block_text(item: &Value) -> Option<String> {
+    let block_type = item.get("type").and_then(|value| value.as_str())?;
+    if !matches!(block_type, "input_text" | "text") {
+        return None;
+    }
+
+    let text = item.get("text").and_then(|value| value.as_str())?;
+    extract_codex_instruction_text(text)
 }
 
 fn is_codex_injected_message(text: &str) -> bool {
