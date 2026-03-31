@@ -566,10 +566,38 @@ fn extract_codex_skill_name(text: &str) -> Option<String> {
 }
 
 fn extract_codex_skill_name_from_text(text: &str) -> Option<String> {
-    let text = text.trim_start();
-    let start = text.find("<skill>")?;
-    let skill_text = &text[start..];
-    extract_codex_skill_name(skill_text)
+    let mut collecting_skill_block = false;
+    let mut skill_block = String::new();
+
+    for line in text.lines() {
+        if collecting_skill_block {
+            skill_block.push_str(line);
+            skill_block.push('\n');
+            if line.contains("</skill>") {
+                return extract_codex_skill_name(skill_block.trim_end());
+            }
+            continue;
+        }
+
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("<skill>") {
+            continue;
+        }
+
+        if let Some(close_index) = trimmed.find("</skill>") {
+            if trimmed[close_index + "</skill>".len()..].trim().is_empty() {
+                return extract_codex_skill_name(trimmed);
+            }
+            continue;
+        }
+
+        collecting_skill_block = true;
+        skill_block.clear();
+        skill_block.push_str(line);
+        skill_block.push('\n');
+    }
+
+    None
 }
 
 fn extract_codex_instruction_text(text: &str) -> Option<String> {
@@ -592,23 +620,41 @@ fn extract_codex_instruction_block_text(item: &Value) -> Option<String> {
 }
 
 fn strip_codex_skill_blocks(text: &str) -> String {
-    let mut remaining = text;
     let mut stripped = String::new();
 
-    while let Some(start) = remaining.find("<skill>") {
-        let before = &remaining[..start];
-        stripped.push_str(before);
+    let mut skipping_skill_block = false;
+    for line in text.lines() {
+        if skipping_skill_block {
+            if line.contains("</skill>") {
+                skipping_skill_block = false;
+            }
+            continue;
+        }
 
-        let skill_section = &remaining[start..];
-        let Some(end) = skill_section.find("</skill>") else {
-            stripped.push_str(skill_section);
-            return stripped;
-        };
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("<skill>") {
+            if !stripped.is_empty() {
+                stripped.push('\n');
+            }
+            stripped.push_str(line);
+            continue;
+        }
 
-        remaining = &skill_section[end + "</skill>".len()..];
+        if let Some(close_index) = trimmed.find("</skill>") {
+            if trimmed[close_index + "</skill>".len()..].trim().is_empty() {
+                continue;
+            }
+        } else {
+            skipping_skill_block = true;
+            continue;
+        }
+
+        if !stripped.is_empty() {
+            stripped.push('\n');
+        }
+        stripped.push_str(line);
     }
 
-    stripped.push_str(remaining);
     stripped
 }
 

@@ -601,6 +601,63 @@ fn codex_shared_pipeline_strips_same_line_injected_xml_before_prompt() {
 }
 
 #[test]
+fn codex_shared_pipeline_keeps_quoted_skill_xml_inside_prompt_text() {
+    let home = unique_temp_dir("codex-quoted-skill-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-quoted-skill.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-03-31T11:40:00+08:00"),
+                "payload": {
+                    "id": "codex-quoted-skill-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-03-31T11:40:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": "Please explain this XML literally: <skill>\n<name>brainstorming</name>\n<path>/Users/test/brainstorming/SKILL.md</path>\n</skill> and keep it in the prompt."
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 3, 31);
+
+    let range = absolute_day("2026-03-31");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 1);
+    assert_eq!(stats.tool_usage.get("Skill"), None);
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert_eq!(instructions.len(), 1);
+    assert!(instructions[0].content.contains("<skill>"));
+    assert!(instructions[0].content.contains("keep it in the prompt."));
+}
+
+#[test]
 fn gemini_shared_pipeline_extracts_instructions_tokens_and_zero_other_signals() {
     let home = unique_temp_dir("gemini-shared-home");
     let hash_dir = home.join(".gemini/tmp/hash-1");
