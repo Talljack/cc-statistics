@@ -1,5 +1,6 @@
 :root,
 :root[data-theme='dark'] {
+  --color-scheme: dark;
   --color-bg-base: #0f0f0f;
   --color-bg-surface: #1a1a1a;
   --color-bg-elevated: #222222;
@@ -39,6 +40,7 @@
 }
 
 :root[data-theme='light'] {
+  --color-scheme: light;
   --color-bg-base: #f5f7fb;
   --color-bg-surface: #ffffff;
   --color-bg-elevated: #f8fafc;

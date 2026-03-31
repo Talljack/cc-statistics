@@ -21,9 +21,9 @@ export function TokenChart({ tokens, costByModel }: TokenChartProps) {
 
   if (totalTokens === 0) {
     return (
-      <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+      <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
         <h3 className="text-lg font-semibold mb-4">{t('chart.tokenUsage')}</h3>
-        <div className="h-[200px] flex items-center justify-center text-[#a0a0a0]">
+        <div className="h-[200px] flex items-center justify-center text-[var(--color-text-secondary)]">
           {t('common.noData')}
         </div>
       </div>
@@ -49,15 +49,15 @@ export function TokenChart({ tokens, costByModel }: TokenChartProps) {
     : 0;
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+    <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">{t('chart.tokenUsage')}</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatTokens(totalTokens)} {t('common.total').toLowerCase()}</span>
+        <span className="text-sm text-[var(--color-text-secondary)]">{formatTokens(totalTokens)} {t('common.total').toLowerCase()}</span>
       </div>
 
       {/* Token Type Breakdown - Stacked Bar */}
       <div className="mb-5">
-        <div className="h-4 bg-[#2a2a2a] rounded-full overflow-hidden flex">
+        <div className="h-4 bg-[var(--color-bg-hover)] rounded-full overflow-hidden flex">
           {tokenCategories.map(({ key, color }) => {
             const value = tokens[key];
             const pct = totalTokens > 0 ? (value / totalTokens) * 100 : 0;
@@ -82,10 +82,10 @@ export function TokenChart({ tokens, costByModel }: TokenChartProps) {
               <div key={key} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
-                  <span className="text-sm text-[#a0a0a0]">{t(labelKey)}</span>
+                  <span className="text-sm text-[var(--color-text-secondary)]">{t(labelKey)}</span>
                 </div>
                 <span className="text-sm font-medium" style={{ color }}>
-                  {formatTokens(value)} <span className="text-[#606060]">({pct}%)</span>
+                  {formatTokens(value)} <span className="text-[var(--color-text-muted)]">({pct}%)</span>
                 </span>
               </div>
             );
@@ -94,8 +94,8 @@ export function TokenChart({ tokens, costByModel }: TokenChartProps) {
 
         {/* Cache Hit Rate */}
         {totalCache > 0 && (
-          <div className="mt-3 pt-3 border-t border-[#2a2a2a] flex items-center justify-between">
-            <span className="text-sm text-[#a0a0a0]">{t('chart.cacheHitRate')}</span>
+          <div className="mt-3 pt-3 border-t border-[var(--color-border-base)] flex items-center justify-between">
+            <span className="text-sm text-[var(--color-text-secondary)]">{t('chart.cacheHitRate')}</span>
             <span className="text-sm font-semibold" style={{ color: cacheHitRate > 70 ? '#22c55e' : cacheHitRate > 30 ? '#f59e0b' : '#ef4444' }}>
               {cacheHitRate.toFixed(1)}%
             </span>
@@ -106,9 +106,9 @@ export function TokenChart({ tokens, costByModel }: TokenChartProps) {
       {/* By Model */}
       {sortedModels.length > 0 && (
         <>
-          <div className="flex items-center justify-between mb-3 pt-3 border-t border-[#2a2a2a]">
-            <span className="text-sm font-medium text-[#a0a0a0]">{t('chart.byModel')}</span>
-            <span className="text-xs text-[#606060]">{sortedModels.length} {sortedModels.length !== 1 ? t('chart.byModel').toLowerCase() : t('chart.byModel').toLowerCase()}</span>
+          <div className="flex items-center justify-between mb-3 pt-3 border-t border-[var(--color-border-base)]">
+            <span className="text-sm font-medium text-[var(--color-text-secondary)]">{t('chart.byModel')}</span>
+            <span className="text-xs text-[var(--color-text-muted)]">{sortedModels.length} {sortedModels.length !== 1 ? t('chart.byModel').toLowerCase() : t('chart.byModel').toLowerCase()}</span>
           </div>
           <div className="space-y-4">
             {sortedModels.map((model, index) => {
@@ -129,7 +129,7 @@ export function TokenChart({ tokens, costByModel }: TokenChartProps) {
                       <span className="text-sm font-semibold" style={{ color }}>{formatTokens(model.total)}</span>
                     </div>
                   </div>
-                  <div className="h-2 bg-[#2a2a2a] rounded-full overflow-hidden">
+                  <div className="h-2 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{

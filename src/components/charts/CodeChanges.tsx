@@ -26,7 +26,7 @@ export function CodeChanges({ codeChanges, onClick }: CodeChangesProps) {
 
   return (
     <div
-      className={`bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]${onClick ? ' cursor-pointer hover:border-[#3a3a3a] transition-colors' : ''}`}
+      className={`bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]${onClick ? ' cursor-pointer hover:border-[var(--color-border-strong)] transition-colors' : ''}`}
       onClick={onClick}
     >
       <h3 className="text-lg font-semibold mb-4">{t('chart.codeChanges')}</h3>
@@ -35,21 +35,21 @@ export function CodeChanges({ codeChanges, onClick }: CodeChangesProps) {
       <div className="grid grid-cols-4 gap-3 mb-5">
         <div className="p-3 rounded-lg bg-[#3b82f6]/5 border border-[#3b82f6]/10 text-center">
           <div className="text-xl font-bold text-[#3b82f6]">{total.files.toLocaleString()}</div>
-          <div className="text-xs text-[#a0a0a0] mt-0.5">{t('chart.files')}</div>
+          <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('chart.files')}</div>
         </div>
         <div className="p-3 rounded-lg bg-[#22c55e]/5 border border-[#22c55e]/10 text-center">
           <div className="text-xl font-bold text-[#22c55e]">+{total.additions.toLocaleString()}</div>
-          <div className="text-xs text-[#a0a0a0] mt-0.5">{t('chart.added')}</div>
+          <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('chart.added')}</div>
         </div>
         <div className="p-3 rounded-lg bg-[#ef4444]/5 border border-[#ef4444]/10 text-center">
           <div className="text-xl font-bold text-[#ef4444]">-{total.deletions.toLocaleString()}</div>
-          <div className="text-xs text-[#a0a0a0] mt-0.5">{t('chart.deleted')}</div>
+          <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('chart.deleted')}</div>
         </div>
-        <div className="p-3 rounded-lg bg-[#222] text-center">
+        <div className="p-3 rounded-lg bg-[var(--color-bg-elevated)] border border-[var(--color-border-base)] text-center">
           <div className="text-xl font-bold">
             {(total.additions - total.deletions).toLocaleString()}
           </div>
-          <div className="text-xs text-[#a0a0a0] mt-0.5">{t('chart.net')}</div>
+          <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('chart.net')}</div>
         </div>
       </div>
 
@@ -64,8 +64,8 @@ export function CodeChanges({ codeChanges, onClick }: CodeChangesProps) {
               <div key={ext.extension}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm text-[#ccc]">.{ext.extension}</span>
-                    <span className="text-xs text-[#666]">{ext.files} {ext.files !== 1 ? t('chart.files').toLowerCase() : t('chart.file')}</span>
+                    <span className="font-mono text-sm text-[var(--color-text-primary)]">.{ext.extension}</span>
+                    <span className="text-xs text-[var(--color-text-muted)]">{ext.files} {ext.files !== 1 ? t('chart.files').toLowerCase() : t('chart.file')}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs">
                     <span className="text-[#22c55e]">+{ext.additions.toLocaleString()}</span>
@@ -91,7 +91,7 @@ export function CodeChanges({ codeChanges, onClick }: CodeChangesProps) {
           })}
         </div>
       ) : total.files === 0 ? (
-        <div className="h-[120px] flex items-center justify-center text-[#a0a0a0]">
+        <div className="h-[120px] flex items-center justify-center text-[var(--color-text-secondary)]">
           {t('chart.noCodeChanges')}
         </div>
       ) : null}

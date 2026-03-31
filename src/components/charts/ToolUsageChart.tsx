@@ -11,9 +11,9 @@ export function ToolUsageChart({ toolUsage }: ToolUsageChartProps) {
 
   if (entries.length === 0) {
     return (
-      <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+      <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
         <h3 className="text-lg font-semibold mb-4">{t('chart.toolUsage')}</h3>
-        <div className="h-[200px] flex items-center justify-center text-[#a0a0a0]">
+        <div className="h-[200px] flex items-center justify-center text-[var(--color-text-secondary)]">
           {t('common.noData')}
         </div>
       </div>
@@ -29,10 +29,10 @@ export function ToolUsageChart({ toolUsage }: ToolUsageChartProps) {
   const colors = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#84cc16'];
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+    <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">{t('chart.toolUsage')}</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} {t('common.calls')}</span>
+        <span className="text-sm text-[var(--color-text-secondary)]">{formatNumber(totalCalls)} {t('common.calls')}</span>
       </div>
       <div className="space-y-3">
         {sorted.map(([name, count], index) => {
@@ -49,7 +49,7 @@ export function ToolUsageChart({ toolUsage }: ToolUsageChartProps) {
                   {formatNumber(count)}
                 </span>
               </div>
-              <div className="h-2 bg-[#2a2a2a] rounded-full overflow-hidden">
+              <div className="h-2 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
@@ -64,7 +64,7 @@ export function ToolUsageChart({ toolUsage }: ToolUsageChartProps) {
         })}
       </div>
       {entries.length > 15 && (
-        <div className="mt-3 text-sm text-[#a0a0a0] text-center">
+        <div className="mt-3 text-sm text-[var(--color-text-secondary)] text-center">
           +{entries.length - 15} {t('chart.moreTools')}
         </div>
       )}

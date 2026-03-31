@@ -21,16 +21,16 @@ export function MessageBubble({ message }: { message: SessionMessage }) {
         <Icon className="w-4 h-4" />
       </div>
       <div
-        className={`flex-1 max-w-[80%] rounded-xl px-4 py-3 border border-[#2a2a2a] ${isUser ? 'ml-auto bg-[#1a2a3a]' : 'bg-[#1a1a1a]'}`}
+        className={`flex-1 max-w-[80%] rounded-xl px-4 py-3 border border-[var(--color-border-base)] ${isUser ? 'ml-auto bg-[color:color-mix(in_srgb,var(--color-accent-blue)_14%,var(--color-bg-surface))]' : 'bg-[var(--color-bg-surface)]'}`}
       >
         {message.toolName && (
           <div className="text-xs text-[#f59e0b] mb-1 font-medium">{message.toolName}</div>
         )}
-        <div className="text-sm whitespace-pre-wrap break-words text-[#d0d0d0]">
+        <div className="text-sm whitespace-pre-wrap break-words text-[var(--color-text-primary)]">
           {message.content}
         </div>
         {message.timestamp && (
-          <div className="text-[10px] text-[#505050] mt-2">
+          <div className="text-[10px] text-[var(--color-text-faint)] mt-2">
             {new Date(message.timestamp).toLocaleTimeString()}
           </div>
         )}

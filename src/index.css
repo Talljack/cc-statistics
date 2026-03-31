@@ -23,6 +23,7 @@
 body {
   background-color: var(--color-background);
   color: var(--color-primary);
+  color-scheme: var(--color-scheme);
   font-family: var(--font-sans);
   margin: 0;
   padding: 0;

@@ -64,19 +64,19 @@ export function ExportButton({ sessions, title }: ExportButtonProps) {
       <button
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[#2a2a2a] border border-[#3a3a3a] hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
       >
         <Download size={14} />
         {t('export.button')}
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1 z-50 min-w-[120px] rounded border border-[#3a3a3a] bg-[#2a2a2a] shadow-lg">
+        <div className="absolute right-0 mt-1 z-50 min-w-[120px] rounded-lg border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] shadow-lg overflow-hidden">
           {FORMAT_OPTIONS.map(({ format, label, ext }) => (
             <button
               key={format}
               onClick={() => handleSelect(format, ext)}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-[#333] transition-colors"
+              className="w-full text-left px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
             >
               {label}
             </button>

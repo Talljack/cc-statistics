@@ -79,8 +79,8 @@ export function TimeRangeManagementSection() {
       {/* Default Time Range */}
       <section>
         <h3 className="text-base font-semibold mb-1">{t('settings.timeRange.title')}</h3>
-        <p className="text-xs text-[#808080] mb-3">{t('settings.timeRange.desc')}</p>
-        <div className="flex flex-wrap bg-[#2a2a2a] rounded-lg p-1 w-fit gap-0.5">
+        <p className="text-xs text-[var(--color-text-tertiary)] mb-3">{t('settings.timeRange.desc')}</p>
+        <div className="flex flex-wrap bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-lg p-1 w-fit gap-0.5">
           {BUILT_IN_KEYS.map((key) => {
             const range: ActiveTimeRange = { kind: 'built_in', key };
             const selected = isDefaultRange(range);
@@ -92,7 +92,7 @@ export function TimeRangeManagementSection() {
                   'px-4 py-2 rounded-md text-sm font-medium transition-all',
                   selected
                     ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
-                    : 'text-[#a0a0a0] hover:text-white'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                 )}
               >
                 {builtInLabel(key, t)}
@@ -110,7 +110,7 @@ export function TimeRangeManagementSection() {
                   'px-4 py-2 rounded-md text-sm font-medium transition-all',
                   selected
                     ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
-                    : 'text-[#a0a0a0] hover:text-white'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                 )}
               >
                 {formatSavedTimeRangeLabel(sr)}
@@ -124,17 +124,17 @@ export function TimeRangeManagementSection() {
       <section>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-semibold">{t('settings.customRanges.title')}</h3>
-          <span className="text-xs text-[#606060]">
+          <span className="text-xs text-[var(--color-text-muted)]">
             {savedTimeRanges.length}/{MAX_SAVED_RANGES}
           </span>
         </div>
-        <p className="text-xs text-[#808080] mb-3">{t('settings.customRanges.desc')}</p>
+        <p className="text-xs text-[var(--color-text-tertiary)] mb-3">{t('settings.customRanges.desc')}</p>
 
         {/* Saved Ranges List */}
         {savedTimeRanges.length === 0 ? (
-          <div className="bg-[#1a1a1a] border border-[#2a2a2a] border-dashed rounded-xl p-6 text-center">
-            <Clock className="w-8 h-8 text-[#333] mx-auto mb-2" />
-            <p className="text-sm text-[#606060]">{t('settings.customRanges.empty')}</p>
+          <div className="bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] border-dashed rounded-xl p-6 text-center">
+            <Clock className="w-8 h-8 text-[var(--color-text-faint)] mx-auto mb-2" />
+            <p className="text-sm text-[var(--color-text-muted)]">{t('settings.customRanges.empty')}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -148,7 +148,7 @@ export function TimeRangeManagementSection() {
               return (
                 <div
                   key={range.id}
-                  className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-3 flex items-center gap-3"
+                  className="bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] rounded-xl px-4 py-3 flex items-center gap-3"
                 >
                   {/* Label + badges */}
                   <div className="flex-1 min-w-0">
@@ -179,7 +179,7 @@ export function TimeRangeManagementSection() {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-[#606060] mt-0.5">
+                    <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
                       {range.kind === 'relative'
                         ? `${range.days} ${t('settings.customRanges.days')}${range.includeToday ? ` (+${t('settings.customRanges.includeToday')})` : ''}`
                         : `${range.startDate} - ${range.endDate}`}
@@ -194,7 +194,7 @@ export function TimeRangeManagementSection() {
                       'p-1.5 rounded-lg transition-colors',
                       range.showInHeader
                         ? 'text-[#3b82f6] bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20'
-                        : 'text-[#555] hover:text-[#808080] hover:bg-[#2a2a2a]'
+                        : 'text-[var(--color-text-faint)] hover:text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'
                     )}
                   >
                     <Eye className="w-4 h-4" />
@@ -208,7 +208,7 @@ export function TimeRangeManagementSection() {
                       'p-1.5 rounded-lg transition-colors',
                       isDefault
                         ? 'text-amber-400 bg-amber-400/10 hover:bg-amber-400/20'
-                        : 'text-[#555] hover:text-[#808080] hover:bg-[#2a2a2a]'
+                        : 'text-[var(--color-text-faint)] hover:text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'
                     )}
                   >
                     <Star className="w-4 h-4" />
@@ -218,7 +218,7 @@ export function TimeRangeManagementSection() {
                   <button
                     onClick={() => handleOpenEdit(range)}
                     title={t('settings.customRanges.edit')}
-                    className="p-1.5 rounded-lg text-[#555] hover:text-[#808080] hover:bg-[#2a2a2a] transition-colors"
+                    className="p-1.5 rounded-lg text-[var(--color-text-faint)] hover:text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] transition-colors"
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
@@ -234,7 +234,7 @@ export function TimeRangeManagementSection() {
                       </button>
                       <button
                         onClick={() => setDeletingId(null)}
-                        className="px-2 py-1 rounded-md bg-[#2a2a2a] text-[#808080] text-xs font-medium hover:bg-[#333] transition-colors"
+                        className="px-2 py-1 rounded-md bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] text-[var(--color-text-tertiary)] text-xs font-medium hover:bg-[var(--color-bg-active)] transition-colors"
                       >
                         {t('common.cancel')}
                       </button>
@@ -243,7 +243,7 @@ export function TimeRangeManagementSection() {
                     <button
                       onClick={() => setDeletingId(range.id)}
                       title={t('settings.customRanges.delete')}
-                      className="p-1.5 rounded-lg text-[#555] hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                      className="p-1.5 rounded-lg text-[var(--color-text-faint)] hover:text-red-400 hover:bg-red-400/10 transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -257,11 +257,11 @@ export function TimeRangeManagementSection() {
         {/* Add Range Button */}
         <div className="mt-3">
           {savedTimeRanges.length >= MAX_SAVED_RANGES ? (
-            <p className="text-xs text-[#808080]">{t('settings.customRanges.maxReached')}</p>
+            <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.customRanges.maxReached')}</p>
           ) : (
             <button
               onClick={handleOpenCreate}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-[#333] text-sm font-medium text-[#808080] hover:text-white hover:border-[#3b82f6] hover:bg-[#3b82f6]/5 transition-all w-full justify-center"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-[var(--color-border-strong)] text-sm font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:border-[#3b82f6] hover:bg-[#3b82f6]/5 transition-all w-full justify-center"
             >
               <Plus className="w-4 h-4" />
               {t('settings.customRanges.add')}

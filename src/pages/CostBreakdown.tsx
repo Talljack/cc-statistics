@@ -22,16 +22,16 @@ export function CostBreakdown() {
 
   if (statsLoading || sessionsLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">{t('cost.loading')}</div>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex items-center justify-center">
+        <div className="text-[var(--color-text-secondary)]">{t('cost.loading')}</div>
       </div>
     );
   }
 
   if (!stats) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">{t('cost.noData')}</div>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex items-center justify-center">
+        <div className="text-[var(--color-text-secondary)]">{t('cost.noData')}</div>
       </div>
     );
   }
@@ -81,16 +81,16 @@ export function CostBreakdown() {
     .sort((a, b) => b.derivedCost - a.derivedCost);
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={() => {}} isRefreshing={false} />
 
       <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate('/')}
-            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
           >
-            <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+            <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
           </button>
           <h2 className="text-xl font-semibold">
             {t('cost.title')}
@@ -101,17 +101,17 @@ export function CostBreakdown() {
         </div>
 
         {/* Cost by Category */}
-        <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a] mb-6">
+        <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)] mb-6">
           <h3 className="text-lg font-semibold mb-4">{t('cost.byType')}</h3>
 
           {totalCategoryCost === 0 && !hasCacheUsage ? (
-            <div className="h-[100px] flex items-center justify-center text-[#a0a0a0]">
+            <div className="h-[100px] flex items-center justify-center text-[var(--color-text-secondary)]">
               {t('cost.noTypeData')}
             </div>
           ) : (
             <>
               {/* Stacked bar */}
-              <div data-testid="cost-type-stacked-bar" className="h-4 bg-[#2a2a2a] rounded-full overflow-hidden flex mb-4">
+              <div data-testid="cost-type-stacked-bar" className="h-4 bg-[var(--color-bg-hover)] rounded-full overflow-hidden flex mb-4">
                 {billableCategories.map(({ key, color }) => {
                   const value = costByCategory[key];
                   const pct = totalCategoryCost > 0 ? (value / totalCategoryCost) * 100 : 0;
@@ -137,10 +137,10 @@ export function CostBreakdown() {
                     <div key={key} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
-                        <span className="text-sm text-[#a0a0a0]">{t(labelKey)}</span>
+                        <span className="text-sm text-[var(--color-text-secondary)]">{t(labelKey)}</span>
                       </div>
                       <span className="text-sm font-medium" style={{ color }}>
-                        {formatCost(value)} <span className="text-[#606060]">({pct}%)</span>
+                        {formatCost(value)} <span className="text-[var(--color-text-muted)]">({pct}%)</span>
                       </span>
                     </div>
                   );
@@ -151,15 +151,15 @@ export function CostBreakdown() {
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
                         <div className="min-w-0">
-                          <span className="text-sm text-[#a0a0a0]">{t(labelKey)}</span>
-                          <div className="text-[11px] text-[#606060]">
+                          <span className="text-sm text-[var(--color-text-secondary)]">{t(labelKey)}</span>
+                          <div className="text-[11px] text-[var(--color-text-muted)]">
                             {t('cost.cached')} {formatTokens(tokens)} {t('cost.tokens')} / {t('cost.notIncludedInTotal')}
                           </div>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
                         <div className="text-sm font-medium" style={{ color }}>{formatCost(cost)}</div>
-                        <div className="text-xs text-[#606060]">{t('cost.cacheValue')}</div>
+                        <div className="text-xs text-[var(--color-text-muted)]">{t('cost.cacheValue')}</div>
                       </div>
                     </div>
                   );
@@ -171,10 +171,10 @@ export function CostBreakdown() {
 
         {/* Cost by Model */}
         {modelCosts.length > 0 && (
-          <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a] mb-6">
+          <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)] mb-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">{t('cost.byModel')}</h3>
-              <span className="text-xs text-[#606060]">{modelCosts.length} {modelCosts.length !== 1 ? t('cost.models') : t('cost.model')}</span>
+              <span className="text-xs text-[var(--color-text-muted)]">{modelCosts.length} {modelCosts.length !== 1 ? t('cost.models') : t('cost.model')}</span>
             </div>
             <div className="space-y-4">
               {modelCosts.map((m, index) => {
@@ -188,11 +188,11 @@ export function CostBreakdown() {
                         <span className="text-sm truncate" title={m.model}>{m.model}</span>
                       </div>
                       <div className="flex items-center gap-3 shrink-0 ml-3">
-                        <span className="text-xs text-[#a0a0a0]">{formatTokens(m.total)} {t('cost.tokens')}</span>
+                        <span className="text-xs text-[var(--color-text-secondary)]">{formatTokens(m.total)} {t('cost.tokens')}</span>
                         <span className="text-sm font-semibold text-[#ef4444]">{formatCost(m.cost)}</span>
                       </div>
                     </div>
-                    <div className="h-2 bg-[#2a2a2a] rounded-full overflow-hidden">
+                    <div className="h-2 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-500"
                         style={{ width: `${pct}%`, backgroundColor: color, opacity: 0.8 }}
@@ -206,23 +206,23 @@ export function CostBreakdown() {
         )}
 
         {/* Cost by Session */}
-        <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#2a2a2a]">
+        <div className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] overflow-hidden">
+          <div className="px-5 py-4 border-b border-[var(--color-border-base)]">
             <h3 className="text-lg font-semibold">
               {t('cost.bySession')}
-              <span className="text-[#a0a0a0] text-sm font-normal ml-2">
+              <span className="text-[var(--color-text-secondary)] text-sm font-normal ml-2">
                 {sortedSessions.length} {sortedSessions.length !== 1 ? t('cost.sessions') : t('cost.session')}
               </span>
             </h3>
           </div>
 
           {sortedSessions.length === 0 ? (
-            <div className="p-8 text-center text-[#a0a0a0]">{t('cost.noSessions')}</div>
+            <div className="p-8 text-center text-[var(--color-text-secondary)]">{t('cost.noSessions')}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[#2a2a2a] text-[#a0a0a0]">
+                  <tr className="border-b border-[var(--color-border-base)] text-[var(--color-text-secondary)]">
                     <th className="text-left px-4 py-3 font-medium">{t('cost.time')}</th>
                     <th className="text-left px-4 py-3 font-medium">{t('cost.project')}</th>
                     <th className="text-left px-4 py-3 font-medium">{t('cost.model')}</th>
@@ -235,21 +235,21 @@ export function CostBreakdown() {
                   {sortedSessions.map((session) => (
                     <tr
                       key={`${session.source}:${session.session_id}`}
-                      className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors"
+                      className="border-b border-[var(--color-border-base)] hover:bg-[var(--color-bg-elevated)] transition-colors"
                     >
-                      <td className="px-4 py-3 whitespace-nowrap text-[#a0a0a0]">
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)]">
                         {formatTimestamp(session.timestamp)}
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-[#3b82f6]">{session.project_name}</span>
                       </td>
-                      <td className="px-4 py-3 text-[#a0a0a0] max-w-[200px] truncate" title={session.model}>
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)] max-w-[200px] truncate" title={session.model}>
                         {session.model}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[#f59e0b]">
                         {formatTokens(session.total_tokens)}
                       </td>
-                      <td className="px-4 py-3 text-right text-[#a0a0a0]">
+                      <td className="px-4 py-3 text-right text-[var(--color-text-secondary)]">
                         {session.duration_formatted}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[#ef4444] font-semibold">

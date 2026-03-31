@@ -200,7 +200,7 @@ export function Dashboard() {
 
   if (currentView === 'settings') {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
         <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
         <SettingsPage />
         <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
@@ -210,7 +210,7 @@ export function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex flex-col items-center justify-center gap-6">
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col items-center justify-center gap-6">
         <div className="relative">
           <div className="w-20 h-20 bg-gradient-to-br from-[#3b82f6] to-[#6366f1] rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/30 animate-pulse">
             <span className="text-white font-bold text-4xl">C</span>
@@ -221,9 +221,9 @@ export function Dashboard() {
 
         <div className="text-center">
           <h1 className="text-xl font-semibold mb-2">
-            CC <span className="text-[#a0a0a0]">Statistics</span>
+            CC <span className="text-[var(--color-text-secondary)]">Statistics</span>
           </h1>
-          <div className="flex items-center gap-2 text-sm text-[#606060]">
+          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
             <div className="flex gap-1">
               <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_infinite]" />
               <span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full animate-[bounce_1s_ease-in-out_0.15s_infinite]" />
@@ -238,13 +238,13 @@ export function Dashboard() {
 
   if (!stats) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex flex-col items-center justify-center gap-4">
-        <div className="w-16 h-16 bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl flex items-center justify-center">
-          <span className="text-[#606060] text-3xl font-bold">C</span>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col items-center justify-center gap-4">
+        <div className="w-16 h-16 bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] rounded-2xl flex items-center justify-center">
+          <span className="text-[var(--color-text-muted)] text-3xl font-bold">C</span>
         </div>
         <div className="text-center">
-          <p className="text-[#a0a0a0] text-sm">{t('dashboard.noData')}</p>
-          <p className="text-[#606060] text-xs mt-1">{t('dashboard.noDataDesc')}</p>
+          <p className="text-[var(--color-text-secondary)] text-sm">{t('dashboard.noData')}</p>
+          <p className="text-[var(--color-text-muted)] text-xs mt-1">{t('dashboard.noDataDesc')}</p>
         </div>
       </div>
     );
@@ -276,7 +276,7 @@ export function Dashboard() {
   const hasAnyUsageChart = hasToolData || hasMcpData;
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
 
       <main className="flex-1 p-6 overflow-auto">

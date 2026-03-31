@@ -87,15 +87,15 @@ function UsageProgressBar({ label, usedPercent, resetSeconds }: {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-[#a0a0a0]">{label}</span>
+        <span className="text-sm text-[var(--color-text-secondary)]">{label}</span>
         <div className="flex items-center gap-2">
           <span className="text-lg font-semibold" style={{ color: statusColor }}>
             {remaining.toFixed(0)}%
           </span>
-          <span className="text-xs text-[#606060]">remaining</span>
+          <span className="text-xs text-[var(--color-text-muted)]">remaining</span>
         </div>
       </div>
-      <div className="h-3 bg-[#2a2a2a] rounded-full overflow-hidden flex">
+      <div className="h-3 bg-[var(--color-bg-hover)] rounded-full overflow-hidden flex">
         {/* Green = remaining portion */}
         <div
           className="h-full rounded-l-full transition-all duration-700 ease-out"
@@ -110,13 +110,13 @@ function UsageProgressBar({ label, usedPercent, resetSeconds }: {
           className="h-full rounded-r-full transition-all duration-700 ease-out"
           style={{
             width: `${usedPercent}%`,
-            backgroundColor: usedPercent >= 85 ? '#ef4444' : '#444',
+            backgroundColor: usedPercent >= 85 ? '#ef4444' : 'var(--color-border-strong)',
             opacity: 0.5,
           }}
         />
       </div>
       {resetSeconds > 0 && (
-        <div className="flex items-center gap-1 text-xs text-[#606060]">
+        <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
           <Clock className="w-3 h-3" />
           <span>Resets in {formatCountdown(resetSeconds)}</span>
         </div>
@@ -134,9 +134,9 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
   const statusColor = getStatusColor(overallUsed);
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
+    <div className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-[var(--color-border-base)] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
           <h3 className="text-base font-semibold">{label}</h3>
@@ -148,7 +148,7 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
             />
           )}
         </div>
-        <span className="px-3 py-1 rounded-lg bg-[#2a2a2a] text-sm text-[#a0a0a0]">
+        <span className="px-3 py-1 rounded-lg bg-[var(--color-bg-hover)] text-sm text-[var(--color-text-secondary)]">
           {usage.planType}
         </span>
       </div>
@@ -165,7 +165,7 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
         {/* Credits-only providers: show balance prominently */}
         {isCreditsOnly ? (
           <div className="flex items-center justify-between">
-            <span className="text-sm text-[#a0a0a0]">
+            <span className="text-sm text-[var(--color-text-secondary)]">
               {t('account.balance')}
             </span>
             <span className={`text-lg font-semibold ${usage.limitReached ? 'text-[#ef4444]' : 'text-[#22c55e]'}`}>
@@ -192,12 +192,12 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
 
         {/* Footer: email + credits (for window-based providers that also have credits) */}
         {(usage.email || (!isCreditsOnly && usage.creditsBalance != null)) && (
-          <div className="flex items-center gap-3 pt-2 border-t border-[#2a2a2a]">
+          <div className="flex items-center gap-3 pt-2 border-t border-[var(--color-border-base)]">
             {usage.email && (
-              <div className="text-xs text-[#606060] truncate">{usage.email}</div>
+              <div className="text-xs text-[var(--color-text-muted)] truncate">{usage.email}</div>
             )}
             {!isCreditsOnly && usage.creditsBalance != null && (
-              <div className="text-xs text-[#a0a0a0] ml-auto">
+              <div className="text-xs text-[var(--color-text-secondary)] ml-auto">
                 Credits: ${usage.creditsBalance.toFixed(2)}
               </div>
             )}
@@ -233,7 +233,7 @@ export function AccountUsage() {
   }, [queryClient]);
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={handleRefresh} isRefreshing={isRefetching} />
 
       <main className="flex-1 p-6 overflow-auto">
@@ -241,15 +241,15 @@ export function AccountUsage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/')}
-              className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+              className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+              <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
             </button>
             <div className="flex items-center gap-2">
               <User className="w-5 h-5 text-[#f97316]" />
               <h2 className="text-xl font-semibold">
                 {t('account.title')}
-                <span className="text-[#a0a0a0] text-sm font-normal ml-2">
+                <span className="text-[var(--color-text-secondary)] text-sm font-normal ml-2">
                   {isLoadingProviders && providers.length > 0
                     ? `${providers.length}…`
                     : `${providers.length} ${t('account.providers')}`}
@@ -259,7 +259,7 @@ export function AccountUsage() {
           </div>
           <button
             onClick={handleRefresh}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#2a2a2a] hover:bg-[#333] text-sm transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--color-bg-hover)] hover:bg-[var(--color-bg-active)] border border-[var(--color-border-base)] text-[var(--color-text-secondary)] text-sm transition-colors"
             disabled={isRefetching}
           >
             <RefreshCw className={`w-4 h-4 ${isRefetching || isLoadingProviders ? 'animate-spin' : ''}`} />
@@ -268,22 +268,22 @@ export function AccountUsage() {
         </div>
 
         {error && (
-          <div className="mb-4 bg-[#1a1a1a] rounded-xl p-4 border border-[#ef4444]/30 text-sm text-[#ef4444]">
+          <div className="mb-4 bg-[var(--color-bg-surface)] rounded-xl p-4 border border-[#ef4444]/30 text-sm text-[#ef4444]">
             {String(error)}
           </div>
         )}
 
         {!isLoadingProviders && providers.length === 0 ? (
-          <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center">
+          <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center">
             {fetchLikelyFailed ? (
               <>
                 <WifiOff className="w-12 h-12 text-[#f59e0b] mx-auto mb-3" />
-                <p className="text-[#a0a0a0] mb-1">{t('account.fetchFailed')}</p>
-                <p className="text-sm text-[#606060] mb-4">{t('account.fetchFailedDesc')}</p>
+                <p className="text-[var(--color-text-secondary)] mb-1">{t('account.fetchFailed')}</p>
+                <p className="text-sm text-[var(--color-text-muted)] mb-4">{t('account.fetchFailedDesc')}</p>
                 <button
                   onClick={handleRefresh}
                   disabled={isRefetching}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2a2a2a] hover:bg-[#333] text-sm transition-colors text-[#a0a0a0]"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-bg-hover)] hover:bg-[var(--color-bg-active)] border border-[var(--color-border-base)] text-sm transition-colors text-[var(--color-text-secondary)]"
                 >
                   <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
                   {t('account.retry')}
@@ -291,9 +291,9 @@ export function AccountUsage() {
               </>
             ) : (
               <>
-                <User className="w-12 h-12 text-[#606060] mx-auto mb-3" />
-                <p className="text-[#a0a0a0] mb-1">{t('account.noData')}</p>
-                <p className="text-sm text-[#606060]">{t('account.noDataDesc')}</p>
+                <User className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-3" />
+                <p className="text-[var(--color-text-secondary)] mb-1">{t('account.noData')}</p>
+                <p className="text-sm text-[var(--color-text-muted)]">{t('account.noDataDesc')}</p>
               </>
             )}
           </div>
@@ -303,14 +303,14 @@ export function AccountUsage() {
               <ProviderCard key={provider.source + (provider.email || '')} usage={provider} t={t} />
             ))}
             {isLoadingProviders && (
-              <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-5 animate-pulse">
+              <div className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] p-5 animate-pulse">
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="w-3 h-3 rounded-full bg-[#2a2a2a]" />
-                  <div className="h-5 w-24 bg-[#2a2a2a] rounded" />
+                  <div className="w-3 h-3 rounded-full bg-[var(--color-bg-hover)]" />
+                  <div className="h-5 w-24 bg-[var(--color-bg-hover)] rounded" />
                 </div>
                 <div className="space-y-4">
-                  <div className="h-3 bg-[#2a2a2a] rounded-full" />
-                  <div className="h-3 bg-[#2a2a2a] rounded-full w-3/4" />
+                  <div className="h-3 bg-[var(--color-bg-hover)] rounded-full" />
+                  <div className="h-3 bg-[var(--color-bg-hover)] rounded-full w-3/4" />
                 </div>
               </div>
             )}
@@ -318,12 +318,12 @@ export function AccountUsage() {
         )}
 
         {/* Info banner */}
-        <div className="mt-6 bg-[#1a1a1a] rounded-xl p-4 border border-[#2a2a2a]">
+        <div className="mt-6 bg-[var(--color-bg-surface)] rounded-xl p-4 border border-[var(--color-border-base)]">
           <div className="flex items-start gap-3">
-            <BarChart3 className="w-5 h-5 text-[#606060] mt-0.5 shrink-0" />
-            <div className="text-sm text-[#606060] space-y-1">
+            <BarChart3 className="w-5 h-5 text-[var(--color-text-muted)] mt-0.5 shrink-0" />
+            <div className="text-sm text-[var(--color-text-muted)] space-y-1">
               <p>{t('account.infoNote')}</p>
-              <p className="text-[#505050]">{t('account.configNote')}</p>
+              <p className="text-[var(--color-text-faint)]">{t('account.configNote')}</p>
             </div>
           </div>
         </div>

@@ -146,36 +146,50 @@ export function Report() {
                   <span className="text-xs text-[var(--color-text-tertiary)]">{t('dashboard.tokens')}</span>
                   <span className="text-xs text-[var(--color-text-tertiary)]">{t('dashboard.sessions')}</span>
                 </div>
-                <div className="flex items-end gap-1" style={{ height: 120 }}>
+                <div className="flex items-end gap-2" style={{ height: 160 }}>
                   {dailyTrend.map((day) => {
-                    const tokenH = (day.tokens / maxDailyTokens) * 100;
-                    const sessionH = (day.sessions / maxDailySessions) * 100;
+                    const tokenHeight = day.tokens > 0
+                      ? Math.max((day.tokens / maxDailyTokens) * 100, 6)
+                      : 0;
+                    const sessionHeight = day.sessions > 0
+                      ? Math.max((day.sessions / maxDailySessions) * 100, 6)
+                      : 0;
                     return (
-                      <div key={day.date} className="flex-1 flex flex-col items-center justify-end h-full group relative">
-                        <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
-                          <div className="bg-[var(--color-bg-active)] rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-xl">
+                      <div
+                        key={day.date}
+                        className="flex-1 min-w-0 flex flex-col items-center justify-end h-full group relative"
+                        data-testid={`daily-activity-day-${day.date}`}
+                      >
+                        <div className="absolute bottom-full mb-2 hidden group-hover:block z-10 pointer-events-none">
+                          <div className="bg-[var(--color-bg-active)] rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-xl border border-[var(--color-border-base)]">
                             <div className="font-medium mb-1">{day.date}</div>
                             <div style={{ color: 'var(--color-accent-yellow)' }}>{formatTokens(day.tokens)} {t('cost.tokens')}</div>
                             <div style={{ color: 'var(--color-accent-blue)' }}>{day.sessions} {t('dashboard.sessions').toLowerCase()}</div>
                             {showCost && <div style={{ color: 'var(--color-accent-red)' }}>{formatCost(day.cost)}</div>}
                           </div>
                         </div>
-                        <div className="w-full flex gap-px" style={{ height: Math.max((day.tokens / maxDailyTokens) * 120, 4) }}>
-                          <div className="flex-1 rounded-t-sm transition-all" style={{ height: '100%', backgroundColor: 'color-mix(in srgb, var(--color-accent-yellow) 70%, transparent)' }} />
-                          <div className="flex-1 rounded-t-sm transition-all" style={{ height: `${Math.max((sessionH / Math.max(tokenH, 1)) * 100, 8)}%`, backgroundColor: 'color-mix(in srgb, var(--color-accent-blue) 70%, transparent)' }} />
+                        <div className="w-full h-[120px] rounded-lg bg-[var(--color-bg-elevated)] border border-[var(--color-border-base)] px-1.5 py-1 flex items-end gap-1 overflow-hidden">
+                          <div
+                            className="flex-1 rounded-t-md transition-all"
+                            data-testid={`daily-token-bar-${day.date}`}
+                            style={{
+                              height: `${tokenHeight}%`,
+                              backgroundColor: 'color-mix(in srgb, var(--color-accent-yellow) 72%, transparent)',
+                            }}
+                          />
+                          <div
+                            className="flex-1 rounded-t-md transition-all"
+                            data-testid={`daily-session-bar-${day.date}`}
+                            style={{
+                              height: `${sessionHeight}%`,
+                              backgroundColor: 'color-mix(in srgb, var(--color-accent-blue) 72%, transparent)',
+                            }}
+                          />
                         </div>
+                        <span className="mt-2 text-[10px] text-[var(--color-text-muted)] leading-none">{day.label}</span>
                       </div>
                     );
                   })}
-                </div>
-                <div className="flex gap-1 mt-1">
-                  {dailyTrend.map((day, i) => (
-                    <div key={day.date} className="flex-1 text-center">
-                      {(dailyTrend.length <= 14 || i % Math.ceil(dailyTrend.length / 14) === 0) && (
-                        <span className="text-[10px] text-[var(--color-text-muted)]">{day.label}</span>
-                      )}
-                    </div>
-                  ))}
                 </div>
               </div>
             </section>
