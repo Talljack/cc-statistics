@@ -181,7 +181,7 @@ fn codex_shared_pipeline_keeps_skill_tool_mcp_and_token_deltas() {
     let stats = aggregate_statistics(&sessions, &absolute_day("2026-03-11"), &None, &[]);
     assert_eq!(stats.sessions, 1);
     assert_eq!(stats.instructions, 1);
-    assert_eq!(stats.tokens.input, 4);
+    assert_eq!(stats.tokens.input, 3);
     assert_eq!(stats.tokens.output, 5);
     assert_eq!(stats.tokens.cache_read, 1);
     assert_eq!(stats.tokens.cache_creation, 0);
