@@ -7,40 +7,68 @@ import { useTranslation } from '../lib/i18n';
 
 export function Instructions() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
+  const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
   const navigate = useNavigate();
-  const { data: instructions, isLoading } = useInstructions(selectedProject, activeTimeRange, selectedProvider);
+  const { data: instructions, isLoading } = useInstructions(selectedProjects, activeTimeRange, selectedProviders);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">{t('instructions.loading')}</div>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
+        <Header onRefresh={() => {}} isRefreshing={false} />
+
+        <main className="flex-1 p-6 overflow-auto">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-9 h-9 rounded-lg bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] animate-pulse" />
+            <div className="h-7 w-44 rounded bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] animate-pulse" />
+          </div>
+
+          <div className="space-y-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={index}
+                className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] p-4 animate-pulse"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="h-3 w-28 rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-3 w-20 rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-3 w-16 rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-3 w-14 rounded bg-[var(--color-bg-hover)]" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-4 w-full rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-4 w-[92%] rounded bg-[var(--color-bg-hover)]" />
+                  <div className="h-4 w-[68%] rounded bg-[var(--color-bg-hover)]" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={() => {}} isRefreshing={false} />
 
       <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate('/')}
-            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
           >
-            <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+            <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
           </button>
           <h2 className="text-xl font-semibold">
             {t('instructions.title')}
-            <span className="text-[#a0a0a0] text-sm font-normal ml-2">
+            <span className="text-[var(--color-text-secondary)] text-sm font-normal ml-2">
               {instructions?.length ?? 0} {t('common.total')}
             </span>
           </h2>
         </div>
 
         {!instructions || instructions.length === 0 ? (
-          <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
+          <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center text-[var(--color-text-secondary)]">
             {t('instructions.noData')}
           </div>
         ) : (
@@ -48,15 +76,15 @@ export function Instructions() {
             {instructions.map((item, index) => (
               <div
                 key={`${item.source}-${item.session_id}-${index}`}
-                className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-4 hover:border-[#333] transition-colors"
+                className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] p-4 hover:border-[var(--color-border-strong)] transition-colors"
               >
-                <div className="flex items-center gap-3 mb-2 text-xs text-[#606060]">
+                <div className="flex items-center gap-3 mb-2 text-xs text-[var(--color-text-muted)]">
                   <span>{formatTimestamp(item.timestamp)}</span>
                   <span className="text-[#3b82f6]">{item.project_name}</span>
-                  <span className="rounded bg-[#262626] px-2 py-0.5 text-[#9ca3af]">{item.source}</span>
+                  <span className="rounded bg-[var(--color-bg-hover)] px-2 py-0.5 text-[var(--color-text-tertiary)]">{item.source}</span>
                   <span className="font-mono">{item.session_id.slice(0, 8)}</span>
                 </div>
-                <p className="text-sm text-[#d0d0d0] whitespace-pre-wrap break-words leading-relaxed">
+                <p className="text-sm text-[var(--color-text-primary)] whitespace-pre-wrap break-words leading-relaxed">
                   {item.content}
                 </p>
               </div>

@@ -22,9 +22,9 @@ function parseMcpName(fullName: string): { server: string; method: string } {
 
 export function McpServers() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange } = useFilterStore();
+  const { selectedProjects, activeTimeRange } = useFilterStore();
   const navigate = useNavigate();
-  const { data: stats, isLoading } = useStatistics(selectedProject, activeTimeRange);
+  const { data: stats, isLoading } = useStatistics(selectedProjects, activeTimeRange);
 
   const handleRefresh = () => {};
 
@@ -52,29 +52,29 @@ export function McpServers() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">{t('mcp.loading')}</div>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex items-center justify-center">
+        <div className="text-[var(--color-text-secondary)]">{t('mcp.loading')}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={handleRefresh} isRefreshing={false} />
 
       <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate('/')}
-            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
           >
-            <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+            <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
           </button>
           <div className="flex items-center gap-2">
             <Plug className="w-5 h-5 text-[#06b6d4]" />
             <h2 className="text-xl font-semibold">
               {t('mcp.title')}
-              <span className="text-[#a0a0a0] text-sm font-normal ml-2">
+              <span className="text-[var(--color-text-secondary)] text-sm font-normal ml-2">
                 {groups.length} {t('mcp.servers')} · {formatNumber(totalCalls)} {t('common.calls')}
               </span>
             </h2>
@@ -82,7 +82,7 @@ export function McpServers() {
         </div>
 
         {groups.length === 0 ? (
-          <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
+          <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center text-[var(--color-text-secondary)]">
             {t('mcp.noData')}
           </div>
         ) : (
@@ -92,7 +92,7 @@ export function McpServers() {
               const percentage = maxTotal > 0 ? (group.total / maxTotal) * 100 : 0;
 
               return (
-                <div key={group.server} className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
+                <div key={group.server} className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] overflow-hidden">
                   {/* Server header */}
                   <div className="p-4">
                     <div className="flex items-center justify-between mb-2">
@@ -103,7 +103,7 @@ export function McpServers() {
                         </span>
                       </div>
                       <div className="flex items-center gap-3 shrink-0 ml-3">
-                        <span className="text-xs text-[#606060]">
+                        <span className="text-xs text-[var(--color-text-muted)]">
                           {group.methods.length} {group.methods.length !== 1 ? t('mcp.methods') : t('mcp.method')}
                         </span>
                         <span className="text-sm font-bold" style={{ color }}>
@@ -111,7 +111,7 @@ export function McpServers() {
                         </span>
                       </div>
                     </div>
-                    <div className="h-2.5 bg-[#2a2a2a] rounded-full overflow-hidden">
+                    <div className="h-2.5 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-500"
                         style={{ width: `${percentage}%`, backgroundColor: color, opacity: 0.8 }}
@@ -121,18 +121,18 @@ export function McpServers() {
 
                   {/* Methods table */}
                   {group.methods.length > 0 && (
-                    <div className="border-t border-[#2a2a2a]">
+                    <div className="border-t border-[var(--color-border-base)]">
                       <table className="w-full text-sm">
                         <tbody>
                           {group.methods.map((m) => (
-                            <tr key={m.method} className="border-b border-[#2a2a2a] last:border-b-0 hover:bg-[#222] transition-colors">
-                              <td className="px-4 py-2.5 pl-9 text-[#a0a0a0] truncate" title={m.method}>
+                            <tr key={m.method} className="border-b border-[var(--color-border-base)] last:border-b-0 hover:bg-[var(--color-bg-elevated)] transition-colors">
+                              <td className="px-4 py-2.5 pl-9 text-[var(--color-text-secondary)] truncate" title={m.method}>
                                 {m.method || t('mcp.default')}
                               </td>
                               <td className="px-4 py-2.5 text-right font-mono w-24" style={{ color }}>
                                 {formatNumber(m.count)}
                               </td>
-                              <td className="px-4 py-2.5 text-right text-[#606060] w-20">
+                              <td className="px-4 py-2.5 text-right text-[var(--color-text-muted)] w-20">
                                 {group.total > 0 ? ((m.count / group.total) * 100).toFixed(0) : '0'}%
                               </td>
                             </tr>

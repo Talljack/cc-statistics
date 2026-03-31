@@ -65,6 +65,13 @@ export interface SessionInfo {
   tokens_by_model: Record<string, ModelTokens>;
 }
 
+export interface SessionMessage {
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  timestamp: string;
+  toolName: string | null;
+}
+
 export interface InstructionInfo {
   timestamp: string;
   project_name: string;
@@ -121,6 +128,7 @@ export interface ProviderUsage {
   weeklyResetSeconds: number;
   limitReached: boolean;
   email: string | null;
+  accountName: string | null;
   creditsBalance: number | null;
 }
 

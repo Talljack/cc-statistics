@@ -1,5 +1,7 @@
 use crate::classification::{classify_tool_call, ToolCallChain};
-use crate::commands::CustomProviderDef;
+use crate::commands::{
+    model_matches_provider_filters, project_matches_filters, CustomProviderDef,
+};
 use crate::models::*;
 use crate::normalized::{
     CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord,
@@ -54,9 +56,9 @@ pub fn discover_projects() -> Vec<(String, String)> {
 
 /// Collect aggregate statistics across Codex sessions.
 pub fn collect_stats(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
     let mut combined = ProjectStats::default();
@@ -116,9 +118,9 @@ pub fn collect_stats(
 
 /// Collect individual session info entries from Codex data.
 pub fn collect_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
     let mut sessions: Vec<SessionInfo> = Vec::new();
@@ -182,7 +184,7 @@ pub fn collect_sessions(
 }
 
 pub fn collect_normalized_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let Some(home) = dirs::home_dir() else {
@@ -194,7 +196,7 @@ pub fn collect_normalized_sessions(
 
 pub fn collect_normalized_sessions_from_home(
     home: &Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let sessions_dir = home.join(".codex").join("sessions");
@@ -242,7 +244,7 @@ pub fn collect_normalized_sessions_from_home(
 
 fn parse_normalized_codex_session(
     path: &Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     _query_range: &QueryTimeRange,
 ) -> Option<NormalizedSession> {
     let file = fs::File::open(path).ok()?;
@@ -368,11 +370,12 @@ fn parse_normalized_codex_session(
 
                 match payload_type {
                     "message" => {
-                        let Some(content) = extract_codex_message_text(&value) else {
+                        let role = payload.get("role").and_then(|value| value.as_str());
+                        if role != Some("user") {
                             continue;
-                        };
+                        }
 
-                        if let Some(skill_name) = extract_codex_skill_name(&content) {
+                        if let Some(skill_name) = extract_codex_skill_name_from_payload(payload) {
                             let record = NormalizedRecord::Tool(ToolRecord {
                                 timestamp,
                                 name: "Skill".to_string(),
@@ -380,13 +383,16 @@ fn parse_normalized_codex_session(
                                 mcp_name: None,
                             });
                             records.push(record);
-                        } else if !is_codex_injected_message(&content) {
-                            let record = NormalizedRecord::Instruction(InstructionRecord {
-                                timestamp,
-                                content,
-                            });
-                            records.push(record);
                         }
+
+                        let Some(content) = extract_codex_user_instruction(payload) else {
+                            continue;
+                        };
+                        let record = NormalizedRecord::Instruction(InstructionRecord {
+                            timestamp,
+                            content,
+                        });
+                        records.push(record);
                     }
                     "function_call" | "custom_tool_call" => {
                         let Some(name) = payload.get("name").and_then(|value| value.as_str())
@@ -437,10 +443,8 @@ fn parse_normalized_codex_session(
         .as_deref()
         .map(project_name_from_cwd)
         .unwrap_or_else(|| "unknown".to_string());
-    if let Some(wanted_project) = project {
-        if !project_name.eq_ignore_ascii_case(wanted_project) {
-            return None;
-        }
+    if !project_matches_filters(project, &project_name) {
+        return None;
     }
 
     let provider = primary_model
@@ -500,25 +504,45 @@ fn extract_codex_timestamp(value: &Value) -> Option<DateTime<chrono::FixedOffset
         .and_then(|timestamp| DateTime::parse_from_rfc3339(timestamp).ok())
 }
 
-fn extract_codex_message_text(value: &Value) -> Option<String> {
-    let content = value
+fn extract_codex_skill_name_from_payload(payload: &Value) -> Option<String> {
+    let content = payload
         .get("content")
-        .or_else(|| value.pointer("/message/content"))
-        .or_else(|| value.pointer("/payload/content"))?;
+        .or_else(|| payload.pointer("/message/content"))
+        .or_else(|| payload.pointer("/payload/content"))?;
     match content {
-        Value::String(text) => {
-            let text = text.trim();
-            (!text.is_empty()).then(|| text.to_string())
-        }
+        Value::String(text) => extract_codex_skill_name_from_text(text),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+            .find_map(extract_codex_skill_name_from_text),
+        _ => None,
+    }
+}
+
+fn extract_codex_user_instruction(payload: &Value) -> Option<String> {
+    if payload.get("role").and_then(|value| value.as_str()) != Some("user") {
+        return None;
+    }
+
+    let content = payload
+        .get("content")
+        .or_else(|| payload.pointer("/message/content"))
+        .or_else(|| payload.pointer("/payload/content"))?;
+
+    match content {
+        Value::String(text) => extract_codex_instruction_text(text),
         Value::Array(items) => {
             let text = items
                 .iter()
-                .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
+                .filter_map(extract_codex_instruction_block_text)
                 .collect::<Vec<_>>()
                 .join("\n");
-            (!text.is_empty()).then_some(text)
+            let text = text.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
         }
         _ => None,
     }
@@ -539,12 +563,226 @@ fn extract_codex_skill_name(text: &str) -> Option<String> {
     Some(name)
 }
 
-fn is_codex_injected_message(text: &str) -> bool {
-    let trimmed = text.trim_start();
-    trimmed.starts_with("<skill>")
-        || trimmed.starts_with("# AGENTS.md instructions")
-        || trimmed.contains("<environment_context>")
-        || trimmed.contains("<user_instructions>")
+fn extract_codex_skill_name_from_text(text: &str) -> Option<String> {
+    if codex_skill_block_is_embedded(text) {
+        return None;
+    }
+
+    let mut collecting_skill_block = false;
+    let mut skill_block = String::new();
+
+    for line in text.lines() {
+        if collecting_skill_block {
+            skill_block.push_str(line);
+            skill_block.push('\n');
+            if line.contains("</skill>") {
+                return extract_codex_skill_name(skill_block.trim_end());
+            }
+            continue;
+        }
+
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("<skill>") {
+            continue;
+        }
+
+        if let Some(close_index) = trimmed.find("</skill>") {
+            if trimmed[close_index + "</skill>".len()..].trim().is_empty() {
+                return extract_codex_skill_name(trimmed);
+            }
+            continue;
+        }
+
+        collecting_skill_block = true;
+        skill_block.clear();
+        skill_block.push_str(line);
+        skill_block.push('\n');
+    }
+
+    None
+}
+
+fn extract_codex_instruction_text(text: &str) -> Option<String> {
+    let text = strip_codex_legacy_string_segments(text).trim().to_string();
+    if text.is_empty() {
+        return None;
+    }
+    if is_codex_internal_worker_prompt(&text) {
+        return None;
+    }
+
+    Some(text)
+}
+
+fn extract_codex_instruction_block_text(item: &Value) -> Option<String> {
+    let block_type = item.get("type").and_then(|value| value.as_str())?;
+    if !matches!(block_type, "input_text" | "text") {
+        return None;
+    }
+
+    let text = item.get("text").and_then(|value| value.as_str())?;
+    extract_codex_instruction_text(text)
+}
+
+fn strip_codex_skill_blocks(text: &str) -> String {
+    if codex_skill_block_is_embedded(text) {
+        return text.to_string();
+    }
+
+    let mut stripped = String::new();
+
+    let mut skipping_skill_block = false;
+    for line in text.lines() {
+        if skipping_skill_block {
+            if line.contains("</skill>") {
+                skipping_skill_block = false;
+            }
+            continue;
+        }
+
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("<skill>") {
+            if !stripped.is_empty() {
+                stripped.push('\n');
+            }
+            stripped.push_str(line);
+            continue;
+        }
+
+        if let Some(close_index) = trimmed.find("</skill>") {
+            if trimmed[close_index + "</skill>".len()..].trim().is_empty() {
+                continue;
+            }
+        } else {
+            skipping_skill_block = true;
+            continue;
+        }
+
+        if !stripped.is_empty() {
+            stripped.push('\n');
+        }
+        stripped.push_str(line);
+    }
+
+    stripped
+}
+
+fn codex_skill_block_is_embedded(text: &str) -> bool {
+    let Some(open_index) = text.find("<skill>") else {
+        return false;
+    };
+    let Some(close_index) = text.rfind("</skill>") else {
+        return false;
+    };
+    if close_index < open_index {
+        return false;
+    }
+
+    let before = text[..open_index].trim();
+    let after = text[close_index + "</skill>".len()..].trim();
+    !before.is_empty() && !after.is_empty()
+}
+
+fn strip_codex_legacy_string_segments(text: &str) -> String {
+    strip_codex_injected_setup_segments(&strip_codex_skill_blocks(text))
+}
+
+fn strip_codex_injected_setup_segments(text: &str) -> String {
+    let mut stripped = String::new();
+    let mut skipping_agents = false;
+    let mut skipping_xml_block: Option<&str> = None;
+
+    for line in text.lines() {
+        if skipping_agents {
+            if line.trim().is_empty() {
+                skipping_agents = false;
+            }
+            continue;
+        }
+
+        if let Some(tag) = skipping_xml_block {
+            if line.contains(&format!("</{}>", tag)) {
+                skipping_xml_block = None;
+            }
+            continue;
+        }
+
+        let mut remaining = line;
+        let mut line_output = String::new();
+
+        loop {
+            let trimmed = remaining.trim_start();
+            let leading_len = remaining.len() - trimmed.len();
+            let leading = &remaining[..leading_len];
+
+            if trimmed.starts_with("# AGENTS.md instructions") {
+                skipping_agents = true;
+                break;
+            }
+
+            if let Some((tag, close_tag)) = [
+                ("environment_context", "</environment_context>"),
+                ("user_instructions", "</user_instructions>"),
+                ("INSTRUCTIONS", "</INSTRUCTIONS>"),
+            ]
+            .iter()
+            .find(|(tag, _)| trimmed.starts_with(&format!("<{}>", tag)))
+        {
+                if let Some(close_index) = trimmed.find(close_tag) {
+                    let after_close = &trimmed[close_index + close_tag.len()..];
+                    remaining = after_close;
+                    if remaining.is_empty() {
+                        break;
+                    }
+                    continue;
+                }
+
+                skipping_xml_block = Some(tag);
+                break;
+            }
+
+            line_output.push_str(leading);
+            line_output.push_str(trimmed);
+            break;
+        }
+
+        if !line_output.is_empty() {
+            if !stripped.is_empty() {
+                stripped.push('\n');
+            }
+            stripped.push_str(&line_output);
+        }
+    }
+
+    stripped
+}
+
+fn is_codex_internal_worker_prompt(text: &str) -> bool {
+    let normalized = text.trim().to_ascii_lowercase();
+
+    if normalized.is_empty() {
+        return false;
+    }
+
+    if normalized.contains("## superpowers system") {
+        return true;
+    }
+
+    let markers = [
+        "## what was requested",
+        "## your job",
+        "implementation under review",
+        "file:line references",
+        "spec compliant",
+        "report:",
+    ];
+
+    let match_count = markers
+        .iter()
+        .filter(|marker| normalized.contains(**marker))
+        .count();
+
+    match_count >= 2
 }
 
 fn extract_tag_value(text: &str, tag: &str) -> Option<String> {
@@ -997,13 +1235,9 @@ fn project_name_from_cwd(cwd: &str) -> String {
 // Filtering helpers
 // ---------------------------------------------------------------------------
 
-fn matches_project(project: Option<&str>, session: &SessionStats) -> bool {
-    let wanted = match project {
-        Some(p) => p,
-        None => return true,
-    };
+fn matches_project(project: Option<&[String]>, session: &SessionStats) -> bool {
     let name = session_project_name(session);
-    name.eq_ignore_ascii_case(wanted)
+    project_matches_filters(project, &name)
 }
 
 fn session_project_name(session: &SessionStats) -> String {
@@ -1015,19 +1249,15 @@ fn session_project_name(session: &SessionStats) -> String {
 
 /// Check whether at least one model in the session matches the requested provider.
 fn matches_provider(
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     session: &SessionStats,
     custom_providers: &[CustomProviderDef],
 ) -> bool {
-    let provider = match provider_filter {
-        Some(p) => p,
-        None => return true,
-    };
     session
         .tokens
         .by_model
         .keys()
-        .any(|m| model_matches_provider(m, provider, custom_providers))
+        .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
 }
 
 // ---------------------------------------------------------------------------
@@ -1036,14 +1266,6 @@ fn matches_provider(
 
 fn model_to_provider(model: &str, custom_providers: &[CustomProviderDef]) -> Option<String> {
     crate::commands::model_to_provider(model, custom_providers)
-}
-
-fn model_matches_provider(
-    model: &str,
-    provider: &str,
-    custom_providers: &[CustomProviderDef],
-) -> bool {
-    crate::commands::model_matches_provider(model, provider, custom_providers)
 }
 
 // ---------------------------------------------------------------------------
@@ -1122,7 +1344,7 @@ fn query_sqlite_projects(db_path: &Path) -> Result<Vec<(String, String)>, ()> {
 /// Query sessions from the SQLite database, applying project and time filters.
 fn query_sqlite_sessions(
     db_path: &Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
 ) -> Result<Vec<SessionStats>, ()> {
     let conn = open_sqlite(db_path).ok_or(())?;
@@ -1182,12 +1404,12 @@ fn query_sqlite_sessions(
             };
 
         // Project filter
-        if let Some(wanted_project) = project {
+        if let Some(wanted_projects) = project {
             let name = cwd
                 .as_deref()
                 .map(project_name_from_cwd)
                 .unwrap_or_else(|| "unknown".to_string());
-            if !name.eq_ignore_ascii_case(wanted_project) {
+            if !project_matches_filters(Some(wanted_projects), &name) {
                 continue;
             }
         }

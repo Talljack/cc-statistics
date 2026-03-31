@@ -31,6 +31,13 @@ interface SettingsStore {
   autoRefreshEnabled: boolean;
   autoRefreshInterval: number;
 
+  // Alerts
+  alertsEnabled: boolean;
+  dailyCostLimit: number;
+  dailyTokenLimit: number;
+  sessionWindowWarning: number;
+  alertsMutedUntil: string | null;
+
   // Dashboard cards
   showSessionsCard: boolean;
   showInstructionsCard: boolean;
@@ -68,6 +75,11 @@ interface SettingsStore {
   setShowMcpUsage: (show: boolean) => void;
   setAutoRefreshEnabled: (enabled: boolean) => void;
   setAutoRefreshInterval: (interval: number) => void;
+  setAlertsEnabled: (enabled: boolean) => void;
+  setDailyCostLimit: (limit: number) => void;
+  setDailyTokenLimit: (limit: number) => void;
+  setSessionWindowWarning: (pct: number) => void;
+  setAlertsMutedUntil: (until: string | null) => void;
   setShowSessionsCard: (show: boolean) => void;
   setShowInstructionsCard: (show: boolean) => void;
   setShowDurationCard: (show: boolean) => void;
@@ -98,6 +110,11 @@ const defaultSettings = {
   showMcpUsage: false,
   autoRefreshEnabled: false,
   autoRefreshInterval: 5,
+  alertsEnabled: false,
+  dailyCostLimit: 0,
+  dailyTokenLimit: 0,
+  sessionWindowWarning: 80,
+  alertsMutedUntil: null as string | null,
   showSessionsCard: true,
   showInstructionsCard: true,
   showDurationCard: true,
@@ -135,6 +152,11 @@ export const useSettingsStore = create<SettingsStore>()(
       setShowMcpUsage: (show) => set({ showMcpUsage: show }),
       setAutoRefreshEnabled: (enabled) => set({ autoRefreshEnabled: enabled }),
       setAutoRefreshInterval: (interval) => set({ autoRefreshInterval: interval }),
+      setAlertsEnabled: (enabled) => set({ alertsEnabled: enabled }),
+      setDailyCostLimit: (limit) => set({ dailyCostLimit: limit }),
+      setDailyTokenLimit: (limit) => set({ dailyTokenLimit: limit }),
+      setSessionWindowWarning: (pct) => set({ sessionWindowWarning: pct }),
+      setAlertsMutedUntil: (until) => set({ alertsMutedUntil: until }),
       setShowSessionsCard: (show) => set({ showSessionsCard: show }),
       setShowInstructionsCard: (show) => set({ showInstructionsCard: show }),
       setShowDurationCard: (show) => set({ showDurationCard: show }),
@@ -226,7 +248,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }
         return state as unknown as SettingsStore;
       },
-      version: 1,
+      version: 2,
     }
   )
 );

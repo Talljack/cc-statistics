@@ -42,22 +42,22 @@ export function UpdateDialog() {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={handleBackdropClick}>
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-        <div className="relative bg-[#1e1e1e] border border-[#333] rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="relative bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
           <div className="p-6">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
                 <CheckCircle2 className="w-5 h-5 text-green-400" />
               </div>
-              <h2 className="text-lg font-semibold text-white">{t('update.restartTitle')}</h2>
+              <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{t('update.restartTitle')}</h2>
             </div>
-            <p className="text-sm text-[#a0a0a0] leading-relaxed ml-[52px]">
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed ml-[52px]">
               {t('update.restartDesc')}
             </p>
           </div>
           <div className="flex gap-3 px-6 pb-6 justify-end">
             <button
               onClick={() => setDialogOpen(false)}
-              className="px-5 py-2.5 rounded-lg border border-[#444] text-sm font-medium text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+              className="px-5 py-2.5 rounded-lg border border-[var(--color-border-base)] text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
             >
               {t('update.later')}
             </button>
@@ -80,19 +80,19 @@ export function UpdateDialog() {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={handleBackdropClick}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-[#1e1e1e] border border-[#333] rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="flex items-start justify-between p-6 pb-0">
           <div>
-            <h2 className="text-lg font-semibold text-white">{t('update.softwareUpdate')}</h2>
-            <p className="text-sm text-[#a0a0a0] mt-1">{t('update.newVersionAvailable')}</p>
+            <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{t('update.softwareUpdate')}</h2>
+            <p className="text-sm text-[var(--color-text-secondary)] mt-1">{t('update.newVersionAvailable')}</p>
           </div>
           {status !== 'downloading' && (
             <button
               onClick={() => setDialogOpen(false)}
-              className="p-1.5 rounded-lg hover:bg-[#2a2a2a] transition-colors -mr-1 -mt-1"
+              className="p-1.5 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors -mr-1 -mt-1"
             >
-              <X className="w-4 h-4 text-[#666] hover:text-[#a0a0a0]" />
+              <X className="w-4 h-4 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]" />
             </button>
           )}
         </div>
@@ -100,19 +100,19 @@ export function UpdateDialog() {
         {/* Version Display */}
         <div className="px-6 py-4">
           <div className="flex items-center gap-3">
-            <span className="text-xl font-mono text-[#888]">{currentVersion}</span>
-            <ArrowRight className="w-5 h-5 text-[#555]" />
-            <span className="text-xl font-mono font-semibold text-white">{newVersion}</span>
+            <span className="text-xl font-mono text-[var(--color-text-tertiary)]">{currentVersion}</span>
+            <ArrowRight className="w-5 h-5 text-[var(--color-text-faint)]" />
+            <span className="text-xl font-mono font-semibold text-[var(--color-text-primary)]">{newVersion}</span>
           </div>
         </div>
 
         {/* Changelog */}
         <div className="px-6 pb-4">
-          <div className="text-[11px] font-semibold text-[#666] uppercase tracking-wider mb-2">
+          <div className="text-[11px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">
             {t('update.whatsNew')}
           </div>
-          <div className="bg-[#161616] border border-[#2a2a2a] rounded-lg p-4 max-h-40 overflow-y-auto">
-            <p className="text-sm text-[#b0b0b0] leading-relaxed whitespace-pre-wrap">
+          <div className="bg-[var(--color-bg-elevated)] border border-[var(--color-border-base)] rounded-lg p-4 max-h-40 overflow-y-auto">
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-wrap">
               {changelog || t('update.noChangelog')}
             </p>
           </div>
@@ -121,14 +121,14 @@ export function UpdateDialog() {
         {/* Progress Bar (downloading state) */}
         {status === 'downloading' && (
           <div className="px-6 pb-2">
-            <div className="flex items-center justify-between text-xs text-[#888] mb-2">
+            <div className="flex items-center justify-between text-xs text-[var(--color-text-tertiary)] mb-2">
               <span>{downloadProgress}%</span>
               <span>
                 {formatBytes(downloadedBytes)}
                 {totalBytes > 0 && ` / ${formatBytes(totalBytes)}`}
               </span>
             </div>
-            <div className="w-full h-2 bg-[#2a2a2a] rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-[#3b82f6] to-[#60a5fa] rounded-full transition-all duration-300 ease-out"
                 style={{ width: `${downloadProgress}%` }}
@@ -151,7 +151,7 @@ export function UpdateDialog() {
           {status !== 'downloading' && (
             <button
               onClick={() => setDialogOpen(false)}
-              className="px-5 py-2.5 rounded-lg border border-[#444] text-sm font-medium text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+              className="px-5 py-2.5 rounded-lg border border-[var(--color-border-base)] text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
             >
               {t('common.cancel')}
             </button>

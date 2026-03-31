@@ -143,21 +143,53 @@ async fn fetch_claude_one(
         capitalize(&plan_type)
     };
 
-    // Try to extract email from the credentials
-    let email = creds
-        .pointer("/claudeAiOauth/email")
-        .or_else(|| creds.get("email"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let resp = client
+    // Fetch usage and profile in parallel
+    let usage_fut = client
         .get("https://api.anthropic.com/api/oauth/usage")
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Accept", "application/json")
         .header("anthropic-beta", "oauth-2025-04-20")
         .header("User-Agent", "claude-code/2.1.0")
-        .send()
-        .await
+        .send();
+
+    let profile_fut = client
+        .get("https://api.anthropic.com/api/oauth/profile")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Accept", "application/json")
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .header("User-Agent", "claude-code/2.1.0")
+        .send();
+
+    let (usage_resp, profile_resp) = tokio::join!(usage_fut, profile_fut);
+
+    // Parse profile (best-effort, don't fail if unavailable)
+    let (profile_email, account_name) = match profile_resp {
+        Ok(r) if r.status().is_success() => {
+            let profile: serde_json::Value = r.json().await.unwrap_or_default();
+            let email = profile
+                .pointer("/account/email")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let name = profile
+                .pointer("/account/display_name")
+                .or_else(|| profile.pointer("/account/full_name"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            (email, name)
+        }
+        _ => (None, None),
+    };
+
+    // Fall back to credential-embedded email if profile didn't provide one
+    let email = profile_email.or_else(|| {
+        creds
+            .pointer("/claudeAiOauth/email")
+            .or_else(|| creds.get("email"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
+
+    let resp = usage_resp
         .map_err(|e| format!("Claude API request failed: {}", e))?;
 
     if !resp.status().is_success() {
@@ -192,6 +224,7 @@ async fn fetch_claude_one(
         weekly_reset_seconds: weekly_reset,
         limit_reached: session_used >= 100.0 || weekly_used.unwrap_or(0.0) >= 100.0,
         email,
+        account_name,
         credits_balance: None,
     })
 }
@@ -384,6 +417,7 @@ async fn fetch_codex_one(
         weekly_reset_seconds: weekly_reset,
         limit_reached,
         email,
+        account_name: None,
         credits_balance,
     })
 }
@@ -524,6 +558,7 @@ async fn fetch_gemini_one(creds_path: &std::path::Path) -> Result<ProviderUsage,
         weekly_reset_seconds: 0,
         limit_reached: used_percent >= 100.0,
         email,
+        account_name: None,
         credits_balance: None,
     })
 }
@@ -839,6 +874,7 @@ pub async fn fetch_openrouter() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: remaining <= 0.0,
         email: None,
+        account_name: None,
         credits_balance: Some(remaining),
     })
 }
@@ -901,6 +937,7 @@ pub async fn fetch_copilot() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: chat_used.unwrap_or(1.0) <= 0.0,
         email: None,
+        account_name: None,
         credits_balance: chat_used,
     })
 }
@@ -1002,6 +1039,7 @@ pub async fn fetch_kimi_k2() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: cash_balance.unwrap_or(1.0) <= 0.0,
         email: None,
+        account_name: None,
         credits_balance: cash_balance,
     })
 }
@@ -1053,6 +1091,7 @@ pub async fn fetch_zai() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: balance.unwrap_or(1.0) <= 0.0,
         email: None,
+        account_name: None,
         credits_balance: balance,
     })
 }
@@ -1119,6 +1158,7 @@ pub async fn fetch_warp() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: remaining <= 0.0,
         email: None,
+        account_name: None,
         credits_balance: Some(remaining),
     })
 }
@@ -1188,6 +1228,7 @@ pub async fn fetch_cursor() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: premium_used >= premium_limit,
         email: None,
+        account_name: None,
         credits_balance: Some(premium_limit - premium_used),
     })
 }
@@ -1249,6 +1290,7 @@ pub async fn fetch_kimi() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= total && total > 0.0,
         email: None,
+        account_name: None,
         credits_balance: if total > 0.0 {
             Some(total - used)
         } else {
@@ -1318,6 +1360,7 @@ pub async fn fetch_amp() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= limit && limit > 0.0,
         email: None,
+        account_name: None,
         credits_balance: if limit > 0.0 {
             Some(limit - used)
         } else {
@@ -1379,6 +1422,7 @@ pub async fn fetch_factory() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= total && total > 0.0,
         email: None,
+        account_name: None,
         credits_balance: if total > 0.0 {
             Some(total - used)
         } else {
@@ -1440,6 +1484,7 @@ pub async fn fetch_augment() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= limit && limit > 0.0,
         email: None,
+        account_name: None,
         credits_balance: if limit > 0.0 {
             Some(limit - used)
         } else {
@@ -1533,6 +1578,7 @@ fn parse_jetbrains_quota(xml: &str) -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: remaining <= 0.0,
         email: None,
+        account_name: None,
         credits_balance: Some(remaining),
     })
 }
@@ -1649,6 +1695,7 @@ pub async fn fetch_ollama_cloud() -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used_pct >= 100.0,
         email,
+        account_name: None,
         credits_balance: credits,
     })
 }
@@ -1727,6 +1774,7 @@ fn parse_kiro_json(body: &serde_json::Value) -> Result<ProviderUsage, String> {
         weekly_reset_seconds: 0,
         limit_reached: used >= limit && limit > 0.0,
         email: None,
+        account_name: None,
         credits_balance: if limit > 0.0 {
             Some(limit - used)
         } else {

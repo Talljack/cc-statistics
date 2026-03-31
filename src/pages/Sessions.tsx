@@ -11,10 +11,10 @@ import { useTranslation } from '../lib/i18n';
 
 export function Sessions() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
+  const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
   const { showCost, sessionSortField, sessionSortOrder } = useSettingsStore();
   const navigate = useNavigate();
-  const { data: sessions, isLoading } = useSessions(selectedProject, activeTimeRange, selectedProvider);
+  const { data: sessions, isLoading } = useSessions(selectedProjects, activeTimeRange, selectedProviders);
   const costMetrics = useCostMetrics(sessions);
 
   const sortedSessions = useMemo(() => {
@@ -47,42 +47,42 @@ export function Sessions() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">{t('sessions.loading')}</div>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex items-center justify-center">
+        <div className="text-[var(--color-text-secondary)]">{t('sessions.loading')}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={handleRefresh} isRefreshing={false} />
 
       <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate('/')}
-            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
           >
-            <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+            <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
           </button>
           <h2 className="text-xl font-semibold">
             {t('sessions.title')}
-            <span className="text-[#a0a0a0] text-sm font-normal ml-2">
+            <span className="text-[var(--color-text-secondary)] text-sm font-normal ml-2">
               {sessions?.length ?? 0} {t('common.total')}
             </span>
           </h2>
         </div>
 
         {sortedSessions.length === 0 ? (
-          <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
+          <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center text-[var(--color-text-secondary)]">
             {t('sessions.noData')}
           </div>
         ) : (
-          <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
+          <div className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[#2a2a2a] text-[#a0a0a0]">
+                  <tr className="border-b border-[var(--color-border-base)] text-[var(--color-text-secondary)]">
                     <th className="text-left px-4 py-3 font-medium">{t('sessions.time')}</th>
                     <th className="text-left px-4 py-3 font-medium">{t('sessions.project')}</th>
                     <th className="text-left px-4 py-3 font-medium">{t('sessions.duration')}</th>
@@ -99,20 +99,21 @@ export function Sessions() {
                   {sortedSessions.map((session) => (
                     <tr
                       key={`${session.source}:${session.session_id}`}
-                      className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors"
+                      className="border-b border-[var(--color-border-base)] hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
+                      onClick={() => navigate(`/session/${session.session_id}?source=${encodeURIComponent(session.source)}&project=${encodeURIComponent(session.project_name)}&model=${encodeURIComponent(session.model)}`)}
                     >
-                      <td className="px-4 py-3 whitespace-nowrap text-[#a0a0a0]">
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)]">
                         {formatTimestamp(session.timestamp)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <span className="text-[#3b82f6]">{session.project_name}</span>
-                          <span className="rounded bg-[#262626] px-2 py-0.5 text-xs text-[#9ca3af]">
+                          <span className="rounded bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-tertiary)]">
                             {session.source}
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-[#a0a0a0]">
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)]">
                         {session.duration_formatted}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[#f59e0b]">
@@ -126,10 +127,10 @@ export function Sessions() {
                       <td className="px-4 py-3 text-right font-mono">
                         {formatNumber(session.instructions)}
                       </td>
-                      <td className="px-4 py-3 text-[#a0a0a0] max-w-[200px] truncate" title={session.model}>
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)] max-w-[200px] truncate" title={session.model}>
                         {session.model}
                       </td>
-                      <td className="px-4 py-3 text-[#a0a0a0] max-w-[150px] truncate" title={session.git_branch}>
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)] max-w-[150px] truncate" title={session.git_branch}>
                         {session.git_branch || '-'}
                       </td>
                     </tr>

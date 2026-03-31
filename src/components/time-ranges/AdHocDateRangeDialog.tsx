@@ -28,33 +28,35 @@ export function AdHocDateRangeDialog({ open, onClose, onConfirm }: AdHocDateRang
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6 w-[360px] shadow-2xl"
+        className="bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] rounded-xl p-6 w-[360px] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold">{t('header.customRange')}</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#2a2a2a] transition-colors">
-            <X className="w-4 h-4 text-[#808080]" />
+          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--color-bg-hover)] transition-colors">
+            <X className="w-4 h-4 text-[var(--color-text-tertiary)]" />
           </button>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="text-xs text-[#808080] mb-1 block">{t('settings.customRanges.startDate')}</label>
+            <label className="text-xs text-[var(--color-text-tertiary)] mb-1 block">{t('settings.customRanges.startDate')}</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full bg-[#2a2a2a] border border-[#333] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#3b82f6] transition-colors [color-scheme:dark]"
+              className="w-full bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-lg px-3 py-2 text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-[#3b82f6] transition-colors"
+              style={{ colorScheme: 'var(--color-scheme)' }}
             />
           </div>
           <div>
-            <label className="text-xs text-[#808080] mb-1 block">{t('settings.customRanges.endDate')}</label>
+            <label className="text-xs text-[var(--color-text-tertiary)] mb-1 block">{t('settings.customRanges.endDate')}</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full bg-[#2a2a2a] border border-[#333] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#3b82f6] transition-colors [color-scheme:dark]"
+              className="w-full bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-lg px-3 py-2 text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-[#3b82f6] transition-colors"
+              style={{ colorScheme: 'var(--color-scheme)' }}
             />
           </div>
         </div>
@@ -66,7 +68,7 @@ export function AdHocDateRangeDialog({ open, onClose, onConfirm }: AdHocDateRang
         <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-[#2a2a2a] text-sm text-[#a0a0a0] hover:bg-[#333] hover:text-white transition-colors"
+            className="px-4 py-2 rounded-lg bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)] transition-colors"
           >
             {t('common.cancel')}
           </button>

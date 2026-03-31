@@ -1,4 +1,6 @@
-use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
+use crate::commands::{
+    model_matches_provider_filters, model_to_provider, project_matches_filters, CustomProviderDef,
+};
 use crate::models::*;
 use crate::normalized::{InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord};
 use crate::parser::{format_duration, ProjectStats, SessionStats};
@@ -57,9 +59,9 @@ pub fn discover_projects() -> Vec<(String, String)> {
 
 /// Collect aggregate statistics across Gemini sessions.
 pub fn collect_stats(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
     let mut combined = ProjectStats::default();
@@ -97,9 +99,9 @@ pub fn collect_stats(
 
 /// Collect individual session info entries from Gemini data.
 pub fn collect_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
     let mut sessions: Vec<SessionInfo> = Vec::new();
@@ -140,7 +142,7 @@ pub fn collect_sessions(
 }
 
 pub fn collect_normalized_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let Some(home) = dirs::home_dir() else {
@@ -152,7 +154,7 @@ pub fn collect_normalized_sessions(
 
 pub fn collect_normalized_sessions_from_home(
     home: &std::path::Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let mut sessions = Vec::new();
@@ -438,7 +440,7 @@ fn parse_gemini_session(path: &std::path::Path) -> Option<SessionStats> {
 
 fn parse_normalized_gemini_session(
     path: &std::path::Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Option<NormalizedSession> {
     let content = fs::read_to_string(path).ok()?;
@@ -456,10 +458,8 @@ fn parse_normalized_gemini_session(
         .unwrap_or("unknown")
         .to_string();
 
-    if let Some(project) = project {
-        if !project_name.eq_ignore_ascii_case(project) {
-            return None;
-        }
+    if !project_matches_filters(project, &project_name) {
+        return None;
     }
 
     let mut session = NormalizedSession {
@@ -683,13 +683,9 @@ fn parse_gemini_response(msg: &serde_json::Value, stats: &mut SessionStats) {
 // Filtering helpers
 // ---------------------------------------------------------------------------
 
-fn matches_project(project: Option<&str>, session: &SessionStats) -> bool {
-    let wanted = match project {
-        Some(p) => p,
-        None => return true,
-    };
+fn matches_project(project: Option<&[String]>, session: &SessionStats) -> bool {
     let name = session_project_name(session);
-    name.eq_ignore_ascii_case(wanted)
+    project_matches_filters(project, &name)
 }
 
 fn session_project_name(session: &SessionStats) -> String {
@@ -706,19 +702,15 @@ fn session_project_name(session: &SessionStats) -> String {
 
 /// Check whether at least one model in the session matches the requested provider.
 fn matches_provider(
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     session: &SessionStats,
     custom_providers: &[CustomProviderDef],
 ) -> bool {
-    let provider = match provider_filter {
-        Some(p) => p,
-        None => return true,
-    };
     session
         .tokens
         .by_model
         .keys()
-        .any(|m| model_matches_provider(m, provider, custom_providers))
+        .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
 }
 
 // ---------------------------------------------------------------------------

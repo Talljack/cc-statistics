@@ -1,4 +1,6 @@
-use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
+use crate::commands::{
+    model_matches_provider_filters, model_to_provider, project_matches_filters, CustomProviderDef,
+};
 use crate::models::*;
 use crate::normalized::{
     CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord,
@@ -104,7 +106,7 @@ pub fn discover_projects() -> Vec<(String, String)> {
 }
 
 pub fn collect_normalized_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let conn = match open_db() {
@@ -113,7 +115,7 @@ pub fn collect_normalized_sessions(
     };
 
     let project_ids = match project {
-        Some(name) => resolve_project_ids(&conn, name),
+        Some(names) => resolve_project_ids(&conn, names),
         None => Vec::new(),
     };
 
@@ -147,9 +149,9 @@ pub fn collect_normalized_sessions(
 
 /// Collect aggregate stats across matching sessions.
 pub fn collect_stats(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
     let conn = match open_db() {
@@ -161,7 +163,7 @@ pub fn collect_stats(
 
     // Resolve project_ids for the selected project name (if any).
     let project_ids = match project {
-        Some(name) => resolve_project_ids(&conn, name),
+        Some(names) => resolve_project_ids(&conn, names),
         None => Vec::new(), // empty means "all"
     };
 
@@ -172,15 +174,14 @@ pub fn collect_stats(
         let session_stats = build_session_stats(&conn, sess, cutoff_ms);
 
         // Provider filter: skip sessions whose models don't match
-        if let Some(ref provider) = provider_filter {
-            let matches = session_stats
-                .tokens
-                .by_model
-                .keys()
-                .any(|m| model_matches_provider(m, provider, custom_providers));
-            if !matches {
-                continue;
-            }
+        if !session_stats
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
         }
 
         if session_stats.has_activity {
@@ -193,9 +194,9 @@ pub fn collect_stats(
 
 /// Collect per-session info for the session list view.
 pub fn collect_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
     let conn = match open_db() {
@@ -206,7 +207,7 @@ pub fn collect_sessions(
     let cutoff_ms = time_filter_to_ms(time_filter);
 
     let project_ids = match project {
-        Some(name) => resolve_project_ids(&conn, name),
+        Some(names) => resolve_project_ids(&conn, names),
         None => Vec::new(),
     };
 
@@ -221,15 +222,14 @@ pub fn collect_sessions(
         }
 
         // Provider filter
-        if let Some(ref provider) = provider_filter {
-            let matches = session_stats
-                .tokens
-                .by_model
-                .keys()
-                .any(|m| model_matches_provider(m, provider, custom_providers));
-            if !matches {
-                continue;
-            }
+        if !session_stats
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
         }
 
         let total_tokens = session_stats.tokens.input
@@ -289,7 +289,7 @@ struct SessionRow {
 }
 
 /// Resolve project table IDs whose display name matches the given name.
-fn resolve_project_ids(conn: &Connection, name: &str) -> Vec<String> {
+fn resolve_project_ids(conn: &Connection, names: &[String]) -> Vec<String> {
     let mut stmt = match conn.prepare("SELECT id, name, worktree FROM project") {
         Ok(s) => s,
         Err(_) => return Vec::new(),
@@ -306,7 +306,10 @@ fn resolve_project_ids(conn: &Connection, name: &str) -> Vec<String> {
     };
 
     rows.flatten()
-        .filter(|(_, pname, worktree)| project_display_name(pname, worktree) == name)
+        .filter(|(_, pname, worktree)| {
+            let display_name = project_display_name(pname, worktree);
+            project_matches_filters(Some(names), &display_name)
+        })
         .map(|(id, _, _)| id)
         .collect()
 }

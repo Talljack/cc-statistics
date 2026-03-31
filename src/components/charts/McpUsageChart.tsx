@@ -26,9 +26,9 @@ export function McpUsageChart({ mcpUsage }: McpUsageChartProps) {
 
   if (entries.length === 0) {
     return (
-      <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+      <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
         <h3 className="text-lg font-semibold mb-4">{t('chart.mcpUsage')}</h3>
-        <div className="h-[200px] flex items-center justify-center text-[#a0a0a0]">
+        <div className="h-[200px] flex items-center justify-center text-[var(--color-text-secondary)]">
           {t('common.noData')}
         </div>
       </div>
@@ -58,10 +58,10 @@ export function McpUsageChart({ mcpUsage }: McpUsageChartProps) {
   const serverColors = ['#06b6d4', '#a855f7', '#f59e0b', '#3b82f6', '#22c55e', '#ef4444'];
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+    <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">{t('chart.mcpUsage')}</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} {t('common.calls')}</span>
+        <span className="text-sm text-[var(--color-text-secondary)]">{formatNumber(totalCalls)} {t('common.calls')}</span>
       </div>
       <div className="space-y-4">
         {groups.map((group, gIndex) => {
@@ -81,7 +81,7 @@ export function McpUsageChart({ mcpUsage }: McpUsageChartProps) {
                   {formatNumber(group.total)}
                 </span>
               </div>
-              <div className="h-2 bg-[#2a2a2a] rounded-full overflow-hidden">
+              <div className="h-2 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
@@ -94,13 +94,13 @@ export function McpUsageChart({ mcpUsage }: McpUsageChartProps) {
               {group.methods.length > 1 && (
                 <div className="ml-4 mt-1.5 space-y-1">
                   {group.methods.slice(0, 5).map((m) => (
-                    <div key={m.method} className="flex items-center justify-between text-xs text-[#808080]">
+                    <div key={m.method} className="flex items-center justify-between text-xs text-[var(--color-text-tertiary)]">
                       <span className="truncate mr-2">{m.method}</span>
                       <span>{formatNumber(m.count)}</span>
                     </div>
                   ))}
                   {group.methods.length > 5 && (
-                    <div className="text-xs text-[#606060]">+{group.methods.length - 5} {t('chart.more')}</div>
+                    <div className="text-xs text-[var(--color-text-muted)]">+{group.methods.length - 5} {t('chart.more')}</div>
                   )}
                 </div>
               )}

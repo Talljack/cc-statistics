@@ -8,9 +8,9 @@ import { ArrowLeft, Zap } from 'lucide-react';
 
 export function Skills() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange } = useFilterStore();
+  const { selectedProjects, activeTimeRange } = useFilterStore();
   const navigate = useNavigate();
-  const { data: stats, isLoading } = useStatistics(selectedProject, activeTimeRange);
+  const { data: stats, isLoading } = useStatistics(selectedProjects, activeTimeRange);
 
   const handleRefresh = () => {};
 
@@ -21,29 +21,29 @@ export function Skills() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="text-[#a0a0a0]">{t('skills.loading')}</div>
+      <div className="min-h-screen bg-[var(--color-bg-base)] flex items-center justify-center">
+        <div className="text-[var(--color-text-secondary)]">{t('skills.loading')}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
       <Header onRefresh={handleRefresh} isRefreshing={false} />
 
       <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate('/')}
-            className="p-2 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+            className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
           >
-            <ArrowLeft className="w-5 h-5 text-[#a0a0a0]" />
+            <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
           </button>
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-[#22c55e]" />
             <h2 className="text-xl font-semibold">
               Skills
-              <span className="text-[#a0a0a0] text-sm font-normal ml-2">
+              <span className="text-[var(--color-text-secondary)] text-sm font-normal ml-2">
                 {entries.length} {t('skills.skills')} · {formatNumber(totalCalls)} {t('common.calls')}
               </span>
             </h2>
@@ -51,13 +51,13 @@ export function Skills() {
         </div>
 
         {entries.length === 0 ? (
-          <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
+          <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center text-[var(--color-text-secondary)]">
             {t('skills.noData')}
           </div>
         ) : (
           <div className="space-y-6">
             {/* Bar Chart */}
-            <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+            <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
               <div className="space-y-3">
                 {entries.map(([name, count], index) => {
                   const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
@@ -71,13 +71,13 @@ export function Skills() {
                           {name}
                         </span>
                         <div className="flex items-center gap-3 shrink-0">
-                          <span className="text-xs text-[#606060]">{pctOfTotal}%</span>
+                          <span className="text-xs text-[var(--color-text-muted)]">{pctOfTotal}%</span>
                           <span className="text-sm font-semibold min-w-[40px] text-right" style={{ color }}>
                             {formatNumber(count)}
                           </span>
                         </div>
                       </div>
-                      <div className="h-2.5 bg-[#2a2a2a] rounded-full overflow-hidden">
+                      <div className="h-2.5 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
                         <div
                           className="h-full rounded-full transition-all duration-500"
                           style={{ width: `${percentage}%`, backgroundColor: color, opacity: 0.8 }}
@@ -90,10 +90,10 @@ export function Skills() {
             </div>
 
             {/* Table */}
-            <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
+            <div className="bg-[var(--color-bg-surface)] rounded-xl border border-[var(--color-border-base)] overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[#2a2a2a] text-[#a0a0a0]">
+                  <tr className="border-b border-[var(--color-border-base)] text-[var(--color-text-secondary)]">
                     <th className="text-left px-4 py-3 font-medium">#</th>
                     <th className="text-left px-4 py-3 font-medium">{t('skills.skill')}</th>
                     <th className="text-right px-4 py-3 font-medium">{t('skills.calls')}</th>
@@ -102,15 +102,15 @@ export function Skills() {
                 </thead>
                 <tbody>
                   {entries.map(([name, count], index) => (
-                    <tr key={name} className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors">
-                      <td className="px-4 py-3 text-[#606060]">{index + 1}</td>
+                    <tr key={name} className="border-b border-[var(--color-border-base)] hover:bg-[var(--color-bg-elevated)] transition-colors">
+                      <td className="px-4 py-3 text-[var(--color-text-muted)]">{index + 1}</td>
                       <td className="px-4 py-3">
                         <span className="text-[#22c55e]">{name}</span>
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
                         {formatNumber(count)}
                       </td>
-                      <td className="px-4 py-3 text-right text-[#a0a0a0]">
+                      <td className="px-4 py-3 text-right text-[var(--color-text-secondary)]">
                         {totalCalls > 0 ? ((count / totalCalls) * 100).toFixed(1) : '0'}%
                       </td>
                     </tr>

@@ -62,7 +62,7 @@ export function HeaderTimeRangeControl() {
     : t('header.more');
 
   return (
-    <div className="flex shrink-0 items-center bg-[#2a2a2a] rounded-lg p-1 gap-0.5">
+    <div className="flex shrink-0 items-center bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-lg p-1 gap-0.5 shadow-sm">
       {/* Built-in range buttons */}
       {builtInKeys.map((item) => {
         const range: ActiveTimeRange = { kind: 'built_in', key: item.key };
@@ -75,7 +75,7 @@ export function HeaderTimeRangeControl() {
               'px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
               isActive
                 ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
-                : 'text-[#a0a0a0] hover:text-white'
+                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
             )}
           >
             {t(item.labelKey)}
@@ -95,7 +95,7 @@ export function HeaderTimeRangeControl() {
               'px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
               isActive
                 ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
-                : 'text-[#808080] hover:text-white'
+                : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'
             )}
           >
             {formatSavedTimeRangeLabel(saved)}
@@ -111,7 +111,7 @@ export function HeaderTimeRangeControl() {
             'flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
             isActiveInMore
               ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
-              : 'text-[#808080] hover:text-white'
+              : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'
           )}
         >
           <span className="max-w-[140px] truncate">{moreLabel}</span>

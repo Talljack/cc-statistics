@@ -19,10 +19,10 @@ export function SkillUsageChart({ skillUsage }: SkillUsageChartProps) {
   const colors = ['#22c55e', '#3b82f6', '#a855f7', '#f59e0b', '#ef4444', '#ec4899'];
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl p-5 border border-[#2a2a2a]">
+    <div className="bg-[var(--color-bg-surface)] rounded-xl p-5 border border-[var(--color-border-base)]">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">{t('chart.skillUsage')}</h3>
-        <span className="text-sm text-[#a0a0a0]">{formatNumber(totalCalls)} {t('common.calls')}</span>
+        <span className="text-sm text-[var(--color-text-secondary)]">{formatNumber(totalCalls)} {t('common.calls')}</span>
       </div>
       <div className="space-y-3">
         {sorted.map(([name, count], index) => {
@@ -39,7 +39,7 @@ export function SkillUsageChart({ skillUsage }: SkillUsageChartProps) {
                   {formatNumber(count)}
                 </span>
               </div>
-              <div className="h-2 bg-[#2a2a2a] rounded-full overflow-hidden">
+              <div className="h-2 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{

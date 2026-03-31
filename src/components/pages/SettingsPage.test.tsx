@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { SettingsPage } from './SettingsPage';
 import { usePricingStore } from '../../stores/pricingStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -105,6 +105,11 @@ beforeEach(() => {
     showMcpUsage: false,
     autoRefreshEnabled: false,
     autoRefreshInterval: 5,
+    alertsEnabled: false,
+    dailyCostLimit: 0,
+    dailyTokenLimit: 0,
+    sessionWindowWarning: 80,
+    alertsMutedUntil: null,
     showSessionsCard: true,
     showInstructionsCard: true,
     showDurationCard: true,
@@ -140,6 +145,45 @@ beforeEach(() => {
   });
 });
 
+describe('SettingsPage alert settings', () => {
+  it('renders the alert settings section in the General tab', () => {
+    render(<SettingsPage />);
+
+    const alertSection = screen.getAllByText('settings.alerts.title')[0]?.closest('section');
+    expect(alertSection).not.toBeNull();
+    if (!alertSection) throw new Error('Alert settings section not found');
+
+    expect(within(alertSection).getByRole('switch')).toHaveAttribute('aria-checked', 'false');
+    expect(within(alertSection).queryByLabelText('settings.alerts.dailyCost')).not.toBeInTheDocument();
+  });
+
+  it('updates alert settings through the General tab controls', () => {
+    render(<SettingsPage />);
+
+    const alertSection = screen.getAllByText('settings.alerts.title')[0]?.closest('section');
+    expect(alertSection).not.toBeNull();
+    if (!alertSection) throw new Error('Alert settings section not found');
+
+    fireEvent.click(within(alertSection).getByRole('switch'));
+    expect(useSettingsStore.getState().alertsEnabled).toBe(true);
+
+    fireEvent.change(within(alertSection).getByLabelText('settings.alerts.dailyCost'), {
+      target: { value: '25' },
+    });
+    expect(useSettingsStore.getState().dailyCostLimit).toBe(25);
+
+    fireEvent.change(within(alertSection).getByLabelText('settings.alerts.dailyTokens'), {
+      target: { value: '150000' },
+    });
+    expect(useSettingsStore.getState().dailyTokenLimit).toBe(150000);
+
+    fireEvent.change(within(alertSection).getByLabelText('settings.alerts.sessionWindow'), {
+      target: { value: '90' },
+    });
+    expect(useSettingsStore.getState().sessionWindowWarning).toBe(90);
+  });
+});
+
 describe('SettingsPage pricing catalog integration', () => {
   it('fetchPricing loads the pricing catalog through Tauri and surfaces healthy snapshot metadata in Settings', async () => {
     const catalog = makeCatalog();
@@ -170,7 +214,7 @@ describe('SettingsPage pricing catalog integration', () => {
     ]);
 
     render(<SettingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'settings.tabs.advanced' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'settings.tabs.advanced' })[0]);
     expect(screen.getByText(/1 settings\.pricing\.models/)).toBeInTheDocument();
     expect(screen.getByText(/settings\.pricing\.expires/)).toBeInTheDocument();
     expect(screen.queryByText(/settings\.pricing\.stale/)).not.toBeInTheDocument();
