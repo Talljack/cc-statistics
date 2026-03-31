@@ -636,24 +636,50 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
             continue;
         }
 
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("# AGENTS.md instructions") {
-            skipping_agents = true;
-            continue;
-        }
-        if trimmed.starts_with("<environment_context>") {
-            skipping_xml_block = Some("environment_context");
-            continue;
-        }
-        if trimmed.starts_with("<user_instructions>") {
-            skipping_xml_block = Some("user_instructions");
-            continue;
+        let mut remaining = line;
+        let mut line_output = String::new();
+
+        loop {
+            let trimmed = remaining.trim_start();
+            let leading_len = remaining.len() - trimmed.len();
+            let leading = &remaining[..leading_len];
+
+            if trimmed.starts_with("# AGENTS.md instructions") {
+                skipping_agents = true;
+                break;
+            }
+
+            if let Some((tag, close_tag)) = [
+                ("environment_context", "</environment_context>"),
+                ("user_instructions", "</user_instructions>"),
+            ]
+            .iter()
+            .find(|(tag, _)| trimmed.starts_with(&format!("<{}>", tag)))
+            {
+                if let Some(close_index) = trimmed.find(close_tag) {
+                    let after_close = &trimmed[close_index + close_tag.len()..];
+                    remaining = after_close;
+                    if remaining.is_empty() {
+                        break;
+                    }
+                    continue;
+                }
+
+                skipping_xml_block = Some(tag);
+                break;
+            }
+
+            line_output.push_str(leading);
+            line_output.push_str(trimmed);
+            break;
         }
 
-        if !stripped.is_empty() {
-            stripped.push('\n');
+        if !line_output.is_empty() {
+            if !stripped.is_empty() {
+                stripped.push('\n');
+            }
+            stripped.push_str(&line_output);
         }
-        stripped.push_str(line);
     }
 
     stripped
