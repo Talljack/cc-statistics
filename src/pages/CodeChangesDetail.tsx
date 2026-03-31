@@ -9,9 +9,9 @@ import { useTranslation } from '../lib/i18n';
 
 export function CodeChangesDetail() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
+  const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
   const navigate = useNavigate();
-  const { data: files, isLoading } = useCodeChangesDetail(selectedProject, activeTimeRange, selectedProvider);
+  const { data: files, isLoading } = useCodeChangesDetail(selectedProjects, activeTimeRange, selectedProviders);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'unified' | 'side-by-side'>('unified');

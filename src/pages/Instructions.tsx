@@ -7,9 +7,9 @@ import { useTranslation } from '../lib/i18n';
 
 export function Instructions() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
+  const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
   const navigate = useNavigate();
-  const { data: instructions, isLoading } = useInstructions(selectedProject, activeTimeRange, selectedProvider);
+  const { data: instructions, isLoading } = useInstructions(selectedProjects, activeTimeRange, selectedProviders);
 
   if (isLoading) {
     return (

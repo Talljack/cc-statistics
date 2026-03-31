@@ -22,9 +22,9 @@ function parseMcpName(fullName: string): { server: string; method: string } {
 
 export function McpServers() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange } = useFilterStore();
+  const { selectedProjects, activeTimeRange } = useFilterStore();
   const navigate = useNavigate();
-  const { data: stats, isLoading } = useStatistics(selectedProject, activeTimeRange);
+  const { data: stats, isLoading } = useStatistics(selectedProjects, activeTimeRange);
 
   const handleRefresh = () => {};
 

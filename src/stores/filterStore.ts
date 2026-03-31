@@ -3,19 +3,19 @@ import type { ActiveTimeRange } from '../lib/timeRanges';
 import { useSettingsStore } from './settingsStore';
 
 interface FilterStore {
-  selectedProject: string | null;
+  selectedProjects: string[];
   activeTimeRange: ActiveTimeRange;
-  selectedProvider: string | null;
-  setProject: (project: string | null) => void;
+  selectedProviders: string[];
+  setProjects: (projects: string[]) => void;
   setActiveTimeRange: (range: ActiveTimeRange) => void;
-  setProvider: (provider: string | null) => void;
+  setProviders: (providers: string[]) => void;
 }
 
 export const useFilterStore = create<FilterStore>((set) => ({
-  selectedProject: null,
+  selectedProjects: [],
   activeTimeRange: useSettingsStore.getState().defaultTimeRange,
-  selectedProvider: null,
-  setProject: (project) => set({ selectedProject: project }),
+  selectedProviders: [],
+  setProjects: (projects) => set({ selectedProjects: projects }),
   setActiveTimeRange: (range) => set({ activeTimeRange: range }),
-  setProvider: (provider) => set({ selectedProvider: provider }),
+  setProviders: (providers) => set({ selectedProviders: providers }),
 }));

@@ -29,18 +29,18 @@ interface DailyBucket {
 
 export function Report() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
+  const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
   const { showCost } = useSettingsStore();
   const navigate = useNavigate();
   const { data: stats, isLoading: statsLoading } = useStatistics(
-    selectedProject,
+    selectedProjects,
     activeTimeRange,
-    selectedProvider,
+    selectedProviders,
   );
   const { data: sessions, isLoading: sessionsLoading } = useSessions(
-    selectedProject,
+    selectedProjects,
     activeTimeRange,
-    selectedProvider,
+    selectedProviders,
   );
   const costMetrics = useCostMetrics(sessions);
 
@@ -101,7 +101,12 @@ export function Report() {
     ? stats.tokens.input + stats.tokens.output + stats.tokens.cache_read + stats.tokens.cache_creation
     : 0;
 
-  const exportTitle = `CC Statistics Report — ${selectedProject || 'All Projects'}`;
+  const exportScope = selectedProjects.length === 0
+    ? 'All Projects'
+    : selectedProjects.length === 1
+      ? selectedProjects[0]
+      : `${selectedProjects.length} Projects`;
+  const exportTitle = `CC Statistics Report — ${exportScope}`;
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">

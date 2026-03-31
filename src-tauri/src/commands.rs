@@ -322,6 +322,45 @@ pub(crate) fn model_matches_provider(
         .unwrap_or(false)
 }
 
+pub(crate) fn normalize_filter_values(values: Option<Vec<String>>) -> Option<Vec<String>> {
+    let values = values
+        .unwrap_or_default()
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
+}
+
+pub(crate) fn project_matches_filters(project_filters: Option<&[String]>, project_name: &str) -> bool {
+    let Some(project_filters) = project_filters else {
+        return true;
+    };
+
+    project_filters
+        .iter()
+        .any(|project| project_name.eq_ignore_ascii_case(project))
+}
+
+pub(crate) fn model_matches_provider_filters(
+    model: &str,
+    provider_filters: Option<&[String]>,
+    custom_providers: &[CustomProviderDef],
+) -> bool {
+    let Some(provider_filters) = provider_filters else {
+        return true;
+    };
+
+    provider_filters
+        .iter()
+        .any(|provider| model_matches_provider(model, provider, custom_providers))
+}
+
 pub(crate) fn parse_time_filter(s: &str) -> TimeFilter {
     match s {
         "today" => TimeFilter::Today,
@@ -543,10 +582,10 @@ pub async fn get_projects(
 
 #[tauri::command]
 pub async fn get_statistics(
-    project: Option<String>,
+    project: Option<Vec<String>>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
-    provider_filter: Option<String>,
+    provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Statistics, String> {
@@ -567,10 +606,10 @@ pub async fn get_statistics(
 }
 
 pub fn get_statistics_internal(
-    project: Option<String>,
+    project: Option<Vec<String>>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
-    provider_filter: Option<String>,
+    provider_filter: Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
     config: &SourceConfig,
 ) -> Result<Statistics, String> {
@@ -578,6 +617,8 @@ pub fn get_statistics_internal(
         Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
         None => parse_time_filter(time_filter.as_str()),
     };
+    let project = normalize_filter_values(project);
+    let provider_filter = normalize_filter_values(provider_filter);
     let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
     let sessions =
         sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, config);
@@ -592,10 +633,10 @@ pub fn get_statistics_internal(
 
 #[tauri::command]
 pub async fn get_sessions(
-    project: Option<String>,
+    project: Option<Vec<String>>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
-    provider_filter: Option<String>,
+    provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Vec<SessionInfo>, String> {
@@ -606,6 +647,8 @@ pub async fn get_sessions(
         };
         let cps = custom_providers.unwrap_or_default();
         let config = enabled_sources.unwrap_or_default();
+        let project = normalize_filter_values(project);
+        let provider_filter = normalize_filter_values(provider_filter);
         let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
         let sessions =
             sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
@@ -623,10 +666,10 @@ pub async fn get_sessions(
 
 #[tauri::command]
 pub async fn get_instructions(
-    project: Option<String>,
+    project: Option<Vec<String>>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
-    provider_filter: Option<String>,
+    provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Vec<InstructionInfo>, String> {
@@ -637,6 +680,8 @@ pub async fn get_instructions(
         };
         let cps = custom_providers.unwrap_or_default();
         let config = enabled_sources.unwrap_or_default();
+        let project = normalize_filter_values(project);
+        let provider_filter = normalize_filter_values(provider_filter);
         let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
         let sessions =
             sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
@@ -732,10 +777,10 @@ pub async fn get_available_providers(
 
 #[tauri::command]
 pub async fn get_code_changes_detail(
-    project: Option<String>,
+    project: Option<Vec<String>>,
     time_filter: String,
     time_range: Option<QueryTimeRange>,
-    provider_filter: Option<String>,
+    provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
 ) -> Result<Vec<FileChange>, String> {
@@ -746,6 +791,8 @@ pub async fn get_code_changes_detail(
         };
         let cps = custom_providers.unwrap_or_default();
         let config = enabled_sources.unwrap_or_default();
+        let project = normalize_filter_values(project);
+        let provider_filter = normalize_filter_values(provider_filter);
         let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
         let sessions =
             sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);

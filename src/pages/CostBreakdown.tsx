@@ -14,10 +14,10 @@ const billableCategories = [
 
 export function CostBreakdown() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
+  const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
   const navigate = useNavigate();
-  const { data: stats, isLoading: statsLoading } = useStatistics(selectedProject, activeTimeRange, selectedProvider);
-  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedProject, activeTimeRange, selectedProvider);
+  const { data: stats, isLoading: statsLoading } = useStatistics(selectedProjects, activeTimeRange, selectedProviders);
+  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedProjects, activeTimeRange, selectedProviders);
   const costMetrics = useCostMetrics(sessions);
 
   if (statsLoading || sessionsLoading) {

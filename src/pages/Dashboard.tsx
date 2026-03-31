@@ -29,7 +29,7 @@ import type { SessionInfo, Statistics } from '../types/statistics';
 
 export function Dashboard() {
   const { t } = useTranslation();
-  const { selectedProject, activeTimeRange, selectedProvider } = useFilterStore();
+  const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
   const { currentView } = useAppStore();
   const {
     autoRefreshEnabled,
@@ -54,9 +54,9 @@ export function Dashboard() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data: stats, isLoading: statsLoading, refetch, isRefetching } = useStatistics(
-    selectedProject,
+    selectedProjects,
     activeTimeRange,
-    selectedProvider
+    selectedProviders
   );
   const {
     data: sessions,
@@ -64,9 +64,9 @@ export function Dashboard() {
     refetch: refetchSessions,
     isRefetching: isSessionsRefetching,
   } = useSessions(
-    selectedProject,
+    selectedProjects,
     activeTimeRange,
-    selectedProvider
+    selectedProviders
   );
   const costMetrics = useCostMetrics(sessions);
   const dashboardTotalTokens = stats

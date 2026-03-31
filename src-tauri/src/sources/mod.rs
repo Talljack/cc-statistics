@@ -66,7 +66,7 @@ pub fn collect_all_projects(config: &SourceConfig) -> Vec<ProjectInfo> {
 }
 
 pub fn collect_all_normalized_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
     config: &SourceConfig,
 ) -> Vec<NormalizedSession> {
@@ -93,10 +93,10 @@ pub fn collect_all_normalized_sessions(
 
 /// Collect aggregated statistics from all enabled sources
 pub fn collect_all_stats(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
     query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
     config: &SourceConfig,
 ) -> ProjectStats {
@@ -149,10 +149,10 @@ pub fn collect_all_stats(
 
 /// Collect sessions from all enabled sources
 pub fn collect_all_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
     query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
     config: &SourceConfig,
 ) -> Vec<SessionInfo> {
@@ -206,10 +206,10 @@ pub fn collect_all_sessions(
 
 /// Collect instructions from all enabled sources (currently only Claude Code)
 pub fn collect_all_instructions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
     query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
     config: &SourceConfig,
 ) -> Vec<InstructionInfo> {
