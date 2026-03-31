@@ -1,28 +1,39 @@
 import { useEffect } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 
+function applyResolvedTheme(theme: 'light' | 'dark') {
+  document.documentElement.setAttribute('data-theme', theme);
+}
+
 export function useTheme() {
-  const theme = useSettingsStore((s) => s.theme);
-
   useEffect(() => {
-    const root = document.documentElement;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
-    const applyTheme = (resolved: 'light' | 'dark') => {
-      root.setAttribute('data-theme', resolved);
+    const applyTheme = (theme: 'light' | 'dark' | 'system') => {
+      if (theme === 'system') {
+        applyResolvedTheme(mediaQuery.matches ? 'dark' : 'light');
+      } else {
+        applyResolvedTheme(theme);
+      }
     };
 
-    if (theme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      applyTheme(mediaQuery.matches ? 'dark' : 'light');
+    applyTheme(useSettingsStore.getState().theme);
 
-      const handler = (event: MediaQueryListEvent) => {
-        applyTheme(event.matches ? 'dark' : 'light');
-      };
+    const unsubscribe = useSettingsStore.subscribe((state) => {
+      applyTheme(state.theme);
+    });
 
-      mediaQuery.addEventListener('change', handler);
-      return () => mediaQuery.removeEventListener('change', handler);
-    }
+    const handleSystemChange = (event: MediaQueryListEvent) => {
+      if (useSettingsStore.getState().theme === 'system') {
+        applyResolvedTheme(event.matches ? 'dark' : 'light');
+      }
+    };
 
-    applyTheme(theme);
-  }, [theme]);
+    mediaQuery.addEventListener('change', handleSystemChange);
+
+    return () => {
+      unsubscribe();
+      mediaQuery.removeEventListener('change', handleSystemChange);
+    };
+  }, []);
 }

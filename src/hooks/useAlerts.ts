@@ -13,21 +13,12 @@ export function useAlerts(
   dailyTokens: number,
   accountProviders?: ProviderUsage[],
 ) {
-  const {
-    alertsEnabled,
-    dailyCostLimit,
-    dailyTokenLimit,
-    sessionWindowWarning,
-    alertsMutedUntil,
-    setAlertsMutedUntil,
-  } = useSettingsStore((s) => ({
-    alertsEnabled: s.alertsEnabled,
-    dailyCostLimit: s.dailyCostLimit,
-    dailyTokenLimit: s.dailyTokenLimit,
-    sessionWindowWarning: s.sessionWindowWarning,
-    alertsMutedUntil: s.alertsMutedUntil,
-    setAlertsMutedUntil: s.setAlertsMutedUntil,
-  }));
+  const alertsEnabled = useSettingsStore((s) => s.alertsEnabled);
+  const dailyCostLimit = useSettingsStore((s) => s.dailyCostLimit);
+  const dailyTokenLimit = useSettingsStore((s) => s.dailyTokenLimit);
+  const sessionWindowWarning = useSettingsStore((s) => s.sessionWindowWarning);
+  const alertsMutedUntil = useSettingsStore((s) => s.alertsMutedUntil);
+  const setAlertsMutedUntil = useSettingsStore((s) => s.setAlertsMutedUntil);
 
   const lastAlertKeyRef = useRef<string | null>(null);
 
