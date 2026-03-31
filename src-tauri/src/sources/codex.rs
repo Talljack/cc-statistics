@@ -1,5 +1,7 @@
 use crate::classification::{classify_tool_call, ToolCallChain};
-use crate::commands::CustomProviderDef;
+use crate::commands::{
+    model_matches_provider_filters, project_matches_filters, CustomProviderDef,
+};
 use crate::models::*;
 use crate::normalized::{
     CodeChangeRecord, InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord,
@@ -54,9 +56,9 @@ pub fn discover_projects() -> Vec<(String, String)> {
 
 /// Collect aggregate statistics across Codex sessions.
 pub fn collect_stats(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
     let mut combined = ProjectStats::default();
@@ -116,9 +118,9 @@ pub fn collect_stats(
 
 /// Collect individual session info entries from Codex data.
 pub fn collect_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
     let mut sessions: Vec<SessionInfo> = Vec::new();
@@ -182,7 +184,7 @@ pub fn collect_sessions(
 }
 
 pub fn collect_normalized_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let Some(home) = dirs::home_dir() else {
@@ -194,7 +196,7 @@ pub fn collect_normalized_sessions(
 
 pub fn collect_normalized_sessions_from_home(
     home: &Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let sessions_dir = home.join(".codex").join("sessions");
@@ -242,7 +244,7 @@ pub fn collect_normalized_sessions_from_home(
 
 fn parse_normalized_codex_session(
     path: &Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     _query_range: &QueryTimeRange,
 ) -> Option<NormalizedSession> {
     let file = fs::File::open(path).ok()?;
@@ -997,13 +999,9 @@ fn project_name_from_cwd(cwd: &str) -> String {
 // Filtering helpers
 // ---------------------------------------------------------------------------
 
-fn matches_project(project: Option<&str>, session: &SessionStats) -> bool {
-    let wanted = match project {
-        Some(p) => p,
-        None => return true,
-    };
+fn matches_project(project: Option<&[String]>, session: &SessionStats) -> bool {
     let name = session_project_name(session);
-    name.eq_ignore_ascii_case(wanted)
+    project_matches_filters(project, &name)
 }
 
 fn session_project_name(session: &SessionStats) -> String {
@@ -1015,19 +1013,15 @@ fn session_project_name(session: &SessionStats) -> String {
 
 /// Check whether at least one model in the session matches the requested provider.
 fn matches_provider(
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     session: &SessionStats,
     custom_providers: &[CustomProviderDef],
 ) -> bool {
-    let provider = match provider_filter {
-        Some(p) => p,
-        None => return true,
-    };
     session
         .tokens
         .by_model
         .keys()
-        .any(|m| model_matches_provider(m, provider, custom_providers))
+        .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
 }
 
 // ---------------------------------------------------------------------------
@@ -1122,7 +1116,7 @@ fn query_sqlite_projects(db_path: &Path) -> Result<Vec<(String, String)>, ()> {
 /// Query sessions from the SQLite database, applying project and time filters.
 fn query_sqlite_sessions(
     db_path: &Path,
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
 ) -> Result<Vec<SessionStats>, ()> {
     let conn = open_sqlite(db_path).ok_or(())?;
@@ -1182,12 +1176,12 @@ fn query_sqlite_sessions(
             };
 
         // Project filter
-        if let Some(wanted_project) = project {
+        if let Some(wanted_projects) = project {
             let name = cwd
                 .as_deref()
                 .map(project_name_from_cwd)
                 .unwrap_or_else(|| "unknown".to_string());
-            if !name.eq_ignore_ascii_case(wanted_project) {
+            if !project_matches_filters(Some(wanted_projects), &name) {
                 continue;
             }
         }

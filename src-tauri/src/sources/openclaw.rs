@@ -1,5 +1,7 @@
 use crate::classification::{classify_tool_call, ToolCallChain};
-use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
+use crate::commands::{
+    model_matches_provider_filters, model_to_provider, project_matches_filters, CustomProviderDef,
+};
 use crate::models::*;
 use crate::normalized::{
     InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord, ToolRecord,
@@ -60,7 +62,7 @@ pub fn discover_projects() -> Vec<(String, String)> {
 }
 
 pub fn collect_normalized_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let dir = match sessions_dir() {
@@ -87,10 +89,8 @@ pub fn collect_normalized_sessions(
 
         if let Some(session) = parse_normalized_openclaw_session(&path) {
             let session_project = session.project_name.clone();
-            if let Some(wanted) = project {
-                if session_project != wanted {
-                    continue;
-                }
+            if !project_matches_filters(project, &session_project) {
+                continue;
             }
             sessions.push(session);
         }
@@ -218,9 +218,9 @@ fn record_passes_time_filter(timestamp: &str, time_filter: &TimeFilter) -> bool 
 
 /// Collect aggregated statistics across matching Openclaw sessions.
 pub fn collect_stats(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
     let mut combined = ProjectStats::default();
@@ -251,27 +251,23 @@ pub fn collect_stats(
         };
 
         // Project filter
-        if let Some(proj) = project {
-            let session_project = session
-                .cwd
-                .as_ref()
-                .map(|c| find_project_name(&PathBuf::from(c)))
-                .unwrap_or_default();
-            if session_project != proj {
-                continue;
-            }
+        let session_project = session
+            .cwd
+            .as_ref()
+            .map(|c| find_project_name(&PathBuf::from(c)))
+            .unwrap_or_default();
+        if !project_matches_filters(project, &session_project) {
+            continue;
         }
 
-        // Provider filter
-        if let Some(ref provider) = provider_filter {
-            let matches = session
-                .tokens
-                .by_model
-                .keys()
-                .any(|m| model_matches_provider(m, provider, custom_providers));
-            if !matches {
-                continue;
-            }
+        if !session
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
         }
 
         combined.merge_session(session);
@@ -282,9 +278,9 @@ pub fn collect_stats(
 
 /// Collect individual session info from Openclaw session files.
 pub fn collect_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
     let mut sessions: Vec<SessionInfo> = Vec::new();
@@ -321,22 +317,18 @@ pub fn collect_sessions(
             .unwrap_or_else(|| "unknown".to_string());
 
         // Project filter
-        if let Some(proj) = project {
-            if project_name != proj {
-                continue;
-            }
+        if !project_matches_filters(project, &project_name) {
+            continue;
         }
 
-        // Provider filter
-        if let Some(ref provider) = provider_filter {
-            let matches = session
-                .tokens
-                .by_model
-                .keys()
-                .any(|m| model_matches_provider(m, provider, custom_providers));
-            if !matches {
-                continue;
-            }
+        if !session
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
         }
 
         let total_tokens = session.tokens.input

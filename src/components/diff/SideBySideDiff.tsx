@@ -138,11 +138,11 @@ export function SideBySideDiff({ diffContent, additions, deletions, maxLines = 5
 
   if (!rows) {
     return (
-      <div className="mx-4 my-3 px-4 py-3 text-sm text-[#a0a0a0] bg-[#111] rounded-lg border border-[#2a2a2a] flex items-center gap-2">
-        <span className="text-[#4ade80] font-mono">+{additions}</span>
-        <span className="text-[#555]">/</span>
-        <span className="text-[#f87171] font-mono">-{deletions}</span>
-        <span className="ml-2 text-[#666]">{t('codeChanges.diffUnavailable')}</span>
+      <div className="mx-4 my-3 px-4 py-3 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-base)] rounded-lg border border-[var(--color-border-base)] flex items-center gap-2">
+        <span className="text-[var(--color-accent-green)] font-mono">+{additions}</span>
+        <span className="text-[var(--color-text-muted)]">/</span>
+        <span className="text-[var(--color-accent-red)] font-mono">-{deletions}</span>
+        <span className="ml-2 text-[var(--color-text-muted)]">{t('codeChanges.diffUnavailable')}</span>
       </div>
     );
   }
@@ -156,27 +156,54 @@ export function SideBySideDiff({ diffContent, additions, deletions, maxLines = 5
   return (
     <div className="overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-[13px] leading-[20px] font-mono border-collapse">
+        <table className="w-full text-[13px] leading-[20px] font-mono border-collapse text-[var(--color-text-primary)]">
           <tbody>
             {displayRows.map((row, i) => {
               if (row.left && row.left.kind !== 'add') leftLineNum++;
               if (row.right && row.right.kind !== 'remove') rightLineNum++;
 
-              const leftBg = row.left?.kind === 'remove' ? 'bg-[#ef4444]/[0.08]' : '';
-              const rightBg = row.right?.kind === 'add' ? 'bg-[#22c55e]/[0.08]' : '';
-              const leftTextClass = row.left?.kind === 'remove' ? 'text-[#f87171]' : 'text-[#808080]';
-              const rightTextClass = row.right?.kind === 'add' ? 'text-[#4ade80]' : 'text-[#808080]';
-              const leftLineNumClass = row.left?.kind === 'remove' ? 'text-[#ef4444]/30' : 'text-[#4a4a4a]';
-              const rightLineNumClass = row.right?.kind === 'add' ? 'text-[#22c55e]/30' : 'text-[#4a4a4a]';
-              const emptyBg = 'bg-[#0a0a0a]';
+              const leftStyle = row.left?.kind === 'remove'
+                ? {
+                    backgroundColor: 'color-mix(in srgb, var(--color-accent-red) 12%, transparent)',
+                    color: 'var(--color-accent-red)',
+                  }
+                : row.left
+                  ? { color: 'var(--color-text-tertiary)' }
+                  : {
+                      backgroundColor: 'var(--color-bg-base)',
+                      color: 'var(--color-text-faint)',
+                    };
+              const rightStyle = row.right?.kind === 'add'
+                ? {
+                    backgroundColor: 'color-mix(in srgb, var(--color-accent-green) 12%, transparent)',
+                    color: 'var(--color-accent-green)',
+                  }
+                : row.right
+                  ? { color: 'var(--color-text-tertiary)' }
+                  : {
+                      backgroundColor: 'var(--color-bg-base)',
+                      color: 'var(--color-text-faint)',
+                    };
+              const leftLineNumStyle = row.left?.kind === 'remove'
+                ? { color: 'color-mix(in srgb, var(--color-accent-red) 34%, transparent)' }
+                : { color: 'var(--color-text-faint)' };
+              const rightLineNumStyle = row.right?.kind === 'add'
+                ? { color: 'color-mix(in srgb, var(--color-accent-green) 34%, transparent)' }
+                : { color: 'var(--color-text-faint)' };
 
               return (
                 <tr key={i}>
                   {/* Left side */}
-                  <td className={`px-3 py-0 text-right select-none w-[52px] min-w-[52px] border-r border-[#2a2a2a] ${row.left ? leftBg : emptyBg} ${leftLineNumClass}`}>
+                  <td
+                    className="px-3 py-0 text-right select-none w-[52px] min-w-[52px] border-r border-[var(--color-border-base)]"
+                    style={{ ...leftStyle, ...leftLineNumStyle }}
+                  >
                     {row.left ? leftLineNum : ''}
                   </td>
-                  <td className={`pl-4 pr-4 py-0 whitespace-pre w-1/2 border-r border-[#2a2a2a] ${row.left ? `${leftBg} ${leftTextClass}` : emptyBg}`}>
+                  <td
+                    className="pl-4 pr-4 py-0 whitespace-pre w-1/2 border-r border-[var(--color-border-base)]"
+                    style={leftStyle}
+                  >
                     {row.left ? (
                       <>
                         <span className="select-none inline-block w-4 text-center opacity-60">{row.left.kind === 'remove' ? '-' : ' '}</span>
@@ -185,10 +212,13 @@ export function SideBySideDiff({ diffContent, additions, deletions, maxLines = 5
                     ) : null}
                   </td>
                   {/* Right side */}
-                  <td className={`px-3 py-0 text-right select-none w-[52px] min-w-[52px] border-r border-[#2a2a2a] ${row.right ? rightBg : emptyBg} ${rightLineNumClass}`}>
+                  <td
+                    className="px-3 py-0 text-right select-none w-[52px] min-w-[52px] border-r border-[var(--color-border-base)]"
+                    style={{ ...rightStyle, ...rightLineNumStyle }}
+                  >
                     {row.right ? rightLineNum : ''}
                   </td>
-                  <td className={`pl-4 pr-4 py-0 whitespace-pre w-1/2 ${row.right ? `${rightBg} ${rightTextClass}` : emptyBg}`}>
+                  <td className="pl-4 pr-4 py-0 whitespace-pre w-1/2" style={rightStyle}>
                     {row.right ? (
                       <>
                         <span className="select-none inline-block w-4 text-center opacity-60">{row.right.kind === 'add' ? '+' : ' '}</span>
@@ -203,7 +233,7 @@ export function SideBySideDiff({ diffContent, additions, deletions, maxLines = 5
         </table>
       </div>
       {truncated && (
-        <div className="px-4 py-2.5 text-xs text-[#a0a0a0] border-t border-[#2a2a2a] bg-[#1a1a1a] text-center">
+        <div className="px-4 py-2.5 text-xs text-[var(--color-text-secondary)] border-t border-[var(--color-border-base)] bg-[var(--color-bg-surface)] text-center">
           {t('codeChanges.linesShown')
             .replace('{n}', String(maxLines))
             .replace('{total}', String(rows.length))}

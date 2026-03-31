@@ -1,4 +1,6 @@
-use crate::commands::{model_matches_provider, model_to_provider, CustomProviderDef};
+use crate::commands::{
+    model_matches_provider_filters, model_to_provider, CustomProviderDef,
+};
 use crate::models::{
     CodeChanges, ExtensionChanges, FileChange, InstructionInfo, ModelTokens, QueryTimeRange,
     SessionInfo, Statistics, TokenUsage,
@@ -32,7 +34,7 @@ struct SessionAggregate {
 pub fn aggregate_statistics(
     sessions: &[NormalizedSession],
     range: &QueryTimeRange,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Statistics {
     let mut result = Statistics::default();
@@ -92,7 +94,7 @@ pub fn aggregate_statistics(
 pub fn aggregate_sessions(
     sessions: &[NormalizedSession],
     range: &QueryTimeRange,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
     let mut results = sessions
@@ -126,7 +128,7 @@ pub fn aggregate_sessions(
 pub fn aggregate_instructions(
     sessions: &[NormalizedSession],
     range: &QueryTimeRange,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<InstructionInfo> {
     let mut results = Vec::new();
@@ -177,7 +179,7 @@ pub fn aggregate_available_providers(
 pub fn aggregate_code_changes_detail(
     sessions: &[NormalizedSession],
     range: &QueryTimeRange,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<FileChange> {
     let mut results: Vec<(DateTime<FixedOffset>, FileChange)> = Vec::new();
@@ -194,13 +196,13 @@ pub fn aggregate_code_changes_detail(
         }
 
         // Determine provider match (same logic as aggregate_session)
-        let provider_match_vector = provider_filter.as_ref().map(|provider| {
+        let provider_match_vector = provider_filter.as_deref().map(|providers| {
             filtered_records
                 .iter()
                 .filter_map(|record| match record {
-                    NormalizedRecord::Token(token) => Some(model_matches_provider(
+                    NormalizedRecord::Token(token) => Some(model_matches_provider_filters(
                         &token.model,
-                        provider,
+                        Some(providers),
                         custom_providers,
                     )),
                     _ => None,
@@ -217,12 +219,15 @@ pub fn aggregate_code_changes_detail(
             .unwrap_or(0);
         let session_provider_matches = provider_filter
             .as_ref()
-            .and_then(|provider| {
+            .map(|providers| {
                 session
                     .primary_model
                     .as_deref()
-                    .map(|model| model_matches_provider(model, provider, custom_providers))
+                    .map(|model| {
+                        model_matches_provider_filters(model, Some(providers), custom_providers)
+                    })
             })
+            .flatten()
             .unwrap_or(true);
         let provider_matches = provider_filter.is_none()
             || matching_token_count > 0
@@ -286,7 +291,7 @@ fn is_summary_only_code_change(change: &crate::normalized::CodeChangeRecord) -> 
 fn aggregate_session(
     session: &NormalizedSession,
     range: &QueryTimeRange,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Option<SessionAggregate> {
     let filtered_records = session
@@ -299,13 +304,13 @@ fn aggregate_session(
         return None;
     }
 
-    let provider_match_vector = provider_filter.as_ref().map(|provider| {
+    let provider_match_vector = provider_filter.as_deref().map(|providers| {
         filtered_records
             .iter()
             .filter_map(|record| match record {
-                NormalizedRecord::Token(token) => Some(model_matches_provider(
+                NormalizedRecord::Token(token) => Some(model_matches_provider_filters(
                     &token.model,
-                    provider,
+                    Some(providers),
                     custom_providers,
                 )),
                 _ => None,
@@ -322,12 +327,15 @@ fn aggregate_session(
         .unwrap_or(0);
     let session_provider_matches = provider_filter
         .as_ref()
-        .and_then(|provider| {
+        .map(|providers| {
             session
                 .primary_model
                 .as_deref()
-                .map(|model| model_matches_provider(model, provider, custom_providers))
+                .map(|model| {
+                    model_matches_provider_filters(model, Some(providers), custom_providers)
+                })
         })
+        .flatten()
         .unwrap_or(true);
     let mut provider_matches = provider_filter.is_none()
         || matching_token_count > 0
@@ -368,8 +376,8 @@ fn aggregate_session(
                 }
             }
             NormalizedRecord::Token(token) => {
-                if let Some(provider) = provider_filter {
-                    if !model_matches_provider(&token.model, provider, custom_providers) {
+                if let Some(providers) = provider_filter.as_deref() {
+                    if !model_matches_provider_filters(&token.model, Some(providers), custom_providers) {
                         include_record = false;
                     } else {
                         provider_matches = true;

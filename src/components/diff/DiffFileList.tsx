@@ -28,11 +28,11 @@ function getExtensionColor(ext: string): { bg: string; text: string } {
     toml: { bg: 'bg-[#f59e0b]/15', text: 'text-[#f59e0b]' },
     yaml: { bg: 'bg-[#f59e0b]/15', text: 'text-[#f59e0b]' },
     yml: { bg: 'bg-[#f59e0b]/15', text: 'text-[#f59e0b]' },
-    md: { bg: 'bg-[#808080]/15', text: 'text-[#808080]' },
+    md: { bg: 'bg-[var(--color-bg-active)]', text: 'text-[var(--color-text-tertiary)]' },
     svg: { bg: 'bg-[#ffb13b]/15', text: 'text-[#ffb13b]' },
-    lock: { bg: 'bg-[#555]/15', text: 'text-[#555]' },
+    lock: { bg: 'bg-[var(--color-bg-active)]', text: 'text-[var(--color-text-muted)]' },
   };
-  return map[ext.toLowerCase()] ?? { bg: 'bg-[#666]/15', text: 'text-[#666]' };
+  return map[ext.toLowerCase()] ?? { bg: 'bg-[var(--color-bg-active)]', text: 'text-[var(--color-text-muted)]' };
 }
 
 export function DiffFileList({ files, viewMode, searchQuery }: DiffFileListProps) {
@@ -61,7 +61,7 @@ export function DiffFileList({ files, viewMode, searchQuery }: DiffFileListProps
 
   if (filteredFiles.length === 0) {
     return (
-      <div className="bg-[#1a1a1a] rounded-xl p-8 border border-[#2a2a2a] text-center text-[#a0a0a0]">
+      <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center text-[var(--color-text-secondary)]">
         {t('codeChanges.noData')}
       </div>
     );
@@ -82,26 +82,26 @@ export function DiffFileList({ files, viewMode, searchQuery }: DiffFileListProps
         return (
           <div
             key={`${file.file_path}-${index}`}
-            className={`bg-[#1a1a1a] rounded-lg border overflow-hidden transition-colors ${
-              isExpanded ? 'border-[#333]' : 'border-[#2a2a2a]'
+            className={`bg-[var(--color-bg-surface)] rounded-lg border overflow-hidden transition-colors ${
+              isExpanded ? 'border-[var(--color-border-strong)]' : 'border-[var(--color-border-base)]'
             }`}
           >
             {/* File header row */}
             <button
-              className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-[#222] transition-colors text-left group"
+              className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-[var(--color-bg-elevated)] transition-colors text-left group"
               onClick={() => toggleFile(index)}
             >
               <span className="shrink-0 transition-transform duration-200">
                 {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-[#666] group-hover:text-[#888]" />
+                  <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-[#666] group-hover:text-[#888]" />
+                  <ChevronRight className="w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]" />
                 )}
               </span>
-              <FileCode className="w-4 h-4 text-[#555] shrink-0" />
+              <FileCode className="w-4 h-4 text-[var(--color-text-tertiary)] shrink-0" />
               <span className="text-sm font-mono truncate flex-1" title={file.file_path}>
-                <span className="text-[#666]">{dirPath}</span>
-                <span className="text-[#ddd]">{fileName}</span>
+                <span className="text-[var(--color-text-muted)]">{dirPath}</span>
+                <span className="text-[var(--color-text-primary)]">{fileName}</span>
               </span>
               {file.extension && extColor && (
                 <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${extColor.bg} ${extColor.text} shrink-0 font-mono`}>
@@ -110,19 +110,19 @@ export function DiffFileList({ files, viewMode, searchQuery }: DiffFileListProps
               )}
               <div className="flex items-center gap-2 text-xs shrink-0 ml-1 font-mono">
                 {file.additions > 0 && (
-                  <span className="text-[#4ade80]">+{file.additions}</span>
+                  <span className="text-[var(--color-accent-green)]">+{file.additions}</span>
                 )}
                 {file.deletions > 0 && (
-                  <span className="text-[#f87171]">-{file.deletions}</span>
+                  <span className="text-[var(--color-accent-red)]">-{file.deletions}</span>
                 )}
               </div>
             </button>
 
             {/* Expanded diff content */}
             {isExpanded && (
-              <div className="border-t border-[#2a2a2a]">
+              <div className="border-t border-[var(--color-border-base)]">
                 {isBinary ? (
-                  <div className="mx-4 my-3 px-4 py-3 text-sm text-[#a0a0a0] bg-[#111] rounded-lg border border-[#2a2a2a] text-center">
+                  <div className="mx-4 my-3 px-4 py-3 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-base)] rounded-lg border border-[var(--color-border-base)] text-center">
                     {t('codeChanges.binaryFile')}
                   </div>
                 ) : viewMode === 'unified' ? (

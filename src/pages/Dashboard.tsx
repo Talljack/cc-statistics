@@ -301,7 +301,12 @@ export function Dashboard() {
         )}
       </main>
 
-      <Footer lastUpdated={lastUpdated ?? undefined} onRefresh={handleRefresh} isRefreshing={isRefreshing} />
+      <Footer
+        lastUpdated={lastUpdated ?? undefined}
+        onRefresh={handleRefresh}
+        onOpenShortcuts={() => setHelpOpen(true)}
+        isRefreshing={isRefreshing}
+      />
       <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
     </div>
   );

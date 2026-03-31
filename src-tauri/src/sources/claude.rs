@@ -1,4 +1,6 @@
-use crate::commands::{filter_by_time, model_matches_provider, CustomProviderDef};
+use crate::commands::{
+    filter_by_time, model_matches_provider_filters, project_matches_filters, CustomProviderDef,
+};
 use crate::models::*;
 use crate::normalized::NormalizedSession;
 use crate::parser::parse_normalized_session_file;
@@ -140,10 +142,10 @@ pub fn discover_projects() -> Vec<(String, String)> {
 }
 
 pub fn collect_stats(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
     query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
     let name_map = match build_project_name_map() {
@@ -153,14 +155,11 @@ pub fn collect_stats(
 
     let mut all_stats = ProjectStats::default();
 
-    let dirs_to_scan: Vec<&PathBuf> = if let Some(project_name) = project {
-        match name_map.get(project_name) {
-            Some(dirs) => dirs.iter().collect(),
-            None => return ProjectStats::default(),
-        }
-    } else {
-        name_map.values().flat_map(|dirs| dirs.iter()).collect()
-    };
+    let dirs_to_scan: Vec<&PathBuf> = name_map
+        .iter()
+        .filter(|(project_name, _)| project_matches_filters(project, project_name))
+        .flat_map(|(_, dirs)| dirs.iter())
+        .collect();
 
     for dir in dirs_to_scan {
         match collect_project_stats(
@@ -182,7 +181,7 @@ fn collect_project_stats(
     project_path: &PathBuf,
     time_filter: &TimeFilter,
     query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Result<ProjectStats, String> {
     let mut stats = ProjectStats::default();
@@ -205,15 +204,14 @@ fn collect_project_stats(
             if ext == "jsonl" {
                 match parse_session_file(&path, time_filter) {
                     Ok(session_stats) if session_stats.has_activity => {
-                        if let Some(ref provider) = provider_filter {
-                            let matches = session_stats
-                                .tokens
-                                .by_model
-                                .keys()
-                                .any(|m| model_matches_provider(m, provider, custom_providers));
-                            if !matches {
-                                continue;
-                            }
+                        if !session_stats
+                            .tokens
+                            .by_model
+                            .keys()
+                            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+                            && provider_filter.is_some()
+                        {
+                            continue;
                         }
                         stats.merge_session(session_stats);
                     }
@@ -228,10 +226,10 @@ fn collect_project_stats(
 }
 
 pub fn collect_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
     query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
     let name_map = match build_project_name_map() {
@@ -241,14 +239,11 @@ pub fn collect_sessions(
 
     let mut sessions: Vec<SessionInfo> = Vec::new();
 
-    let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(project_name) = project {
-        match name_map.get(project_name) {
-            Some(dirs) => vec![(project_name.to_string(), dirs)],
-            None => return vec![],
-        }
-    } else {
-        name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
-    };
+    let target_dirs: Vec<(String, &Vec<PathBuf>)> = name_map
+        .iter()
+        .filter(|(project_name, _)| project_matches_filters(project, project_name))
+        .map(|(project_name, dirs)| (project_name.clone(), dirs))
+        .collect();
 
     for (project_name, dirs) in target_dirs {
         for dir in dirs {
@@ -275,15 +270,14 @@ pub fn collect_sessions(
                     _ => continue,
                 };
 
-                if let Some(ref provider) = provider_filter {
-                    let matches = session_stats
-                        .tokens
-                        .by_model
-                        .keys()
-                        .any(|m| model_matches_provider(m, provider, custom_providers));
-                    if !matches {
-                        continue;
-                    }
+                if !session_stats
+                    .tokens
+                    .by_model
+                    .keys()
+                    .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+                    && provider_filter.is_some()
+                {
+                    continue;
                 }
 
                 let total_tokens = session_stats.tokens.input
@@ -321,7 +315,7 @@ pub fn collect_sessions(
 }
 
 pub fn collect_normalized_sessions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let name_map = match build_project_name_map() {
@@ -329,14 +323,11 @@ pub fn collect_normalized_sessions(
         Err(_) => return Vec::new(),
     };
 
-    let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(project_name) = project {
-        match name_map.get(project_name) {
-            Some(dirs) => vec![(project_name.to_string(), dirs)],
-            None => return Vec::new(),
-        }
-    } else {
-        name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
-    };
+    let target_dirs: Vec<(String, &Vec<PathBuf>)> = name_map
+        .iter()
+        .filter(|(project_name, _)| project_matches_filters(project, project_name))
+        .map(|(project_name, dirs)| (project_name.clone(), dirs))
+        .collect();
 
     let mut sessions = Vec::new();
 
@@ -372,10 +363,10 @@ pub fn collect_normalized_sessions(
 }
 
 pub fn collect_instructions(
-    project: Option<&str>,
+    project: Option<&[String]>,
     time_filter: &TimeFilter,
     query_range: &Option<QueryTimeRange>,
-    provider_filter: &Option<String>,
+    provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<InstructionInfo> {
     let name_map = match build_project_name_map() {
@@ -385,14 +376,11 @@ pub fn collect_instructions(
 
     let mut instructions: Vec<InstructionInfo> = Vec::new();
 
-    let target_dirs: Vec<(String, &Vec<PathBuf>)> = if let Some(project_name) = project {
-        match name_map.get(project_name) {
-            Some(dirs) => vec![(project_name.to_string(), dirs)],
-            None => return vec![],
-        }
-    } else {
-        name_map.iter().map(|(k, v)| (k.clone(), v)).collect()
-    };
+    let target_dirs: Vec<(String, &Vec<PathBuf>)> = name_map
+        .iter()
+        .filter(|(project_name, _)| project_matches_filters(project, project_name))
+        .map(|(project_name, dirs)| (project_name.clone(), dirs))
+        .collect();
 
     for (project_name, dirs) in target_dirs {
         for dir in dirs {
@@ -414,7 +402,7 @@ pub fn collect_instructions(
                     continue;
                 }
 
-                if let Some(ref provider) = provider_filter {
+                if provider_filter.is_some() {
                     let session_stats = match parse_session_file(&path, time_filter) {
                         Ok(s) => s,
                         Err(_) => continue,
@@ -423,7 +411,7 @@ pub fn collect_instructions(
                         .tokens
                         .by_model
                         .keys()
-                        .any(|m| model_matches_provider(m, provider, custom_providers));
+                        .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers));
                     if !matches {
                         continue;
                     }
