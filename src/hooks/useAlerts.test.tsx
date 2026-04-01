@@ -7,6 +7,7 @@ const isPermissionGrantedMock = vi.fn();
 const requestPermissionMock = vi.fn();
 const sendNotificationMock = vi.fn();
 const setAlertsMutedUntilMock = vi.fn();
+const invokeMock = vi.fn();
 
 const settingsState = {
   alertsEnabled: true,
@@ -16,6 +17,10 @@ const settingsState = {
   alertsMutedUntil: null as string | null,
   setAlertsMutedUntil: setAlertsMutedUntilMock,
 };
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
 
 vi.mock('@tauri-apps/plugin-notification', () => ({
   isPermissionGranted: (...args: unknown[]) => isPermissionGrantedMock(...args),
@@ -47,6 +52,7 @@ describe('useAlerts', () => {
     isPermissionGrantedMock.mockResolvedValue(true);
     requestPermissionMock.mockResolvedValue('granted');
     sendNotificationMock.mockResolvedValue(undefined);
+    invokeMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {

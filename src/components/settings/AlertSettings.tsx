@@ -21,10 +21,12 @@ export function AlertSettings({
     dailyCostLimit,
     dailyTokenLimit,
     sessionWindowWarning,
+    alertsMutedUntil,
     setAlertsEnabled,
     setDailyCostLimit,
     setDailyTokenLimit,
     setSessionWindowWarning,
+    setAlertsMutedUntil,
   } = useSettingsStore();
 
   return (
@@ -82,6 +84,18 @@ export function AlertSettings({
                 className="w-40 bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-md px-3 py-2 text-sm font-mono text-[var(--color-text-primary)] focus:outline-none focus:border-[#3b82f6]"
               />
             </div>
+            {alertsMutedUntil && new Date(alertsMutedUntil) > new Date() && (
+              <div className="flex items-center gap-3 text-xs text-[var(--color-text-secondary)]">
+                <span>{t('settings.alerts.mutedUntil').replace('{{time}}', new Date(alertsMutedUntil).toLocaleString())}</span>
+                <button
+                  type="button"
+                  onClick={() => setAlertsMutedUntil(null)}
+                  className="text-[var(--color-accent-blue)] hover:underline"
+                >
+                  {t('settings.alerts.clearMute')}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

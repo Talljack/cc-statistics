@@ -6,7 +6,7 @@ import { useFilterStore } from '../stores/filterStore';
 import { useAppStore } from '../stores/appStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePricingStore } from '../stores/pricingStore';
-import { useStatistics, useSessions } from '../hooks/useStatistics';
+import { useStatistics, useSessions, useAccountUsage } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { Footer } from '../components/layout/Footer';
 import { SettingsPage } from '../components/pages/SettingsPage';
@@ -77,7 +77,8 @@ export function Dashboard() {
   const dashboardTotalTokens = stats
     ? stats.tokens.input + stats.tokens.output + stats.tokens.cache_read + stats.tokens.cache_creation
     : 0;
-  useAlerts(costMetrics.totalCost, dashboardTotalTokens);
+  const { data: accountUsage } = useAccountUsage();
+  useAlerts(costMetrics.totalCost, dashboardTotalTokens, accountUsage?.providers ?? []);
 
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
