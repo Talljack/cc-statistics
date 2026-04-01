@@ -661,9 +661,16 @@ fn codex_skill_block_is_embedded(text: &str) -> bool {
 fn codex_joined_array_text(items: &[Value]) -> String {
     items
         .iter()
-        .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+        .filter_map(codex_array_text_block_text)
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+fn codex_array_text_block_text(item: &Value) -> Option<&str> {
+    match item.get("type").and_then(|value| value.as_str()) {
+        Some("input_text") | Some("text") => item.get("text").and_then(|value| value.as_str()),
+        _ => None,
+    }
 }
 
 fn strip_codex_legacy_string_segments(text: &str) -> String {

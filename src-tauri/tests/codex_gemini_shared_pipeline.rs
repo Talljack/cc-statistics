@@ -967,6 +967,68 @@ fn codex_shared_pipeline_keeps_later_quoted_setup_xml_after_leading_setup() {
 }
 
 #[test]
+fn codex_shared_pipeline_ignores_output_text_blocks_inside_array_instructions() {
+    let home = unique_temp_dir("codex-array-output-text-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-array-output-text.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-03-31T11:37:00+08:00"),
+                "payload": {
+                    "id": "codex-array-output-text-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-03-31T11:37:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "real prompt before output text" },
+                        { "type": "output_text", "text": "assistant-only commentary that must not count" },
+                        { "type": "text", "text": "real prompt after output text" }
+                    ]
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 3, 31);
+
+    let range = absolute_day("2026-03-31");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 1);
+    assert_eq!(stats.tool_usage.get("Skill"), None);
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert_eq!(instructions.len(), 1);
+    assert!(instructions[0].content.contains("real prompt before output text"));
+    assert!(instructions[0].content.contains("real prompt after output text"));
+    assert!(!instructions[0].content.contains("assistant-only commentary that must not count"));
+}
+
+#[test]
 fn codex_shared_pipeline_keeps_quoted_skill_xml_inside_prompt_text() {
     let home = unique_temp_dir("codex-quoted-skill-home");
     let session_dir = home.join(".codex/sessions/project-a");
