@@ -701,44 +701,12 @@ fn codex_skill_block_is_embedded(text: &str) -> bool {
 }
 
 fn codex_array_has_embedded_skill(items: &[Value]) -> bool {
-    let mut saw_prompt_before_skill = false;
-
-    for (index, item) in items.iter().enumerate() {
-        let Some(text) = item.get("text").and_then(|value| value.as_str()) else {
-            continue;
-        };
-
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if extract_codex_skill_name_from_text(trimmed).is_some() {
-            let has_prompt_after_skill = items
-                .iter()
-                .skip(index + 1)
-                .any(codex_array_item_is_prompt_text);
-            if saw_prompt_before_skill && has_prompt_after_skill {
-                return true;
-            }
-            continue;
-        }
-
-        if codex_array_item_is_prompt_text(item) {
-            saw_prompt_before_skill = true;
-        }
-    }
-
-    false
-}
-
-fn codex_array_item_is_prompt_text(item: &Value) -> bool {
-    let Some(text) = item.get("text").and_then(|value| value.as_str()) else {
-        return false;
-    };
-
-    let text = text.trim();
-    !text.is_empty() && extract_codex_instruction_text(text).is_some()
+    let text = items
+        .iter()
+        .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    codex_skill_block_is_embedded(&text)
 }
 
 fn strip_codex_legacy_string_segments(text: &str) -> String {
