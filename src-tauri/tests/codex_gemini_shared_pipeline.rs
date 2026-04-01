@@ -713,6 +713,65 @@ fn codex_shared_pipeline_strips_injected_setup_text_from_legacy_string_blocks() 
 }
 
 #[test]
+fn codex_shared_pipeline_keeps_real_prompt_after_split_array_agents_header() {
+    let home = unique_temp_dir("codex-array-agents-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-array-agents.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-03-31T11:25:00+08:00"),
+                "payload": {
+                    "id": "codex-array-agents-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-03-31T11:25:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "# AGENTS.md instructions\n- keep this out of the instruction stream" },
+                        { "type": "input_text", "text": "real prompt after array setup" }
+                    ]
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 3, 31);
+
+    let range = absolute_day("2026-03-31");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 1);
+    assert_eq!(stats.tool_usage.get("Skill"), None);
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert_eq!(instructions.len(), 1);
+    assert_eq!(instructions[0].content, "real prompt after array setup");
+}
+
+#[test]
 fn codex_shared_pipeline_strips_same_line_injected_xml_before_prompt() {
     let home = unique_temp_dir("codex-same-line-setup-home");
     let session_dir = home.join(".codex/sessions/project-a");
@@ -780,6 +839,68 @@ fn codex_shared_pipeline_strips_same_line_injected_xml_before_prompt() {
     assert!(instructions
         .iter()
         .any(|instruction| instruction.content == "real prompt after user instructions"));
+}
+
+#[test]
+fn codex_shared_pipeline_keeps_quoted_setup_xml_inside_array_prompt_text() {
+    let home = unique_temp_dir("codex-array-quoted-setup-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-array-quoted-setup.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-03-31T11:35:00+08:00"),
+                "payload": {
+                    "id": "codex-array-quoted-setup-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-03-31T11:35:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "Please keep this literal:" },
+                        { "type": "text", "text": "<environment_context>runtime notes</environment_context>" },
+                        { "type": "input_text", "text": "and keep it in the prompt" }
+                    ]
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 3, 31);
+
+    let range = absolute_day("2026-03-31");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 1);
+    assert_eq!(stats.tool_usage.get("Skill"), None);
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert_eq!(instructions.len(), 1);
+    assert!(instructions[0].content.contains("Please keep this literal:"));
+    assert!(instructions[0].content.contains("<environment_context>runtime notes</environment_context>"));
+    assert!(instructions[0].content.contains("and keep it in the prompt"));
 }
 
 #[test]
