@@ -22,6 +22,7 @@ vi.mock('../hooks/useStatistics', () => ({
   useSessions: (...args: unknown[]) => mockUseSessions(...args),
   useProjects: () => ({ data: [] }),
   useAvailableProviders: () => ({ data: [] }),
+  useAccountUsage: () => ({ data: null }),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
