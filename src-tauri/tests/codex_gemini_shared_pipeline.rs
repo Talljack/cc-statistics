@@ -513,6 +513,65 @@ fn codex_shared_pipeline_keeps_skill_xml_split_across_array_items_inside_prompt_
 }
 
 #[test]
+fn codex_shared_pipeline_detects_split_array_skill_block_as_skill_tool() {
+    let home = unique_temp_dir("codex-array-split-skill-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-array-split-skill.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-04-01T10:10:00+08:00"),
+                "payload": {
+                    "id": "codex-array-split-skill-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-04-01T10:10:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": "<skill>\n<name>brainstorming</name>" },
+                        { "type": "text", "text": "<path>/Users/test/brainstorming/SKILL.md</path>\n</skill>" }
+                    ]
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 4, 1);
+
+    let range = absolute_day("2026-04-01");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 0);
+    assert_eq!(stats.tool_usage.get("Skill"), Some(&1));
+    assert_eq!(stats.skill_usage.get("brainstorming"), Some(&1));
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert!(instructions.is_empty());
+}
+
+#[test]
 fn codex_shared_pipeline_handles_mixed_skill_and_prompt_string_blocks() {
     let home = unique_temp_dir("codex-mixed-string-home");
     let session_dir = home.join(".codex/sessions/project-a");

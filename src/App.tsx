@@ -12,6 +12,7 @@ import { CodeChangesDetail } from './pages/CodeChangesDetail';
 import { AccountUsage } from './pages/AccountUsage';
 import { SessionDetail } from './pages/SessionDetail';
 import { UpdateDialog } from './components/UpdateDialog';
+import { GlobalShortcutLayer } from './components/shortcuts/GlobalShortcutLayer';
 import { useTheme } from './hooks/useTheme';
 import { usePricingStore } from './stores/pricingStore';
 import { useUpdateStore } from './stores/updateStore';
@@ -54,6 +55,7 @@ function App() {
         <PricingLoader />
         <UpdateChecker />
         <UpdateDialog />
+        <GlobalShortcutLayer />
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/sessions" element={<Sessions />} />

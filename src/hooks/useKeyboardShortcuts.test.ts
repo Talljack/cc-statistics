@@ -1,5 +1,35 @@
-import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { useAppStore } from '../stores/appStore';
 import { matchesShortcut, parseShortcut } from './useKeyboardShortcuts';
+import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+
+function KeyboardHarness() {
+  const { helpOpen } = useKeyboardShortcuts();
+  const location = useLocation();
+  const currentView = useAppStore((state) => state.currentView);
+
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement('div', { 'data-testid': 'path' }, location.pathname),
+    React.createElement('div', { 'data-testid': 'view' }, currentView),
+    React.createElement('div', { 'data-testid': 'help' }, helpOpen ? 'open' : 'closed'),
+  );
+}
+
+beforeEach(() => {
+  useAppStore.setState({
+    currentView: 'dashboard',
+    shortcutHelpOpen: false,
+  });
+});
+
+afterEach(() => {
+  cleanup();
+});
 
 describe('parseShortcut', () => {
   it('parses mod+r as meta on mac', () => {
@@ -47,5 +77,41 @@ describe('matchesShortcut', () => {
   it('matches question mark', () => {
     const event = new KeyboardEvent('keydown', { key: '/', shiftKey: true });
     expect(matchesShortcut(event, '?', true)).toBe(true);
+  });
+
+  it('matches shifted question mark character key', () => {
+    const event = new KeyboardEvent('keydown', { key: '?', shiftKey: true });
+    expect(matchesShortcut(event, '?', true)).toBe(true);
+  });
+});
+
+describe('useKeyboardShortcuts', () => {
+  it('keeps navigation shortcuts active outside the dashboard route', () => {
+    render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/report'] },
+        React.createElement(KeyboardHarness),
+      )
+    );
+
+    fireEvent.keyDown(window, { key: 'g' });
+
+    expect(screen.getByTestId('path').textContent).toBe('/');
+    expect(screen.getByTestId('view').textContent).toBe('dashboard');
+  });
+
+  it('opens shortcut help from any route', () => {
+    render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/report'] },
+        React.createElement(KeyboardHarness),
+      )
+    );
+
+    fireEvent.keyDown(window, { key: '?', shiftKey: true });
+
+    expect(screen.getByTestId('help').textContent).toBe('open');
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../stores/appStore';
 import { useFilterStore } from '../stores/filterStore';
@@ -19,6 +19,20 @@ export interface ShortcutDef {
   action: () => void;
 }
 
+const SHIFTED_KEY_ALIASES: Record<string, string> = {
+  '/': '?',
+  ',': '<',
+  '.': '>',
+  ';': ':',
+  "'": '"',
+  '[': '{',
+  ']': '}',
+  '\\': '|',
+  '-': '_',
+  '=': '+',
+  '`': '~',
+};
+
 export function parseShortcut(shortcut: string, mac: boolean): ParsedShortcut {
   const normalized = shortcut === '?' ? 'shift+/' : shortcut;
   const parts = normalized.toLowerCase().split('+');
@@ -37,8 +51,10 @@ export function parseShortcut(shortcut: string, mac: boolean): ParsedShortcut {
 export function matchesShortcut(event: KeyboardEvent, shortcut: string, mac: boolean): boolean {
   const parsed = parseShortcut(shortcut, mac);
   const eventKey = event.key.toLowerCase();
+  const shiftedAlias = parsed.shift ? SHIFTED_KEY_ALIASES[parsed.key] : undefined;
+
   return (
-    eventKey === parsed.key &&
+    (eventKey === parsed.key || eventKey === shiftedAlias) &&
     event.metaKey === parsed.meta &&
     event.ctrlKey === parsed.ctrl &&
     event.shiftKey === parsed.shift &&
@@ -48,9 +64,14 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: string, mac: boo
 
 export function useKeyboardShortcuts(onRefresh?: () => void) {
   const navigate = useNavigate();
-  const { currentView, setView } = useAppStore();
+  const {
+    currentView,
+    setView,
+    shortcutHelpOpen,
+    setShortcutHelpOpen,
+    toggleShortcutHelp,
+  } = useAppStore();
   const { setActiveTimeRange } = useFilterStore();
-  const [helpOpen, setHelpOpen] = useState(false);
 
   const shortcuts = useMemo<ShortcutDef[]>(() => [
     { shortcut: 'mod+r', label: 'shortcuts.refresh', action: () => onRefresh?.() },
@@ -58,22 +79,31 @@ export function useKeyboardShortcuts(onRefresh?: () => void) {
     { shortcut: '2', label: 'shortcuts.week', action: () => setActiveTimeRange({ kind: 'built_in', key: 'week' }) },
     { shortcut: '3', label: 'shortcuts.month', action: () => setActiveTimeRange({ kind: 'built_in', key: 'month' }) },
     { shortcut: '4', label: 'shortcuts.all', action: () => setActiveTimeRange({ kind: 'built_in', key: 'all' }) },
-    { shortcut: 'g', label: 'shortcuts.dashboard', action: () => navigate('/') },
-    { shortcut: 's', label: 'shortcuts.sessions', action: () => navigate('/sessions') },
-    { shortcut: 'r', label: 'shortcuts.report', action: () => navigate('/report') },
-    { shortcut: 'c', label: 'shortcuts.cost', action: () => navigate('/cost') },
-    { shortcut: 'a', label: 'shortcuts.account', action: () => navigate('/account') },
-    { shortcut: 'mod+,', label: 'shortcuts.settings', action: () => setView('settings') },
-    { shortcut: '?', label: 'shortcuts.help', action: () => setHelpOpen((v) => !v) },
+    { shortcut: 'g', label: 'shortcuts.dashboard', action: () => { setView('dashboard'); navigate('/'); } },
+    { shortcut: 's', label: 'shortcuts.sessions', action: () => { setView('dashboard'); navigate('/sessions'); } },
+    { shortcut: 'r', label: 'shortcuts.report', action: () => { setView('dashboard'); navigate('/report'); } },
+    { shortcut: 'c', label: 'shortcuts.cost', action: () => { setView('dashboard'); navigate('/cost'); } },
+    { shortcut: 'a', label: 'shortcuts.account', action: () => { setView('dashboard'); navigate('/account'); } },
+    { shortcut: 'mod+,', label: 'shortcuts.settings', action: () => { setView('settings'); navigate('/'); } },
+    { shortcut: '?', label: 'shortcuts.help', action: () => toggleShortcutHelp() },
     {
       shortcut: 'escape',
       label: 'shortcuts.close',
       action: () => {
-        if (helpOpen) setHelpOpen(false);
+        if (shortcutHelpOpen) setShortcutHelpOpen(false);
         else if (currentView === 'settings') setView('dashboard');
       },
     },
-  ], [currentView, helpOpen, navigate, onRefresh, setActiveTimeRange, setView]);
+  ], [
+    currentView,
+    navigate,
+    onRefresh,
+    setActiveTimeRange,
+    setShortcutHelpOpen,
+    setView,
+    shortcutHelpOpen,
+    toggleShortcutHelp,
+  ]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -98,5 +128,5 @@ export function useKeyboardShortcuts(onRefresh?: () => void) {
     return () => window.removeEventListener('keydown', handler);
   }, [shortcuts]);
 
-  return { helpOpen, setHelpOpen, shortcuts };
+  return { helpOpen: shortcutHelpOpen, setHelpOpen: setShortcutHelpOpen, shortcuts };
 }
