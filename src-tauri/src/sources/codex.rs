@@ -671,13 +671,10 @@ fn strip_codex_legacy_string_segments(text: &str) -> String {
 }
 
 fn strip_codex_injected_setup_segments(text: &str) -> String {
-    if codex_setup_block_is_embedded(text) {
-        return text.to_string();
-    }
-
     let mut stripped = String::new();
     let mut skipping_agents = false;
     let mut skipping_xml_block: Option<&str> = None;
+    let mut saw_prompt_content = false;
 
     for line in text.lines() {
         if skipping_agents {
@@ -704,6 +701,12 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
 
             if trimmed.starts_with("# AGENTS.md instructions") {
                 skipping_agents = true;
+                break;
+            }
+
+            if saw_prompt_content {
+                line_output.push_str(leading);
+                line_output.push_str(trimmed);
                 break;
             }
 
@@ -734,6 +737,7 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
         }
 
         if !line_output.is_empty() {
+            saw_prompt_content = true;
             if !stripped.is_empty() {
                 stripped.push('\n');
             }
@@ -742,32 +746,6 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
     }
 
     stripped
-}
-
-fn codex_setup_block_is_embedded(text: &str) -> bool {
-    for (open_tag, close_tag) in [
-        ("<environment_context>", "</environment_context>"),
-        ("<user_instructions>", "</user_instructions>"),
-        ("<INSTRUCTIONS>", "</INSTRUCTIONS>"),
-    ] {
-        let Some(open_index) = text.find(open_tag) else {
-            continue;
-        };
-        let Some(close_index) = text.find(close_tag) else {
-            continue;
-        };
-        if close_index < open_index {
-            continue;
-        }
-
-        let before = text[..open_index].trim();
-        let after = text[close_index + close_tag.len()..].trim();
-        if !before.is_empty() && !after.is_empty() {
-            return true;
-        }
-    }
-
-    false
 }
 
 fn is_codex_internal_worker_prompt(text: &str) -> bool {

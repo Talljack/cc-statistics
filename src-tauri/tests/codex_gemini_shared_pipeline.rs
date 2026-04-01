@@ -904,6 +904,69 @@ fn codex_shared_pipeline_keeps_quoted_setup_xml_inside_array_prompt_text() {
 }
 
 #[test]
+fn codex_shared_pipeline_keeps_later_quoted_setup_xml_after_leading_setup() {
+    let home = unique_temp_dir("codex-array-leading-setup-quoted-xml-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-array-leading-setup-quoted-xml.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-03-31T11:36:00+08:00"),
+                "payload": {
+                    "id": "codex-array-leading-setup-quoted-xml-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-03-31T11:36:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "# AGENTS.md instructions\n- keep this out of the instruction stream" },
+                        { "type": "input_text", "text": "Please keep this literal:" },
+                        { "type": "text", "text": "<environment_context>runtime notes</environment_context>" },
+                        { "type": "input_text", "text": "and keep it in the prompt" }
+                    ]
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 3, 31);
+
+    let range = absolute_day("2026-03-31");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 1);
+    assert_eq!(stats.tool_usage.get("Skill"), None);
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert_eq!(instructions.len(), 1);
+    assert!(instructions[0].content.contains("Please keep this literal:"));
+    assert!(instructions[0].content.contains("<environment_context>runtime notes</environment_context>"));
+    assert!(instructions[0].content.contains("and keep it in the prompt"));
+}
+
+#[test]
 fn codex_shared_pipeline_keeps_quoted_skill_xml_inside_prompt_text() {
     let home = unique_temp_dir("codex-quoted-skill-home");
     let session_dir = home.join(".codex/sessions/project-a");
