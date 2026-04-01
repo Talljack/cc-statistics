@@ -92,7 +92,7 @@ export function UpdateDialog() {
             </button>
             <button
               onClick={installUpdate}
-              className="px-5 py-2.5 rounded-lg bg-[#3b82f6] text-sm font-medium text-white hover:bg-[#2563eb] transition-colors shadow-lg shadow-blue-500/20"
+              className="px-5 py-2.5 rounded-lg bg-[var(--color-accent-blue)] text-sm font-medium text-white hover:bg-[var(--color-accent-blue)]/80 transition-colors shadow-lg shadow-blue-500/20"
             >
               <span className="flex items-center gap-2">
                 <RotateCcw className="w-4 h-4" />
@@ -159,7 +159,7 @@ export function UpdateDialog() {
             </div>
             <div className="w-full h-2 bg-[var(--color-bg-hover)] rounded-full overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#3b82f6] to-[#60a5fa] rounded-full transition-all duration-300 ease-out"
+                className="h-full bg-gradient-to-r from-[var(--color-accent-blue)] to-[var(--color-accent-blue)]/70 rounded-full transition-all duration-300 ease-out"
                 style={{ width: `${downloadProgress}%` }}
               />
             </div>
@@ -260,7 +260,7 @@ export function UpdateDialog() {
           {status === 'available' && (
             <button
               onClick={downloadAndInstall}
-              className="px-5 py-2.5 rounded-lg bg-[#3b82f6] text-sm font-medium text-white hover:bg-[#2563eb] transition-colors shadow-lg shadow-blue-500/20"
+              className="px-5 py-2.5 rounded-lg bg-[var(--color-accent-blue)] text-sm font-medium text-white hover:bg-[var(--color-accent-blue)]/80 transition-colors shadow-lg shadow-blue-500/20"
             >
               <span className="flex items-center gap-2">
                 <Download className="w-4 h-4" />
@@ -272,7 +272,7 @@ export function UpdateDialog() {
           {status === 'downloading' && (
             <button
               disabled
-              className="px-5 py-2.5 rounded-lg bg-[#3b82f6]/60 text-sm font-medium text-white/80 cursor-not-allowed"
+              className="px-5 py-2.5 rounded-lg bg-[var(--color-accent-blue)]/60 text-sm font-medium text-white/80 cursor-not-allowed"
             >
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -284,7 +284,7 @@ export function UpdateDialog() {
           {status === 'error' && (
             <button
               onClick={retryAction}
-              className="px-5 py-2.5 rounded-lg bg-[#3b82f6] text-sm font-medium text-white hover:bg-[#2563eb] transition-colors shadow-lg shadow-blue-500/20"
+              className="px-5 py-2.5 rounded-lg bg-[var(--color-accent-blue)] text-sm font-medium text-white hover:bg-[var(--color-accent-blue)]/80 transition-colors shadow-lg shadow-blue-500/20"
             >
               {t('common.retry')}
             </button>

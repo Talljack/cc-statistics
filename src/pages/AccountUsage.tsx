@@ -155,9 +155,9 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
 
       {/* Limit reached warning */}
       {usage.limitReached && (
-        <div className="mx-5 mt-4 px-3 py-2 rounded-lg bg-[#ef4444]/10 border border-[#ef4444]/30 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
-          <span className="text-sm text-[#ef4444]">{t('account.nearLimit')}</span>
+        <div className="mx-5 mt-4 px-3 py-2 rounded-lg bg-[var(--color-accent-red)]/10 border border-[var(--color-accent-red)]/30 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-[var(--color-accent-red)]" />
+          <span className="text-sm text-[var(--color-accent-red)]">{t('account.nearLimit')}</span>
         </div>
       )}
 
@@ -168,7 +168,7 @@ function ProviderCard({ usage, t }: { usage: ProviderUsage; t: (key: string) => 
             <span className="text-sm text-[var(--color-text-secondary)]">
               {t('account.balance')}
             </span>
-            <span className={`text-lg font-semibold ${usage.limitReached ? 'text-[#ef4444]' : 'text-[#22c55e]'}`}>
+            <span className={`text-lg font-semibold ${usage.limitReached ? 'text-[var(--color-accent-red)]' : 'text-[var(--color-accent-green)]'}`}>
               {usage.creditsBalance != null ? `$${usage.creditsBalance.toFixed(4)}` : '—'}
             </span>
           </div>
@@ -251,7 +251,7 @@ export function AccountUsage() {
               <ArrowLeft className="w-5 h-5 text-[var(--color-text-secondary)]" />
             </button>
             <div className="flex items-center gap-2">
-              <User className="w-5 h-5 text-[#f97316]" />
+              <User className="w-5 h-5 text-[var(--color-accent-orange)]" />
               <h2 className="text-xl font-semibold">
                 {t('account.title')}
                 <span className="text-[var(--color-text-secondary)] text-sm font-normal ml-2">
@@ -273,7 +273,7 @@ export function AccountUsage() {
         </div>
 
         {error && (
-          <div className="mb-4 bg-[var(--color-bg-surface)] rounded-xl p-4 border border-[#ef4444]/30 text-sm text-[#ef4444]">
+          <div className="mb-4 bg-[var(--color-bg-surface)] rounded-xl p-4 border border-[var(--color-accent-red)]/30 text-sm text-[var(--color-accent-red)]">
             {String(error)}
           </div>
         )}
@@ -282,7 +282,7 @@ export function AccountUsage() {
           <div className="bg-[var(--color-bg-surface)] rounded-xl p-8 border border-[var(--color-border-base)] text-center">
             {fetchLikelyFailed ? (
               <>
-                <WifiOff className="w-12 h-12 text-[#f59e0b] mx-auto mb-3" />
+                <WifiOff className="w-12 h-12 text-[var(--color-accent-yellow)] mx-auto mb-3" />
                 <p className="text-[var(--color-text-secondary)] mb-1">{t('account.fetchFailed')}</p>
                 <p className="text-sm text-[var(--color-text-muted)] mb-4">{t('account.fetchFailedDesc')}</p>
                 <button
