@@ -75,6 +75,10 @@ export function useAlerts(
         title: 'CC Statistics Alert',
         body: result.alerts.map((a) => a.message).join('\n'),
       });
+
+      const nextMidnight = new Date();
+      nextMidnight.setHours(24, 0, 0, 0);
+      setAlertsMutedUntil(nextMidnight.toISOString());
     })();
   }, [
     alertsEnabled,
