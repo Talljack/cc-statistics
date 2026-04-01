@@ -4,6 +4,7 @@ import {
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
+import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import { checkAlerts, type AlertConfig, type AlertInput } from '../lib/alerts';
 import type { ProviderUsage } from '../types/statistics';
@@ -51,6 +52,17 @@ export function useAlerts(
     };
 
     const result = checkAlerts(config, input);
+
+    void invoke('update_tray_stats', {
+      stats: {
+        costUsd: dailyCost,
+        sessions: 0,
+        instructions: 0,
+        totalTokens: dailyTokens,
+        alertLevel: result.alerts.length > 0 ? 'warning' : null,
+      },
+    });
+
     if (result.alerts.length === 0) {
       lastAlertKeyRef.current = null;
       return;
