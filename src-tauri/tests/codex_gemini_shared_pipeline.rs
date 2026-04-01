@@ -390,6 +390,68 @@ fn codex_shared_pipeline_handles_mixed_skill_and_prompt_blocks() {
 }
 
 #[test]
+fn codex_shared_pipeline_keeps_skill_xml_between_array_prompts_inside_prompt_text() {
+    let home = unique_temp_dir("codex-array-embedded-skill-home");
+    let session_dir = home.join(".codex/sessions/project-a");
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let session_path = session_dir.join("rollout-array-embedded-skill.jsonl");
+    write_jsonl(
+        &session_path,
+        &[
+            json!({
+                "type": "session_meta",
+                "timestamp": ts("2026-04-01T10:00:00+08:00"),
+                "payload": {
+                    "id": "codex-array-embedded-skill-session",
+                    "cwd": "/tmp/codex-demo-project",
+                    "git": { "branch": "main" }
+                }
+            }),
+            json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response_item",
+                "timestamp": ts("2026-04-01T10:00:05+08:00"),
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "Please explain this literally:" },
+                        { "type": "text", "text": "<skill>\n<name>brainstorming</name>\n<path>/Users/test/brainstorming/SKILL.md</path>\n</skill>" },
+                        { "type": "input_text", "text": "keep it in the prompt" }
+                    ]
+                }
+            }),
+        ],
+    );
+    set_file_mtime(&session_path, 2026, 4, 1);
+
+    let range = absolute_day("2026-04-01");
+    let project_filter = vec!["codex-demo-project".to_string()];
+    let sessions = codex::collect_normalized_sessions_from_home(
+        &home,
+        Some(project_filter.as_slice()),
+        &range,
+    );
+    assert_eq!(sessions.len(), 1);
+
+    let stats = aggregate_statistics(&sessions, &range, &None, &[]);
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.instructions, 1);
+    assert_eq!(stats.tool_usage.get("Skill"), None);
+
+    let instructions =
+        cc_statistics_lib::aggregation::aggregate_instructions(&sessions, &range, &None, &[]);
+    assert_eq!(instructions.len(), 1);
+    assert!(instructions[0].content.contains("Please explain this literally:"));
+    assert!(instructions[0].content.contains("<skill>"));
+    assert!(instructions[0].content.contains("keep it in the prompt"));
+}
+
+#[test]
 fn codex_shared_pipeline_handles_mixed_skill_and_prompt_string_blocks() {
     let home = unique_temp_dir("codex-mixed-string-home");
     let session_dir = home.join(".codex/sessions/project-a");
