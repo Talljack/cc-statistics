@@ -32,9 +32,9 @@ export function DevTimeChart({ devTime }: DevTimeChartProps) {
 
       <div className="flex items-center gap-6">
         {/* Big number display */}
-        <div className="flex items-center justify-center w-[160px] h-[160px] shrink-0 rounded-full border-4 border-[#a855f7]/30 bg-[#a855f7]/5">
+        <div className="flex items-center justify-center w-[160px] h-[160px] shrink-0 rounded-full border-4 border-[var(--color-accent-purple)]/30 bg-[var(--color-accent-purple)]/5">
           <div className="text-center">
-            <div className="text-3xl font-bold text-[#a855f7]">{formatDuration(devTime.total_ms)}</div>
+            <div className="text-3xl font-bold text-[var(--color-accent-purple)]">{formatDuration(devTime.total_ms)}</div>
             <div className="text-xs text-[var(--color-text-secondary)] mt-1">{t('common.total')}</div>
           </div>
         </div>
@@ -42,18 +42,18 @@ export function DevTimeChart({ devTime }: DevTimeChartProps) {
         {/* Breakdown */}
         <div className="flex-1 space-y-3">
           {hours > 0 && (
-            <div className="flex items-center justify-between p-3 rounded-lg bg-[#a855f7]/5 border border-[#a855f7]/10">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-accent-purple)]/5 border border-[var(--color-accent-purple)]/10">
               <span className="text-sm text-[var(--color-text-secondary)]">{t('chart.hours')}</span>
-              <span className="text-2xl font-bold text-[#a855f7]">{hours}</span>
+              <span className="text-2xl font-bold text-[var(--color-accent-purple)]">{hours}</span>
             </div>
           )}
-          <div className="flex items-center justify-between p-3 rounded-lg bg-[#a855f7]/5 border border-[#a855f7]/10">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-accent-purple)]/5 border border-[var(--color-accent-purple)]/10">
             <span className="text-sm text-[var(--color-text-secondary)]">{t('chart.minutes')}</span>
-            <span className="text-2xl font-bold text-[#a855f7]">{hours > 0 ? minutes : Math.floor(totalSeconds / 60)}</span>
+            <span className="text-2xl font-bold text-[var(--color-accent-purple)]">{hours > 0 ? minutes : Math.floor(totalSeconds / 60)}</span>
           </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-[#a855f7]/5 border border-[#a855f7]/10">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-accent-purple)]/5 border border-[var(--color-accent-purple)]/10">
             <span className="text-sm text-[var(--color-text-secondary)]">{t('chart.seconds')}</span>
-            <span className="text-2xl font-bold text-[#a855f7]">{seconds}</span>
+            <span className="text-2xl font-bold text-[var(--color-accent-purple)]">{seconds}</span>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] pt-1">

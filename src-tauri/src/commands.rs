@@ -25,6 +25,8 @@ pub struct TrayDisplayStats {
     pub sessions: usize,
     pub instructions: u64,
     pub total_tokens: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alert_level: Option<String>,
 }
 
 /// Extract provider name from a model string.

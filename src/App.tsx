@@ -12,6 +12,7 @@ import { CodeChangesDetail } from './pages/CodeChangesDetail';
 import { AccountUsage } from './pages/AccountUsage';
 import { SessionDetail } from './pages/SessionDetail';
 import { UpdateDialog } from './components/UpdateDialog';
+import { GlobalShortcutLayer } from './components/shortcuts/GlobalShortcutLayer';
 import { useTheme } from './hooks/useTheme';
 import { usePricingStore } from './stores/pricingStore';
 import { useUpdateStore } from './stores/updateStore';
@@ -22,6 +23,8 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       retry: 1,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
     },
   },
 });
@@ -54,6 +57,7 @@ function App() {
         <PricingLoader />
         <UpdateChecker />
         <UpdateDialog />
+        <GlobalShortcutLayer />
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/sessions" element={<Sessions />} />

@@ -68,7 +68,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       onClick={() => onChange(!checked)}
       className={cn(
         'relative w-12 h-7 rounded-full transition-colors shrink-0',
-        checked ? 'bg-[#10b981]' : 'bg-[var(--color-bg-active)]'
+        checked ? 'bg-[var(--color-accent-green)]' : 'bg-[var(--color-bg-active)]'
       )}
     >
       <span
@@ -218,7 +218,7 @@ function GeneralTab() {
               className={cn(
                 'px-5 py-2 rounded-md text-sm font-medium transition-all',
                 language === lang.value
-                  ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                  ? 'bg-[var(--color-accent-blue)] text-white shadow-md shadow-blue-500/20'
                   : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
               )}
             >
@@ -239,7 +239,7 @@ function GeneralTab() {
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
                 theme === th.value
-                  ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                  ? 'bg-[var(--color-accent-blue)] text-white shadow-md shadow-blue-500/20'
                   : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
               )}
             >
@@ -304,7 +304,7 @@ function GeneralTab() {
                   className={cn(
                     'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
                     sessionSortField === opt.value
-                      ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                      ? 'bg-[var(--color-accent-blue)] text-white shadow-md shadow-blue-500/20'
                       : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                   )}
                 >
@@ -321,7 +321,7 @@ function GeneralTab() {
                 className={cn(
                   'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
                   sessionSortOrder === 'desc'
-                    ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                    ? 'bg-[var(--color-accent-blue)] text-white shadow-md shadow-blue-500/20'
                     : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                 )}
               >
@@ -332,7 +332,7 @@ function GeneralTab() {
                 className={cn(
                   'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
                   sessionSortOrder === 'asc'
-                    ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                    ? 'bg-[var(--color-accent-blue)] text-white shadow-md shadow-blue-500/20'
                     : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                 )}
               >
@@ -365,7 +365,7 @@ function GeneralTab() {
                     className={cn(
                       'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
                       autoRefreshInterval === opt.value
-                        ? 'bg-[#3b82f6] text-white shadow-md shadow-blue-500/20'
+                        ? 'bg-[var(--color-accent-blue)] text-white shadow-md shadow-blue-500/20'
                         : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                     )}
                   >
@@ -514,8 +514,8 @@ function AdvancedTab() {
       <div className="bg-[var(--color-bg-surface)] border border-[var(--color-border-base)] rounded-xl p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#22c55e]/20 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-[#22c55e]" />
+            <div className="w-10 h-10 rounded-xl bg-[var(--color-accent-green)]/20 flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-[var(--color-accent-green)]" />
             </div>
             <div>
               <div className="text-sm font-medium">{t('settings.pricing.dynamic')}</div>
@@ -537,13 +537,13 @@ function AdvancedTab() {
                     {stale && <span className="ml-2 text-amber-400">· {t('settings.pricing.stale')}</span>}
                   </>
                 ) : pricingError ? (
-                  <span className="text-[#ef4444]">{pricingError}</span>
+                  <span className="text-[var(--color-accent-red)]">{pricingError}</span>
                 ) : (
                   t('settings.pricing.notFetched')
                 )}
               </div>
               {hasPricingSnapshot && pricingError && (
-                <div className="text-xs text-[#ef4444] mt-1">{pricingError}</div>
+                <div className="text-xs text-[var(--color-accent-red)] mt-1">{pricingError}</div>
               )}
               {hasPricingSnapshot && pricingError && (
                 <div className="text-xs text-[var(--color-text-muted)] mt-1">{t('settings.pricing.refreshFailedFallback')}</div>
@@ -592,13 +592,13 @@ function AdvancedTab() {
                     value={newPricingModel}
                     onChange={(e) => setNewPricingModel(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAddPricing()}
-                    className="w-full bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-md px-3 py-2 text-sm font-mono text-[var(--color-text-primary)] focus:outline-none focus:border-[#3b82f6] placeholder-[var(--color-text-faint)] transition-colors"
+                    className="w-full bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-md px-3 py-2 text-sm font-mono text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-blue)] placeholder-[var(--color-text-faint)] transition-colors"
                   />
                 </div>
                 <button
                   onClick={handleAddPricing}
                   disabled={!newPricingModel.trim()}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-[#3b82f6] text-white rounded-md text-sm font-medium hover:bg-[#2563eb] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[var(--color-accent-blue)] text-white rounded-md text-sm font-medium hover:bg-[var(--color-accent-blue)]/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                 >
                   <Plus className="w-4 h-4" />
                   {t('settings.customProviders.add')}
@@ -624,10 +624,10 @@ function AdvancedTab() {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-[var(--color-text-primary)] font-mono">{modelName}</span>
                             {isFromApi && (
-                              <span className="text-[10px] text-[#22c55e] bg-[#22c55e]/10 px-1.5 py-0.5 rounded">API</span>
+                              <span className="text-[10px] text-[var(--color-accent-green)] bg-[var(--color-accent-green)]/10 px-1.5 py-0.5 rounded">API</span>
                             )}
                             {userOverride && (
-                              <span className="text-[10px] text-[#f59e0b] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">{t('settings.customRanges.custom')}</span>
+                              <span className="text-[10px] text-[var(--color-accent-yellow)] bg-[var(--color-accent-yellow)]/10 px-1.5 py-0.5 rounded">{t('settings.customRanges.custom')}</span>
                             )}
                           </div>
                           <button
@@ -642,7 +642,7 @@ function AdvancedTab() {
                             <span className="text-xs text-[var(--color-text-tertiary)]">Input</span>
                             <div className="flex items-center gap-1">
                               <span className="text-xs text-[var(--color-text-muted)]">$</span>
-                              <input type="number" value={p.input} onChange={(e) => updateModelPricing(modelName, { input: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-20 bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-md px-2 py-1 text-xs text-right text-[var(--color-text-primary)] focus:outline-none focus:border-[#3b82f6] font-mono" />
+                              <input type="number" value={p.input} onChange={(e) => updateModelPricing(modelName, { input: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-20 bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-md px-2 py-1 text-xs text-right text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-blue)] font-mono" />
                               <span className="text-xs text-[var(--color-text-muted)]">/M</span>
                             </div>
                           </div>

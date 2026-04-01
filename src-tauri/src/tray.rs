@@ -96,6 +96,7 @@ pub fn update_tray(app: &AppHandle, override_stats: Option<TrayDisplayStats>) {
                     + fallback_stats.tokens.output
                     + fallback_stats.tokens.cache_read
                     + fallback_stats.tokens.cache_creation,
+                alert_level: None,
             }
         }
     };
@@ -110,12 +111,20 @@ pub fn update_tray(app: &AppHandle, override_stats: Option<TrayDisplayStats>) {
         Err(_) => return,
     };
 
+    let has_warning = stats.alert_level.as_deref() == Some("warning");
+
     let cost_text = if stats.cost_usd >= 1.0 {
         format!("Today: ${:.2}", stats.cost_usd)
     } else if stats.cost_usd > 0.0 {
         format!("Today: ${:.3}", stats.cost_usd)
     } else {
         "Today: $0.00".to_string()
+    };
+
+    let cost_text = if has_warning {
+        format!("⚠️  {}", cost_text)
+    } else {
+        cost_text
     };
 
     let tokens_text = if stats.total_tokens >= 1_000_000 {

@@ -60,6 +60,10 @@ fn ts_millis(value: &str) -> i64 {
         .timestamp_millis()
 }
 
+fn single_project(name: &str) -> Vec<String> {
+    vec![name.to_string()]
+}
+
 #[test]
 fn opencode_instruction_tokens_and_zero_tool_skill_mcp() {
     let _lock = HOME_LOCK.lock().unwrap();
@@ -152,8 +156,8 @@ fn opencode_instruction_tokens_and_zero_tool_skill_mcp() {
     .unwrap();
 
     let _guard = HomeGuard::set(&home);
-    let sessions =
-        opencode::collect_normalized_sessions(Some("openclaw-demo"), &absolute_same_day());
+    let project_filter = single_project("openclaw-demo");
+    let sessions = opencode::collect_normalized_sessions(Some(&project_filter), &absolute_same_day());
     assert_eq!(sessions.len(), 1);
 
     let stats = aggregate_statistics(&sessions, &absolute_same_day(), &None, &[]);
@@ -254,7 +258,8 @@ fn opencode_partial_range_excludes_summary_code_changes() {
     .unwrap();
 
     let _guard = HomeGuard::set(&home);
-    let sessions = opencode::collect_normalized_sessions(Some("slice-demo"), &absolute_same_day());
+    let project_filter = single_project("slice-demo");
+    let sessions = opencode::collect_normalized_sessions(Some(&project_filter), &absolute_same_day());
     let stats = aggregate_statistics(&sessions, &absolute_same_day(), &None, &[]);
 
     assert_eq!(stats.sessions, 1);
@@ -372,7 +377,8 @@ fn opencode_summary_diffs_produce_file_level_detail_records() {
     .unwrap();
 
     let _guard = HomeGuard::set(&home);
-    let sessions = opencode::collect_normalized_sessions(Some("detail-demo"), &absolute_same_day());
+    let project_filter = single_project("detail-demo");
+    let sessions = opencode::collect_normalized_sessions(Some(&project_filter), &absolute_same_day());
     assert_eq!(sessions.len(), 1);
 
     let stats = aggregate_statistics(&sessions, &absolute_same_day(), &None, &[]);
@@ -475,8 +481,8 @@ fn openclaw_instruction_tokens_tool_and_mcp_without_skill() {
     filetime::set_file_mtime(&session_path, mtime).unwrap();
 
     let _guard = HomeGuard::set(&home);
-    let sessions =
-        openclaw::collect_normalized_sessions(Some("openclaw-demo"), &absolute_same_day());
+    let project_filter = single_project("openclaw-demo");
+    let sessions = openclaw::collect_normalized_sessions(Some(&project_filter), &absolute_same_day());
     assert_eq!(sessions.len(), 1);
 
     let stats = aggregate_statistics(&sessions, &absolute_same_day(), &None, &[]);

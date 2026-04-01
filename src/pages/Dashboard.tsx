@@ -1,5 +1,3 @@
-import { ShortcutHelpDialog } from '../components/shortcuts/ShortcutHelpDialog';
-import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +6,7 @@ import { useFilterStore } from '../stores/filterStore';
 import { useAppStore } from '../stores/appStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePricingStore } from '../stores/pricingStore';
-import { useStatistics, useSessions } from '../hooks/useStatistics';
+import { useStatistics, useSessions, useAccountUsage } from '../hooks/useStatistics';
 import { Header } from '../components/layout/Header';
 import { Footer } from '../components/layout/Footer';
 import { SettingsPage } from '../components/pages/SettingsPage';
@@ -30,7 +28,7 @@ import type { SessionInfo, Statistics } from '../types/statistics';
 export function Dashboard() {
   const { t } = useTranslation();
   const { selectedProjects, activeTimeRange, selectedProviders } = useFilterStore();
-  const { currentView } = useAppStore();
+  const { currentView, setShortcutHelpOpen } = useAppStore();
   const {
     autoRefreshEnabled,
     autoRefreshInterval,
@@ -79,7 +77,8 @@ export function Dashboard() {
   const dashboardTotalTokens = stats
     ? stats.tokens.input + stats.tokens.output + stats.tokens.cache_read + stats.tokens.cache_creation
     : 0;
-  useAlerts(costMetrics.totalCost, dashboardTotalTokens);
+  const { data: accountUsage } = useAccountUsage();
+  useAlerts(costMetrics.totalCost, dashboardTotalTokens, accountUsage?.providers ?? []);
 
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -186,8 +185,6 @@ export function Dashboard() {
     }
   }, [queryClient, refetch, refetchSessions, syncTrayTodayStats]);
 
-  const { helpOpen, setHelpOpen, shortcuts } = useKeyboardShortcuts(handleRefresh);
-
   useEffect(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -212,7 +209,6 @@ export function Dashboard() {
       <div className="min-h-screen bg-[var(--color-bg-base)] flex flex-col">
         <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
         <SettingsPage />
-        <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
       </div>
     );
   }
@@ -245,10 +241,9 @@ export function Dashboard() {
         <Footer
           lastUpdated={lastUpdated ?? undefined}
           onRefresh={handleRefresh}
-          onOpenShortcuts={() => setHelpOpen(true)}
+          onOpenShortcuts={() => setShortcutHelpOpen(true)}
           isRefreshing={isRefreshing}
         />
-        <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
       </div>
     );
   }
@@ -321,10 +316,9 @@ export function Dashboard() {
       <Footer
         lastUpdated={lastUpdated ?? undefined}
         onRefresh={handleRefresh}
-        onOpenShortcuts={() => setHelpOpen(true)}
+        onOpenShortcuts={() => setShortcutHelpOpen(true)}
         isRefreshing={isRefreshing}
       />
-      <ShortcutHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
     </div>
   );
 }

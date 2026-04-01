@@ -33,16 +33,16 @@ export function CodeChanges({ codeChanges, onClick }: CodeChangesProps) {
 
       {/* Summary */}
       <div className="grid grid-cols-4 gap-3 mb-5">
-        <div className="p-3 rounded-lg bg-[#3b82f6]/5 border border-[#3b82f6]/10 text-center">
-          <div className="text-xl font-bold text-[#3b82f6]">{total.files.toLocaleString()}</div>
+        <div className="p-3 rounded-lg bg-[var(--color-accent-blue)]/5 border border-[var(--color-accent-blue)]/10 text-center">
+          <div className="text-xl font-bold text-[var(--color-accent-blue)]">{total.files.toLocaleString()}</div>
           <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('chart.files')}</div>
         </div>
-        <div className="p-3 rounded-lg bg-[#22c55e]/5 border border-[#22c55e]/10 text-center">
-          <div className="text-xl font-bold text-[#22c55e]">+{total.additions.toLocaleString()}</div>
+        <div className="p-3 rounded-lg bg-[var(--color-accent-green)]/5 border border-[var(--color-accent-green)]/10 text-center">
+          <div className="text-xl font-bold text-[var(--color-accent-green)]">+{total.additions.toLocaleString()}</div>
           <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('chart.added')}</div>
         </div>
-        <div className="p-3 rounded-lg bg-[#ef4444]/5 border border-[#ef4444]/10 text-center">
-          <div className="text-xl font-bold text-[#ef4444]">-{total.deletions.toLocaleString()}</div>
+        <div className="p-3 rounded-lg bg-[var(--color-accent-red)]/5 border border-[var(--color-accent-red)]/10 text-center">
+          <div className="text-xl font-bold text-[var(--color-accent-red)]">-{total.deletions.toLocaleString()}</div>
           <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('chart.deleted')}</div>
         </div>
         <div className="p-3 rounded-lg bg-[var(--color-bg-elevated)] border border-[var(--color-border-base)] text-center">
@@ -68,20 +68,20 @@ export function CodeChanges({ codeChanges, onClick }: CodeChangesProps) {
                     <span className="text-xs text-[var(--color-text-muted)]">{ext.files} {ext.files !== 1 ? t('chart.files').toLowerCase() : t('chart.file')}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs">
-                    <span className="text-[#22c55e]">+{ext.additions.toLocaleString()}</span>
-                    <span className="text-[#ef4444]">-{ext.deletions.toLocaleString()}</span>
+                    <span className="text-[var(--color-accent-green)]">+{ext.additions.toLocaleString()}</span>
+                    <span className="text-[var(--color-accent-red)]">-{ext.deletions.toLocaleString()}</span>
                   </div>
                 </div>
                 <div className="flex gap-0.5 h-1.5">
                   {ext.additions > 0 && (
                     <div
-                      className="h-full bg-[#22c55e] rounded-full"
+                      className="h-full bg-[var(--color-accent-green)] rounded-full"
                       style={{ width: `${addPct}%`, minWidth: '2px' }}
                     />
                   )}
                   {ext.deletions > 0 && (
                     <div
-                      className="h-full bg-[#ef4444] rounded-full"
+                      className="h-full bg-[var(--color-accent-red)] rounded-full"
                       style={{ width: `${delPct}%`, minWidth: '2px' }}
                     />
                   )}

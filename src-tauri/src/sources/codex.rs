@@ -511,10 +511,7 @@ fn extract_codex_skill_name_from_payload(payload: &Value) -> Option<String> {
         .or_else(|| payload.pointer("/payload/content"))?;
     match content {
         Value::String(text) => extract_codex_skill_name_from_text(text),
-        Value::Array(items) => items
-            .iter()
-            .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
-            .find_map(extract_codex_skill_name_from_text),
+        Value::Array(items) => extract_codex_skill_name_from_text(&codex_joined_array_text(items)),
         _ => None,
     }
 }
@@ -531,19 +528,7 @@ fn extract_codex_user_instruction(payload: &Value) -> Option<String> {
 
     match content {
         Value::String(text) => extract_codex_instruction_text(text),
-        Value::Array(items) => {
-            let text = items
-                .iter()
-                .filter_map(extract_codex_instruction_block_text)
-                .collect::<Vec<_>>()
-                .join("\n");
-            let text = text.trim();
-            if text.is_empty() {
-                None
-            } else {
-                Some(text.to_string())
-            }
-        }
+        Value::Array(items) => extract_codex_instruction_text(&codex_joined_array_text(items)),
         _ => None,
     }
 }
@@ -614,16 +599,6 @@ fn extract_codex_instruction_text(text: &str) -> Option<String> {
     Some(text)
 }
 
-fn extract_codex_instruction_block_text(item: &Value) -> Option<String> {
-    let block_type = item.get("type").and_then(|value| value.as_str())?;
-    if !matches!(block_type, "input_text" | "text") {
-        return None;
-    }
-
-    let text = item.get("text").and_then(|value| value.as_str())?;
-    extract_codex_instruction_text(text)
-}
-
 fn strip_codex_skill_blocks(text: &str) -> String {
     if codex_skill_block_is_embedded(text) {
         return text.to_string();
@@ -683,6 +658,21 @@ fn codex_skill_block_is_embedded(text: &str) -> bool {
     !before.is_empty() && !after.is_empty()
 }
 
+fn codex_joined_array_text(items: &[Value]) -> String {
+    items
+        .iter()
+        .filter_map(codex_array_text_block_text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn codex_array_text_block_text(item: &Value) -> Option<&str> {
+    match item.get("type").and_then(|value| value.as_str()) {
+        Some("input_text") | Some("text") => item.get("text").and_then(|value| value.as_str()),
+        _ => None,
+    }
+}
+
 fn strip_codex_legacy_string_segments(text: &str) -> String {
     strip_codex_injected_setup_segments(&strip_codex_skill_blocks(text))
 }
@@ -691,6 +681,7 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
     let mut stripped = String::new();
     let mut skipping_agents = false;
     let mut skipping_xml_block: Option<&str> = None;
+    let mut saw_prompt_content = false;
 
     for line in text.lines() {
         if skipping_agents {
@@ -717,6 +708,12 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
 
             if trimmed.starts_with("# AGENTS.md instructions") {
                 skipping_agents = true;
+                break;
+            }
+
+            if saw_prompt_content {
+                line_output.push_str(leading);
+                line_output.push_str(trimmed);
                 break;
             }
 
@@ -747,6 +744,7 @@ fn strip_codex_injected_setup_segments(text: &str) -> String {
         }
 
         if !line_output.is_empty() {
+            saw_prompt_content = true;
             if !stripped.is_empty() {
                 stripped.push('\n');
             }
