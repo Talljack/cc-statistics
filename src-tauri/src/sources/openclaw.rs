@@ -216,6 +216,138 @@ fn record_passes_time_filter(timestamp: &str, time_filter: &TimeFilter) -> bool 
     }
 }
 
+pub fn collect_instructions(
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    _query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<InstructionInfo> {
+    let dir = match sessions_dir() {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut instructions: Vec<InstructionInfo> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+
+        if !file_passes_time_filter(&path, time_filter) {
+            continue;
+        }
+
+        // Provider filter: parse session to check model
+        if provider_filter.is_some() {
+            let session = match parse_openclaw_session(&path, time_filter) {
+                Some(s) if s.has_activity => s,
+                _ => continue,
+            };
+            if !session
+                .tokens
+                .by_model
+                .keys()
+                .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+                && provider_filter.is_some()
+            {
+                continue;
+            }
+        }
+
+        let file = match fs::File::open(&path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let reader = BufReader::new(file);
+
+        let mut session_id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let mut project_name = "unknown".to_string();
+
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let value: serde_json::Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let record_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+            match record_type {
+                "session" => {
+                    if let Some(id) = value.get("id").and_then(|v| v.as_str()) {
+                        session_id = id.to_string();
+                    }
+                    if let Some(cwd_str) = value.get("cwd").and_then(|v| v.as_str()) {
+                        project_name = find_project_name(&PathBuf::from(cwd_str));
+                    }
+                }
+                "message" => {
+                    let message = match value.get("message") {
+                        Some(m) => m,
+                        None => continue,
+                    };
+
+                    let role = message.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                    if role != "user" {
+                        continue;
+                    }
+
+                    if !is_user_instruction(message) {
+                        continue;
+                    }
+
+                    let content = match openclaw_user_content(message) {
+                        Some(c) => c,
+                        None => continue,
+                    };
+
+                    let timestamp = value
+                        .get("timestamp")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    if !project_matches_filters(project, &project_name) {
+                        continue;
+                    }
+
+                    let truncated: String = content.chars().take(200).collect();
+
+                    instructions.push(InstructionInfo {
+                        timestamp,
+                        project_name: project_name.clone(),
+                        session_id: session_id.clone(),
+                        source: "openclaw".to_string(),
+                        content: truncated,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    instructions
+}
+
 /// Collect aggregated statistics across matching Openclaw sessions.
 pub fn collect_stats(
     project: Option<&[String]>,

@@ -200,6 +200,106 @@ pub fn collect_normalized_sessions_from_home(
     sessions
 }
 
+pub fn collect_instructions(
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    _query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<InstructionInfo> {
+    let mut instructions: Vec<InstructionInfo> = Vec::new();
+
+    for path in find_all_session_files(time_filter) {
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let root: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Derive session_id
+        let session_id = root
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .or_else(|| path.file_stem().and_then(|s| s.to_str()))
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Derive project_name from parent directory's .project_root
+        let project_name = path
+            .parent()
+            .and_then(|chats_dir| chats_dir.parent())
+            .and_then(|hash_dir| read_project_root(&hash_dir.to_path_buf()))
+            .map(|(name, _)| name)
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if !project_matches_filters(project, &project_name) {
+            continue;
+        }
+
+        // Provider filter: parse session stats to check model
+        if provider_filter.is_some() {
+            let session = match parse_gemini_session(&path) {
+                Some(s) => s,
+                None => continue,
+            };
+            if !session
+                .tokens
+                .by_model
+                .keys()
+                .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+                && provider_filter.is_some()
+            {
+                continue;
+            }
+        }
+
+        // Fallback timestamp from session startTime
+        let fallback_ts = root.get("startTime").and_then(|v| v.as_str()).unwrap_or("");
+
+        let messages = match root.get("messages").and_then(|v| v.as_array()) {
+            Some(msgs) => msgs,
+            None => continue,
+        };
+
+        for msg in messages {
+            let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if msg_type != "user" {
+                continue;
+            }
+            if !has_text_content(msg) {
+                continue;
+            }
+
+            let text = user_content_text(msg);
+            if text.is_empty() {
+                continue;
+            }
+
+            let timestamp = msg
+                .get("timestamp")
+                .and_then(|v| v.as_str())
+                .or_else(|| msg.get("time").and_then(|v| v.as_str()))
+                .unwrap_or(fallback_ts)
+                .to_string();
+
+            let truncated: String = text.chars().take(200).collect();
+
+            instructions.push(InstructionInfo {
+                timestamp,
+                project_name: project_name.clone(),
+                session_id: session_id.clone(),
+                source: "gemini".to_string(),
+                content: truncated,
+            });
+        }
+    }
+
+    instructions
+}
+
 // ---------------------------------------------------------------------------
 // Path helpers
 // ---------------------------------------------------------------------------
