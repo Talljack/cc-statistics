@@ -204,7 +204,7 @@ pub fn collect_all_sessions(
     sessions
 }
 
-/// Collect instructions from all enabled sources (currently only Claude Code)
+/// Collect instructions from all enabled sources
 pub fn collect_all_instructions(
     project: Option<&[String]>,
     time_filter: &TimeFilter,
@@ -224,7 +224,42 @@ pub fn collect_all_instructions(
             custom_providers,
         ));
     }
-    // Other sources don't support instruction extraction yet
+    if config.codex {
+        instructions.extend(codex::collect_instructions(
+            project,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ));
+    }
+    if config.gemini {
+        instructions.extend(gemini::collect_instructions(
+            project,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ));
+    }
+    if config.opencode {
+        instructions.extend(opencode::collect_instructions(
+            project,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ));
+    }
+    if config.openclaw {
+        instructions.extend(openclaw::collect_instructions(
+            project,
+            time_filter,
+            query_range,
+            provider_filter,
+            custom_providers,
+        ));
+    }
 
     instructions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     instructions

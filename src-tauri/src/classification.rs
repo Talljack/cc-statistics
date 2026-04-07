@@ -56,18 +56,25 @@ pub fn classify_tool_call(
     classification
 }
 
+/// Codex skill detection is handled at a higher level via `extract_codex_skill_name_from_payload`
+/// in `codex.rs`, which parses `<skill>` XML tags from user message content. This stub is only
+/// invoked for nested tool call chains, which Codex does not produce.
 fn classify_codex_skill(_name: &str, _input: Option<&Value>) -> Option<String> {
     None
 }
 
+/// Gemini does not emit tool call records in its session data, so this classifier is never invoked.
 fn classify_gemini_skill(_name: &str, _input: Option<&Value>) -> Option<String> {
     None
 }
 
+/// Opencode does not emit tool call records in its session data, so this classifier is never invoked.
 fn classify_opencode_skill(_name: &str, _input: Option<&Value>) -> Option<String> {
     None
 }
 
+/// Openclaw emits tool records via `toolCall` content blocks, but does not have a dedicated
+/// skill invocation pattern. If a skill-like pattern is identified in the future, implement here.
 fn classify_openclaw_skill(_name: &str, _input: Option<&Value>) -> Option<String> {
     None
 }

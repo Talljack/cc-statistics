@@ -33,6 +33,7 @@ pub fn run() {
             get_available_providers,
             get_code_changes_detail,
             export_report,
+            export_report_xlsx,
             update_tray_stats,
             detect_sources,
             get_preset_models,

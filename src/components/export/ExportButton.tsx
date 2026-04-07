@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
 import { useTranslation } from '../../lib/i18n';
 import type { SessionInfo } from '../../types/statistics';
 
-type ExportFormat = 'csv' | 'json' | 'markdown';
+type ExportFormat = 'csv' | 'json' | 'markdown' | 'xlsx';
 
 interface ExportButtonProps {
   sessions: SessionInfo[];
@@ -17,6 +17,7 @@ const FORMAT_OPTIONS: { format: ExportFormat; label: string; ext: string }[] = [
   { format: 'csv', label: 'CSV', ext: 'csv' },
   { format: 'json', label: 'JSON', ext: 'json' },
   { format: 'markdown', label: 'Markdown', ext: 'md' },
+  { format: 'xlsx', label: 'Excel', ext: 'xlsx' },
 ];
 
 export function ExportButton({ sessions, title }: ExportButtonProps) {
@@ -42,16 +43,29 @@ export function ExportButton({ sessions, title }: ExportButtonProps) {
     setOpen(false);
     setExporting(true);
     try {
-      const content = await invoke<string>('export_report', {
-        sessions,
-        format,
-        title,
-      });
       const filePath = await save({
         defaultPath: `report.${ext}`,
         filters: [{ name: format.toUpperCase(), extensions: [ext] }],
       });
-      if (filePath) {
+
+      if (!filePath) {
+        return;
+      }
+
+      if (format === 'xlsx') {
+        // Excel format returns binary data
+        const content = await invoke<number[]>('export_report_xlsx', {
+          sessions,
+          title,
+        });
+        await writeFile(filePath, new Uint8Array(content));
+      } else {
+        // Text formats (csv, json, markdown)
+        const content = await invoke<string>('export_report', {
+          sessions,
+          format,
+          title,
+        });
         await writeTextFile(filePath, content);
       }
     } finally {

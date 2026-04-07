@@ -1,8 +1,11 @@
 use crate::aggregation;
-use crate::export::{format_csv, format_json, format_markdown, ExportRow};
+use crate::export::{format_csv, format_json, format_markdown, format_xlsx, ExportRow};
 use crate::models::*;
 use crate::pricing_providers;
-use crate::session_reader::{parse_session_messages, read_openclaw_session_file, read_session_file, SessionMessage};
+use crate::session_reader::{
+    parse_session_messages, read_codex_session_file, read_gemini_session_file,
+    read_openclaw_session_file, read_opencode_session_file, read_session_file, SessionMessage,
+};
 use crate::sources;
 use crate::time_ranges;
 use chrono::{DateTime, Duration, Local, TimeZone};
@@ -737,18 +740,55 @@ pub fn export_report(
 }
 
 #[tauri::command]
+pub fn export_report_xlsx(
+    sessions: Vec<SessionInfo>,
+    title: Option<String>,
+) -> Result<Vec<u8>, String> {
+    let rows: Vec<ExportRow> = sessions
+        .into_iter()
+        .map(|s| ExportRow {
+            date: s.timestamp.split('T').next().unwrap_or(&s.timestamp).to_string(),
+            project: s.project_name,
+            session_id: s.session_id,
+            model: s.model,
+            source: s.source,
+            input_tokens: s.input,
+            output_tokens: s.output,
+            cache_read_tokens: s.cache_read,
+            cache_creation_tokens: s.cache_creation,
+            total_tokens: s.total_tokens,
+            cost_usd: s.cost_usd,
+            duration_ms: s.duration_ms,
+            instructions: s.instructions,
+            git_branch: s.git_branch,
+        })
+        .collect();
+
+    let title = title.unwrap_or_else(|| "CC Statistics Report".to_string());
+
+    format_xlsx(&rows, &title).map_err(|e| format!("Failed to create Excel file: {}", e))
+}
+
+#[tauri::command]
 pub async fn get_session_messages(
     session_id: String,
     source: String,
 ) -> Result<Vec<SessionMessage>, String> {
     tokio::task::spawn_blocking(move || {
-        let jsonl = match source.as_str() {
-            "claude_code" => read_session_file(&session_id)?,
-            "openclaw" => read_openclaw_session_file(&session_id)?,
-            _ => return Ok(Vec::new()),
-        };
-
-        Ok(parse_session_messages(&jsonl))
+        match source.as_str() {
+            "claude_code" => {
+                let jsonl = read_session_file(&session_id)?;
+                Ok(parse_session_messages(&jsonl))
+            }
+            "openclaw" => {
+                let jsonl = read_openclaw_session_file(&session_id)?;
+                Ok(parse_session_messages(&jsonl))
+            }
+            "codex" => read_codex_session_file(&session_id),
+            "gemini" => read_gemini_session_file(&session_id),
+            "opencode" => read_opencode_session_file(&session_id),
+            _ => Ok(Vec::new()),
+        }
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?

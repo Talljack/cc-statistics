@@ -1481,6 +1481,138 @@ pub fn query_codex_thread_usage(hours: i64) -> Option<(u32, u64, Option<i64>)> {
 }
 
 /// Convert a TimeFilter into a Unix timestamp cutoff (seconds), or None for All.
+pub fn collect_instructions(
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    _query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<InstructionInfo> {
+    let mut instructions: Vec<InstructionInfo> = Vec::new();
+
+    if let Some(sessions_dir) = codex_sessions_dir() {
+        for entry in WalkDir::new(&sessions_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !is_codex_jsonl(path) {
+                continue;
+            }
+            if !filter_by_mtime(time_filter, path) {
+                continue;
+            }
+
+            // Provider filter: parse session to check model, skip if needed
+            if provider_filter.is_some() {
+                let session = match parse_codex_jsonl(path) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if !session
+                    .tokens
+                    .by_model
+                    .keys()
+                    .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+                {
+                    continue;
+                }
+            }
+
+            let file = match fs::File::open(path) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            let reader = BufReader::new(file);
+
+            let mut session_id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let mut cwd: Option<String> = None;
+
+            for line in reader.lines() {
+                let line = match line {
+                    Ok(l) => l,
+                    Err(_) => continue,
+                };
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let value: serde_json::Value = match serde_json::from_str(&line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                match event_type {
+                    "session_meta" => {
+                        if let Some(payload) = value.get("payload") {
+                            if let Some(id) = payload.get("id").and_then(|v| v.as_str()) {
+                                session_id = id.to_string();
+                            }
+                            if let Some(c) = payload.get("cwd").and_then(|v| v.as_str()) {
+                                cwd = Some(c.to_string());
+                            }
+                        }
+                    }
+                    "response_item" => {
+                        let payload = match value.get("payload") {
+                            Some(p) => p,
+                            None => continue,
+                        };
+                        let payload_type = payload
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if payload_type != "message" {
+                            continue;
+                        }
+                        let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                        if role != "user" {
+                            continue;
+                        }
+
+                        let Some(content) = extract_codex_user_instruction(payload) else {
+                            continue;
+                        };
+
+                        let timestamp = value
+                            .get("timestamp")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        let project_name = cwd
+                            .as_deref()
+                            .map(project_name_from_cwd)
+                            .unwrap_or_else(|| "unknown".to_string());
+
+                        if !project_matches_filters(project, &project_name) {
+                            continue;
+                        }
+
+                        let truncated: String = content.chars().take(200).collect();
+
+                        instructions.push(InstructionInfo {
+                            timestamp,
+                            project_name,
+                            session_id: session_id.clone(),
+                            source: "codex".to_string(),
+                            content: truncated,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    instructions
+}
+
+/// Convert a TimeFilter into a Unix timestamp cutoff (seconds), or None for All.
 fn time_filter_to_unix(time_filter: &TimeFilter) -> Option<i64> {
     let now = Local::now();
     let cutoff = match time_filter {

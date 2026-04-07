@@ -147,6 +147,99 @@ pub fn collect_normalized_sessions(
     normalized
 }
 
+pub fn collect_instructions(
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    _query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<InstructionInfo> {
+    let conn = match open_db() {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+
+    let cutoff_ms = time_filter_to_ms(time_filter);
+
+    let project_ids = match project {
+        Some(names) => resolve_project_ids(&conn, names),
+        None => Vec::new(),
+    };
+
+    let sessions = query_sessions(&conn, &project_ids, cutoff_ms);
+    let mut instructions: Vec<InstructionInfo> = Vec::new();
+
+    for sess in &sessions {
+        let session_stats = build_session_stats(&conn, sess, cutoff_ms);
+
+        // Provider filter
+        if !session_stats
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
+        }
+
+        // Query user messages for this session
+        let mut stmt = match conn.prepare(
+            "SELECT data, time_created FROM message WHERE session_id = ?1 ORDER BY time_created ASC",
+        ) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        let rows = match stmt
+            .query_map([&sess.id], |row| {
+                let data: String = row.get(0)?;
+                let time_created: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
+                Ok((data, time_created))
+            }) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        for row in rows.flatten() {
+            let (data_str, time_created) = row;
+            let value: serde_json::Value = match serde_json::from_str(&data_str) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let role = value.get("role").and_then(|v| v.as_str()).unwrap_or("");
+            if role != "user" {
+                continue;
+            }
+
+            let content = match user_message_content(&value) {
+                Some(c) => c,
+                None => continue,
+            };
+            if content.trim().is_empty() {
+                continue;
+            }
+
+            let timestamp = DateTime::from_timestamp_millis(time_created)
+                .map(|dt| dt.with_timezone(&Local).to_rfc3339())
+                .unwrap_or_default();
+
+            let truncated: String = content.chars().take(200).collect();
+
+            instructions.push(InstructionInfo {
+                timestamp,
+                project_name: sess.project_name.clone(),
+                session_id: sess.id.clone(),
+                source: "opencode".to_string(),
+                content: truncated,
+            });
+        }
+    }
+
+    instructions
+}
+
 /// Collect aggregate stats across matching sessions.
 pub fn collect_stats(
     project: Option<&[String]>,

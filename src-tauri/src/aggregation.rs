@@ -2,8 +2,8 @@ use crate::commands::{
     model_matches_provider_filters, model_to_provider, CustomProviderDef,
 };
 use crate::models::{
-    CodeChanges, ExtensionChanges, FileChange, InstructionInfo, ModelTokens, QueryTimeRange,
-    SessionInfo, Statistics, TokenUsage,
+    CodeChanges, DevTime, ExtensionChanges, FileChange, InstructionInfo, ModelTokens,
+    QueryTimeRange, SessionInfo, Statistics, TokenUsage,
 };
 use crate::normalized::{NormalizedRecord, NormalizedSession};
 use crate::parser::format_duration;
@@ -29,6 +29,7 @@ struct SessionAggregate {
     skill_usage: HashMap<String, u32>,
     mcp_usage: HashMap<String, u32>,
     instructions_list: Vec<InstructionInfo>,
+    dev_time: DevTime,
 }
 
 pub fn aggregate_statistics(
@@ -80,13 +81,20 @@ pub fn aggregate_statistics(
         merge_counter_map(&mut result.tool_usage, &aggregate.tool_usage);
         merge_counter_map(&mut result.skill_usage, &aggregate.skill_usage);
         merge_counter_map(&mut result.mcp_usage, &aggregate.mcp_usage);
+
+        result.dev_time.total_ms += aggregate.dev_time.total_ms;
+        result.dev_time.ai_time_ms += aggregate.dev_time.ai_time_ms;
+        result.dev_time.user_time_ms += aggregate.dev_time.user_time_ms;
     }
 
     result.duration_formatted = format_duration(result.duration_ms);
-    result.dev_time.total_ms = result.duration_ms;
-    result.dev_time.ai_time_ms = result.duration_ms;
-    result.dev_time.user_time_ms = 0;
-    result.dev_time.ai_ratio = if result.duration_ms > 0 { 100.0 } else { 0.0 };
+
+    // Dev time is already accumulated per-session via aggregate_session; no extra work needed.
+    result.dev_time.ai_ratio = if result.dev_time.total_ms > 0 {
+        (result.dev_time.ai_time_ms as f64 / result.dev_time.total_ms as f64) * 100.0
+    } else {
+        0.0
+    };
 
     result
 }
@@ -355,6 +363,9 @@ fn aggregate_session(
     let mut changed_files_by_extension: HashMap<String, HashSet<String>> = HashMap::new();
     let mut cost_usd = 0.0;
 
+    // Compute dev_time before the main loop consumes filtered_records
+    let dev_time = compute_dev_time_from_records(&filtered_records);
+
     for record in filtered_records {
         let timestamp = record.timestamp().to_rfc3339();
         let record_timestamp = record.timestamp().to_owned();
@@ -514,7 +525,100 @@ fn aggregate_session(
         skill_usage,
         mcp_usage,
         instructions_list,
+        dev_time,
     })
+}
+
+/// Compute AI vs user time from a set of normalized records.
+///
+/// Algorithm:
+/// - Each InstructionRecord marks a user action (sending a prompt).
+/// - Token/Tool/CodeChange records mark AI activity.
+/// - A "turn" starts with an instruction and ends at the last AI event before the next instruction.
+/// - AI time = time spanned by turns (instruction_ts → last_ai_event_ts).
+/// - User time = gaps between turns (next_instruction_ts − prev_last_ai_event_ts).
+fn compute_dev_time_from_records(records: &[&NormalizedRecord]) -> DevTime {
+    // Collect timestamped events: instructions are user events, all others are AI events.
+    let mut events: Vec<(DateTime<FixedOffset>, bool)> = Vec::new(); // (timestamp, is_instruction)
+    for record in records {
+        match record {
+            NormalizedRecord::Instruction(_) => events.push((*record.timestamp(), true)),
+            NormalizedRecord::Token(_)
+            | NormalizedRecord::Tool(_)
+            | NormalizedRecord::CodeChange(_) => events.push((*record.timestamp(), false)),
+        }
+    }
+
+    if events.is_empty() {
+        return DevTime::default();
+    }
+
+    events.sort_by_key(|(ts, _)| *ts);
+
+    let mut ai_time_ms: i64 = 0;
+    let mut user_time_ms: i64 = 0;
+
+    let mut in_turn = false;
+    let mut turn_start: Option<DateTime<FixedOffset>> = None;
+    let mut last_ai_event: Option<DateTime<FixedOffset>> = None;
+
+    for (ts, is_instruction) in &events {
+        if *is_instruction {
+            if in_turn {
+                // End current turn
+                if let (Some(start), Some(end)) = (turn_start, last_ai_event) {
+                    let dur = (end - start).num_milliseconds();
+                    if dur > 0 {
+                        ai_time_ms += dur;
+                    }
+                }
+                // User time = gap from last AI event to this instruction
+                if let Some(end) = last_ai_event {
+                    let gap = (*ts - end).num_milliseconds();
+                    if gap > 0 {
+                        user_time_ms += gap;
+                    }
+                }
+            }
+            // Start new turn
+            in_turn = true;
+            turn_start = Some(*ts);
+            last_ai_event = None;
+        } else {
+            // AI event
+            last_ai_event = Some(*ts);
+            if !in_turn {
+                in_turn = true;
+                turn_start = Some(*ts);
+            }
+        }
+    }
+
+    // Handle final turn
+    if in_turn {
+        if let (Some(start), Some(end)) = (turn_start, last_ai_event) {
+            let dur = (end - start).num_milliseconds();
+            if dur > 0 {
+                ai_time_ms += dur;
+            }
+        }
+    }
+
+    let total_ms = (ai_time_ms + user_time_ms).max(0) as u64;
+    let ai = ai_time_ms.max(0) as u64;
+    let user = user_time_ms.max(0) as u64;
+    let ai_ratio = if total_ms > 0 {
+        (ai as f64 / total_ms as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    DevTime {
+        total_ms,
+        ai_time_ms: ai,
+        user_time_ms: user,
+        ai_ratio,
+    }
 }
 
 fn merge_counter_map(target: &mut HashMap<String, u32>, source: &HashMap<String, u32>) {
