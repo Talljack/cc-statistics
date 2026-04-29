@@ -1,11 +1,13 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { ActiveTimeRange, SavedTimeRange } from '../lib/timeRanges';
 
 export type Language = 'zh' | 'en' | 'ja';
 export type Theme = 'light' | 'dark' | 'system';
 export type SessionSortField = 'timestamp' | 'cost_usd' | 'total_tokens' | 'duration_ms';
 export type SortOrder = 'asc' | 'desc';
+export type SourceKind = 'claude_code' | 'codex' | 'gemini' | 'opencode' | 'openclaw' | 'hermes';
+export type EnabledSources = Record<SourceKind, boolean>;
 
 export interface ModelPricing {
   input: number;       // per million tokens
@@ -17,6 +19,203 @@ export interface ModelPricing {
 export interface CustomProvider {
   name: string;     // Display name (e.g., "Fireworks AI")
   keyword: string;  // Model name prefix to match (e.g., "fireworks")
+}
+
+export interface SourceInstance {
+  id: string;
+  source: SourceKind;
+  label: string;
+  rootPath: string;
+  enabled: boolean;
+  builtIn: boolean;
+}
+
+export const SOURCE_KINDS: SourceKind[] = ['claude_code', 'codex', 'gemini', 'opencode', 'openclaw', 'hermes'];
+
+export const DEFAULT_SOURCE_ROOTS: Record<SourceKind, string> = {
+  claude_code: '~/.claude',
+  codex: '~/.codex',
+  gemini: '~/.gemini',
+  opencode: '~/.local/share/opencode',
+  openclaw: '~/.openclaw',
+  hermes: '~/.hermes',
+};
+
+const DEFAULT_ENABLED_SOURCES: EnabledSources = {
+  claude_code: true,
+  codex: true,
+  gemini: true,
+  opencode: true,
+  openclaw: true,
+  hermes: true,
+};
+
+export function normalizeSourceRootPath(rootPath: string): string {
+  const trimmed = rootPath.trim();
+  if (!trimmed || trimmed === '/' || /^[A-Za-z]:[\\/]{0,1}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.replace(/[\\/]+$/, '');
+}
+
+export function buildBuiltInSourceInstance(source: SourceKind): SourceInstance {
+  return {
+    id: `built-in:${source}`,
+    source,
+    label: 'Default',
+    rootPath: DEFAULT_SOURCE_ROOTS[source],
+    enabled: true,
+    builtIn: true,
+  };
+}
+
+export function buildDefaultSourceInstances(): SourceInstance[] {
+  return SOURCE_KINDS.map(buildBuiltInSourceInstance);
+}
+
+function getSettingsStorage() {
+  if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
+    return window.localStorage;
+  }
+  if (typeof localStorage !== 'undefined' && localStorage && typeof localStorage.setItem === 'function') {
+    return localStorage;
+  }
+  return {
+    getItem: () => null,
+    setItem: () => undefined,
+    removeItem: () => undefined,
+  };
+}
+
+function buildCustomSourceInstance(input: {
+  source: SourceKind;
+  rootPath: string;
+  label?: string;
+  enabled?: boolean;
+}): SourceInstance {
+  const normalizedPath = normalizeSourceRootPath(input.rootPath);
+  const fallbackLabel = normalizedPath.split(/[\\/]/).filter(Boolean).pop() || 'Custom';
+
+  return {
+    id: crypto.randomUUID(),
+    source: input.source,
+    label: input.label?.trim() || fallbackLabel,
+    rootPath: normalizedPath,
+    enabled: input.enabled ?? true,
+    builtIn: false,
+  };
+}
+
+function hasDuplicateSourceRoot(
+  instances: SourceInstance[],
+  source: SourceKind,
+  rootPath: string,
+  excludeId?: string,
+): boolean {
+  const normalizedPath = normalizeSourceRootPath(rootPath);
+  return instances.some((instance) => (
+    instance.source === source
+    && instance.id !== excludeId
+    && normalizeSourceRootPath(instance.rootPath) === normalizedPath
+  ));
+}
+
+export function migrateSettingsState(persisted: unknown): SettingsStore {
+  const state = (persisted && typeof persisted === 'object'
+    ? { ...(persisted as Record<string, unknown>) }
+    : {}) as Record<string, unknown>;
+
+  // Migrate old defaultTimeFilter string → new defaultTimeRange object
+  if (typeof state.defaultTimeFilter === 'string' && !state.defaultTimeRange) {
+    const key = state.defaultTimeFilter as string;
+    if (['today', 'week', 'month', 'all'].includes(key)) {
+      state.defaultTimeRange = { kind: 'built_in', key };
+    } else {
+      state.defaultTimeRange = { kind: 'built_in', key: 'today' };
+    }
+    delete state.defaultTimeFilter;
+  }
+
+  // Migrate old customTimeFilters → savedTimeRanges
+  if (
+    Array.isArray(state.customTimeFilters)
+    && state.customTimeFilters.length > 0
+    && (!state.savedTimeRanges || (state.savedTimeRanges as SavedTimeRange[]).length === 0)
+  ) {
+    state.savedTimeRanges = (state.customTimeFilters as Array<{ label: string; days: number }>).map((f, i) => ({
+      id: crypto.randomUUID(),
+      label: f.label || `Last ${f.days} Days`,
+      kind: 'relative' as const,
+      days: f.days,
+      includeToday: true,
+      showInHeader: i < 2,
+      sortOrder: i,
+    }));
+    state.customTimeFilters = [];
+  }
+
+  // Migrate old customPricing keys (opus, sonnet, gpt4o, etc.) → clean slate
+  if (state.customPricing && typeof state.customPricing === 'object') {
+    const oldKeys = ['opus', 'sonnet', 'haiku', 'gpt4o', 'gpt41', 'o3', 'o4mini',
+      'gemini25pro', 'gemini25flash', 'deepseekV3', 'deepseekR1', 'kimiK2', 'glm4', 'default'];
+    const pricing = state.customPricing as Record<string, unknown>;
+    if (oldKeys.some(k => k in pricing)) {
+      state.customPricing = {};
+    }
+  }
+
+  const instances = Array.isArray(state.sourceInstances)
+    ? (state.sourceInstances as SourceInstance[])
+        .map((instance) => ({
+          ...instance,
+          rootPath: normalizeSourceRootPath(instance.rootPath),
+          label: instance.label?.trim() || 'Custom',
+        }))
+        .filter((instance) => (
+          SOURCE_KINDS.includes(instance.source)
+          && !!instance.rootPath
+          && (instance.builtIn || !hasDuplicateSourceRoot(
+            (state.sourceInstances as SourceInstance[]).filter((candidate) => candidate.id !== instance.id),
+            instance.source,
+            instance.rootPath,
+          ))
+        ))
+    : [];
+
+  const existingById = new Map(instances.map((instance) => [instance.id, instance]));
+  const sourceInstances = buildDefaultSourceInstances().map((builtIn) => (
+    existingById.get(builtIn.id)
+      ? {
+          ...builtIn,
+          ...existingById.get(builtIn.id)!,
+          source: builtIn.source,
+          rootPath: normalizeSourceRootPath(existingById.get(builtIn.id)!.rootPath || builtIn.rootPath),
+          builtIn: true,
+        }
+      : builtIn
+  ));
+
+  for (const instance of instances) {
+    if (instance.builtIn || existingById.has(instance.id) === false) {
+      continue;
+    }
+    if (!hasDuplicateSourceRoot(sourceInstances, instance.source, instance.rootPath)) {
+      sourceInstances.push({
+        ...instance,
+        rootPath: normalizeSourceRootPath(instance.rootPath),
+        label: instance.label?.trim() || 'Custom',
+        builtIn: false,
+      });
+    }
+  }
+
+  state.enabledSources = {
+    ...DEFAULT_ENABLED_SOURCES,
+    ...(state.enabledSources as Partial<EnabledSources> | undefined),
+  };
+  state.sourceInstances = sourceInstances;
+
+  return state as unknown as SettingsStore;
 }
 
 interface SettingsStore {
@@ -63,7 +262,8 @@ interface SettingsStore {
   customProviders: CustomProvider[];
 
   // Data sources
-  enabledSources: { claude_code: boolean; codex: boolean; gemini: boolean; opencode: boolean; openclaw: boolean };
+  enabledSources: EnabledSources;
+  sourceInstances: SourceInstance[];
 
   // Actions
   setLanguage: (language: Language) => void;
@@ -96,7 +296,15 @@ interface SettingsStore {
   removeSavedTimeRange: (id: string) => void;
   addCustomProvider: (provider: CustomProvider) => void;
   removeCustomProvider: (index: number) => void;
-  toggleSource: (source: 'claude_code' | 'codex' | 'gemini' | 'opencode' | 'openclaw') => void;
+  toggleSource: (source: SourceKind) => void;
+  addSourceInstance: (instance: {
+    source: SourceKind;
+    label?: string;
+    rootPath: string;
+    enabled?: boolean;
+  }) => boolean;
+  updateSourceInstance: (id: string, updates: Partial<Pick<SourceInstance, 'label' | 'rootPath' | 'enabled'>>) => boolean;
+  removeSourceInstance: (id: string) => void;
   resetSettings: () => void;
 }
 
@@ -130,13 +338,8 @@ const defaultSettings = {
   customPricingModels: [] as string[],
   savedTimeRanges: [] as SavedTimeRange[],
   customProviders: [] as CustomProvider[],
-  enabledSources: {
-    claude_code: true,
-    codex: true,
-    gemini: true,
-    opencode: true,
-    openclaw: true,
-  },
+  enabledSources: DEFAULT_ENABLED_SOURCES,
+  sourceInstances: buildDefaultSourceInstances(),
 };
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -207,48 +410,69 @@ export const useSettingsStore = create<SettingsStore>()(
             [source]: !state.enabledSources[source],
           },
         })),
+      addSourceInstance: ({ source, rootPath, label, enabled }) => {
+        const normalizedPath = normalizeSourceRootPath(rootPath);
+        if (!normalizedPath) {
+          return false;
+        }
+
+        const state = get();
+        if (hasDuplicateSourceRoot(state.sourceInstances, source, normalizedPath)) {
+          return false;
+        }
+
+        set({
+          sourceInstances: [
+            ...state.sourceInstances,
+            buildCustomSourceInstance({ source, rootPath: normalizedPath, label, enabled }),
+          ],
+        });
+        return true;
+      },
+      updateSourceInstance: (id, updates) => {
+        const state = get();
+        const existing = state.sourceInstances.find((instance) => instance.id === id);
+        if (!existing) {
+          return false;
+        }
+
+        const nextRootPath = updates.rootPath === undefined
+          ? existing.rootPath
+          : normalizeSourceRootPath(updates.rootPath);
+        if (!nextRootPath) {
+          return false;
+        }
+        if (hasDuplicateSourceRoot(state.sourceInstances, existing.source, nextRootPath, id)) {
+          return false;
+        }
+
+        set({
+          sourceInstances: state.sourceInstances.map((instance) => {
+            if (instance.id !== id) {
+              return instance;
+            }
+
+            return {
+              ...instance,
+              label: updates.label === undefined ? instance.label : (updates.label.trim() || instance.label),
+              rootPath: instance.builtIn ? instance.rootPath : nextRootPath,
+              enabled: updates.enabled ?? instance.enabled,
+            };
+          }),
+        });
+        return true;
+      },
+      removeSourceInstance: (id) =>
+        set((state) => ({
+          sourceInstances: state.sourceInstances.filter((instance) => instance.builtIn || instance.id !== id),
+        })),
       resetSettings: () => set(defaultSettings),
     }),
     {
       name: 'cc-statistics-settings',
-      // Migrate old settings shape
-      migrate: (persisted: unknown) => {
-        const state = persisted as Record<string, unknown>;
-        // Migrate old defaultTimeFilter string → new defaultTimeRange object
-        if (state && typeof state.defaultTimeFilter === 'string' && !state.defaultTimeRange) {
-          const key = state.defaultTimeFilter as string;
-          if (['today', 'week', 'month', 'all'].includes(key)) {
-            state.defaultTimeRange = { kind: 'built_in', key };
-          } else {
-            state.defaultTimeRange = { kind: 'built_in', key: 'today' };
-          }
-          delete state.defaultTimeFilter;
-        }
-        // Migrate old customTimeFilters → savedTimeRanges
-        if (state && Array.isArray(state.customTimeFilters) && state.customTimeFilters.length > 0 && (!state.savedTimeRanges || (state.savedTimeRanges as SavedTimeRange[]).length === 0)) {
-          state.savedTimeRanges = (state.customTimeFilters as Array<{ label: string; days: number }>).map((f, i) => ({
-            id: crypto.randomUUID(),
-            label: f.label || `Last ${f.days} Days`,
-            kind: 'relative' as const,
-            days: f.days,
-            includeToday: true,
-            showInHeader: i < 2,
-            sortOrder: i,
-          }));
-          state.customTimeFilters = [];
-        }
-        // Migrate old customPricing keys (opus, sonnet, gpt4o, etc.) → clean slate
-        if (state && state.customPricing && typeof state.customPricing === 'object') {
-          const oldKeys = ['opus', 'sonnet', 'haiku', 'gpt4o', 'gpt41', 'o3', 'o4mini',
-            'gemini25pro', 'gemini25flash', 'deepseekV3', 'deepseekR1', 'kimiK2', 'glm4', 'default'];
-          const pricing = state.customPricing as Record<string, unknown>;
-          if (oldKeys.some(k => k in pricing)) {
-            state.customPricing = {};
-          }
-        }
-        return state as unknown as SettingsStore;
-      },
-      version: 2,
+      storage: createJSONStorage(getSettingsStorage),
+      migrate: migrateSettingsState,
+      version: 3,
     }
   )
 );

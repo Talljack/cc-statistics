@@ -13,6 +13,9 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 struct SessionAggregate {
+    instance_id: String,
+    instance_label: String,
+    instance_root_path: String,
     session_id: String,
     source: String,
     project_name: String,
@@ -109,6 +112,9 @@ pub fn aggregate_sessions(
         .iter()
         .filter_map(|session| aggregate_session(session, range, provider_filter, custom_providers))
         .map(|aggregate| SessionInfo {
+            instance_id: aggregate.instance_id,
+            instance_label: aggregate.instance_label,
+            instance_root_path: aggregate.instance_root_path,
             session_id: aggregate.session_id,
             project_name: aggregate.project_name,
             timestamp: aggregate.timestamp,
@@ -380,6 +386,9 @@ fn aggregate_session(
                     instructions_list.push(InstructionInfo {
                         timestamp,
                         project_name: session.project_name.clone(),
+                        instance_id: session.instance_id.clone(),
+                        instance_label: session.instance_label.clone(),
+                        instance_root_path: session.instance_root_path.clone(),
                         session_id: session.session_id.clone(),
                         source: session.source.clone(),
                         content: instruction.content.clone(),
@@ -509,6 +518,9 @@ fn aggregate_session(
         .unwrap_or_else(|| "unknown".to_string());
 
     Some(SessionAggregate {
+        instance_id: session.instance_id.clone(),
+        instance_label: session.instance_label.clone(),
+        instance_root_path: session.instance_root_path.clone(),
         session_id: session.session_id.clone(),
         source: session.source.clone(),
         project_name: session.project_name.clone(),
@@ -650,6 +662,9 @@ mod tests {
     fn session(records: Vec<NormalizedRecord>) -> NormalizedSession {
         NormalizedSession {
             source: "claude_code".to_string(),
+            instance_id: "built-in:claude_code".to_string(),
+            instance_label: "Default".to_string(),
+            instance_root_path: "~/.claude".to_string(),
             session_id: "session-1".to_string(),
             project_name: "cc-statistics".to_string(),
             git_branch: Some("main".to_string()),
@@ -750,6 +765,9 @@ mod tests {
     fn provider_filter_includes_code_changes_when_matching_tokens_exist_in_mixed_session() {
         let sessions = vec![NormalizedSession {
             source: "codex".to_string(),
+            instance_id: "built-in:codex".to_string(),
+            instance_label: "Default".to_string(),
+            instance_root_path: "~/.codex".to_string(),
             session_id: "mixed-provider".to_string(),
             project_name: "cc-statistics".to_string(),
             git_branch: Some("main".to_string()),
@@ -891,6 +909,9 @@ mod tests {
     fn code_changes_detail_respects_provider_filter_without_dropping_matching_session_changes() {
         let sessions = vec![NormalizedSession {
             source: "codex".to_string(),
+            instance_id: "built-in:codex".to_string(),
+            instance_label: "Default".to_string(),
+            instance_root_path: "~/.codex".to_string(),
             session_id: "mixed-provider".to_string(),
             project_name: "cc-statistics".to_string(),
             git_branch: Some("main".to_string()),

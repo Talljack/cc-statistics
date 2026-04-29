@@ -275,6 +275,7 @@ pub fn app_source_to_billing_provider(source: &str) -> &str {
         "claude_code" => "anthropic",
         "codex" => "openai",
         "gemini" => "google",
+        "hermes" => "nous",
         "openrouter" => OPENROUTER_PROVIDER,
         "copilot" => "copilot",
         "kimi_k2" => "moonshot",

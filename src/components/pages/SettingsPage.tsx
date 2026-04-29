@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
+  buildDefaultSourceInstances,
+  type SourceKind,
   useSettingsStore,
   type Language,
 } from '../../stores/settingsStore';
@@ -384,53 +386,160 @@ function GeneralTab() {
 }
 
 const SOURCE_ITEMS: {
-  key: 'claude_code' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
+  key: SourceKind;
   labelKey: string;
-  path: string;
   color: string;
 }[] = [
-  { key: 'claude_code', labelKey: 'settings.dataSource.claudeCode', path: '~/.claude/projects/', color: '#3b82f6' },
-  { key: 'codex', labelKey: 'settings.dataSource.codex', path: '~/.codex/', color: '#22c55e' },
-  { key: 'gemini', labelKey: 'settings.dataSource.gemini', path: '~/.gemini/', color: '#f59e0b' },
-  { key: 'opencode', labelKey: 'settings.dataSource.opencode', path: '~/.local/share/opencode/', color: '#a855f7' },
-  { key: 'openclaw', labelKey: 'settings.dataSource.openclaw', path: '~/.openclaw/', color: '#06b6d4' },
+  { key: 'claude_code', labelKey: 'settings.dataSource.claudeCode', color: '#3b82f6' },
+  { key: 'codex', labelKey: 'settings.dataSource.codex', color: '#22c55e' },
+  { key: 'gemini', labelKey: 'settings.dataSource.gemini', color: '#f59e0b' },
+  { key: 'opencode', labelKey: 'settings.dataSource.opencode', color: '#a855f7' },
+  { key: 'openclaw', labelKey: 'settings.dataSource.openclaw', color: '#06b6d4' },
+  { key: 'hermes', labelKey: 'settings.dataSource.hermes', color: '#ef4444' },
 ];
 
 function DataSourceList() {
   const { t } = useTranslation();
-  const { enabledSources, toggleSource } = useSettingsStore();
+  const {
+    enabledSources,
+    sourceInstances,
+    toggleSource,
+    addSourceInstance,
+    updateSourceInstance,
+    removeSourceInstance,
+  } = useSettingsStore();
   const { data: detected } = useDetectSources();
+  const [drafts, setDrafts] = useState<Record<SourceKind, { label: string; rootPath: string }>>({
+    claude_code: { label: '', rootPath: '' },
+    codex: { label: '', rootPath: '' },
+    gemini: { label: '', rootPath: '' },
+    opencode: { label: '', rootPath: '' },
+    openclaw: { label: '', rootPath: '' },
+    hermes: { label: '', rootPath: '' },
+  });
 
   const detectedMap = new Map(detected ?? []);
+  const fallbackInstances = buildDefaultSourceInstances();
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {SOURCE_ITEMS.map((item) => {
         const isDetected = detectedMap.get(item.key) ?? false;
         const isEnabled = enabledSources[item.key];
+        const instances = sourceInstances
+          .filter((instance) => instance.source === item.key)
+          .sort((a, b) => Number(b.builtIn) - Number(a.builtIn));
+        const displayInstances = instances.length > 0
+          ? instances
+          : fallbackInstances.filter((instance) => instance.source === item.key);
+        const draft = drafts[item.key];
 
         return (
           <div
             key={item.key}
-            className="flex items-center gap-3 bg-[var(--color-bg-elevated)] rounded-lg px-3 py-2.5"
+            className="bg-[var(--color-bg-elevated)] rounded-lg px-3 py-3 space-y-3"
           >
-            <div
-              className="w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: isDetected ? item.color : 'var(--color-border-strong)' }}
-              title={isDetected ? t('settings.dataSource.detected') : t('settings.dataSource.notDetected')}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{t(item.labelKey)}</span>
-                {!isDetected && (
-                  <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider">
-                    {t('settings.dataSource.notDetected')}
-                  </span>
-                )}
+            <div className="flex items-center gap-3">
+              <div
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: isDetected ? item.color : 'var(--color-border-strong)' }}
+                title={isDetected ? t('settings.dataSource.detected') : t('settings.dataSource.notDetected')}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{t(item.labelKey)}</span>
+                  {!isDetected && (
+                    <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider">
+                      {t('settings.dataSource.notDetected')}
+                    </span>
+                  )}
+                </div>
               </div>
-              <code className="text-xs text-[var(--color-text-muted)] font-mono">{item.path}</code>
+              <Toggle checked={isEnabled} onChange={() => toggleSource(item.key)} />
             </div>
-            <Toggle checked={isEnabled} onChange={() => toggleSource(item.key)} />
+
+            <div className="space-y-2">
+              {displayInstances.map((instance) => (
+                <div
+                  key={instance.id}
+                  className="rounded-md border border-[var(--color-border-base)] bg-[var(--color-bg-surface)] px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 justify-between">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-[var(--color-text-primary)] flex items-center gap-2">
+                        <span>{instance.label}</span>
+                        {instance.builtIn && (
+                          <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider">
+                            {t('settings.dataSource.defaultBadge')}
+                          </span>
+                        )}
+                      </div>
+                      <code className="text-xs text-[var(--color-text-muted)] font-mono break-all">{instance.rootPath}</code>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!instance.builtIn && (
+                        <button
+                          onClick={() => removeSourceInstance(instance.id)}
+                          className="p-1 rounded hover:bg-[var(--color-bg-active)] text-[var(--color-text-tertiary)] hover:text-red-400 transition-colors"
+                          title={t('common.remove')}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                      <Toggle
+                        checked={instance.enabled}
+                        onChange={(enabled) => {
+                          updateSourceInstance(instance.id, { enabled });
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_1.4fr_auto] gap-2">
+              <input
+                type="text"
+                value={draft.label}
+                onChange={(e) => setDrafts((state) => ({
+                  ...state,
+                  [item.key]: { ...state[item.key], label: e.target.value },
+                }))}
+                placeholder={t('settings.dataSource.instanceLabel')}
+                className="bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-md px-3 py-2 text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-blue)]"
+              />
+              <input
+                type="text"
+                value={draft.rootPath}
+                onChange={(e) => setDrafts((state) => ({
+                  ...state,
+                  [item.key]: { ...state[item.key], rootPath: e.target.value },
+                }))}
+                placeholder={t('settings.dataSource.customPathPlaceholder')}
+                className="bg-[var(--color-bg-hover)] border border-[var(--color-border-base)] rounded-md px-3 py-2 text-sm font-mono text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-blue)]"
+              />
+              <button
+                onClick={() => {
+                  const added = addSourceInstance({
+                    source: item.key,
+                    label: draft.label,
+                    rootPath: draft.rootPath,
+                  });
+                  if (added) {
+                    setDrafts((state) => ({
+                      ...state,
+                      [item.key]: { label: '', rootPath: '' },
+                    }));
+                  }
+                }}
+                disabled={!draft.rootPath.trim()}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-[var(--color-accent-blue)] text-white rounded-md text-sm font-medium hover:bg-[var(--color-accent-blue)]/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+                {t('settings.dataSource.addPath')}
+              </button>
+            </div>
           </div>
         );
       })}

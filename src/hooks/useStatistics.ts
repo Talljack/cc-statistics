@@ -12,9 +12,10 @@ function normalizeSelection(values?: string[]) {
 
 export function useProjects() {
   const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const sourceInstances = useSettingsStore((s) => s.sourceInstances);
   return useQuery<ProjectInfo[]>({
-    queryKey: ['projects', enabledSources],
-    queryFn: () => invoke<ProjectInfo[]>('get_projects', { enabledSources }),
+    queryKey: ['projects', enabledSources, sourceInstances],
+    queryFn: () => invoke<ProjectInfo[]>('get_projects', { enabledSources, sourceInstances }),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -22,13 +23,14 @@ export function useProjects() {
 export function useStatistics(projects: string[], activeRange: ActiveTimeRange, providerFilter?: string[]) {
   const customProviders = useSettingsStore((s) => s.customProviders);
   const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const sourceInstances = useSettingsStore((s) => s.sourceInstances);
   const savedRanges = useSettingsStore((s) => s.savedTimeRanges);
   const { timeRange, timeFilter, queryKey } = serializeTimeRangeForQuery(activeRange, savedRanges);
   const selectedProjects = normalizeSelection(projects);
   const selectedProviders = normalizeSelection(providerFilter);
 
   return useQuery<Statistics>({
-    queryKey: ['statistics', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources],
+    queryKey: ['statistics', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources, sourceInstances],
     queryFn: () => invoke<Statistics>('get_statistics', {
       project: selectedProjects,
       timeFilter,
@@ -36,6 +38,7 @@ export function useStatistics(projects: string[], activeRange: ActiveTimeRange, 
       providerFilter: selectedProviders,
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
+      sourceInstances,
     }),
     placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
@@ -45,13 +48,14 @@ export function useStatistics(projects: string[], activeRange: ActiveTimeRange, 
 export function useSessions(projects: string[], activeRange: ActiveTimeRange, providerFilter?: string[]) {
   const customProviders = useSettingsStore((s) => s.customProviders);
   const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const sourceInstances = useSettingsStore((s) => s.sourceInstances);
   const savedRanges = useSettingsStore((s) => s.savedTimeRanges);
   const { timeRange, timeFilter, queryKey } = serializeTimeRangeForQuery(activeRange, savedRanges);
   const selectedProjects = normalizeSelection(projects);
   const selectedProviders = normalizeSelection(providerFilter);
 
   return useQuery<SessionInfo[]>({
-    queryKey: ['sessions', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources],
+    queryKey: ['sessions', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources, sourceInstances],
     queryFn: () => invoke<SessionInfo[]>('get_sessions', {
       project: selectedProjects,
       timeFilter,
@@ -59,16 +63,27 @@ export function useSessions(projects: string[], activeRange: ActiveTimeRange, pr
       providerFilter: selectedProviders,
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
+      sourceInstances,
     }),
     placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
   });
 }
 
-export function useSessionMessages(sessionId: string | null, source: string) {
+export function useSessionMessages(
+  sessionId: string | null,
+  source: string,
+  instanceId?: string | null,
+  instanceRootPath?: string | null,
+) {
   return useQuery<SessionMessage[]>({
-    queryKey: ['session-messages', sessionId, source],
-    queryFn: () => invoke<SessionMessage[]>('get_session_messages', { sessionId, source }),
+    queryKey: ['session-messages', sessionId, source, instanceId, instanceRootPath],
+    queryFn: () => invoke<SessionMessage[]>('get_session_messages', {
+      sessionId,
+      source,
+      instanceId,
+      instanceRootPath,
+    }),
     enabled: !!sessionId,
     staleTime: 5 * 60 * 1000,
   });
@@ -77,13 +92,14 @@ export function useSessionMessages(sessionId: string | null, source: string) {
 export function useInstructions(projects: string[], activeRange: ActiveTimeRange, providerFilter?: string[]) {
   const customProviders = useSettingsStore((s) => s.customProviders);
   const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const sourceInstances = useSettingsStore((s) => s.sourceInstances);
   const savedRanges = useSettingsStore((s) => s.savedTimeRanges);
   const { timeRange, timeFilter, queryKey } = serializeTimeRangeForQuery(activeRange, savedRanges);
   const selectedProjects = normalizeSelection(projects);
   const selectedProviders = normalizeSelection(providerFilter);
 
   return useQuery<InstructionInfo[]>({
-    queryKey: ['instructions', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources],
+    queryKey: ['instructions', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources, sourceInstances],
     queryFn: () => invoke<InstructionInfo[]>('get_instructions', {
       project: selectedProjects,
       timeFilter,
@@ -91,6 +107,7 @@ export function useInstructions(projects: string[], activeRange: ActiveTimeRange
       providerFilter: selectedProviders,
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
+      sourceInstances,
     }),
     placeholderData: (previousData) => previousData,
     staleTime: 0,
@@ -101,11 +118,13 @@ export function useInstructions(projects: string[], activeRange: ActiveTimeRange
 export function useAvailableProviders() {
   const customProviders = useSettingsStore((s) => s.customProviders);
   const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const sourceInstances = useSettingsStore((s) => s.sourceInstances);
   return useQuery<string[]>({
-    queryKey: ['available-providers', customProviders, enabledSources],
+    queryKey: ['available-providers', customProviders, enabledSources, sourceInstances],
     queryFn: () => invoke<string[]>('get_available_providers', {
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
+      sourceInstances,
     }),
     staleTime: 5 * 60 * 1000,
   });
@@ -130,13 +149,14 @@ export function usePresetModels() {
 export function useCodeChangesDetail(projects: string[], activeRange: ActiveTimeRange, providerFilter?: string[]) {
   const customProviders = useSettingsStore((s) => s.customProviders);
   const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const sourceInstances = useSettingsStore((s) => s.sourceInstances);
   const savedRanges = useSettingsStore((s) => s.savedTimeRanges);
   const { timeRange, timeFilter, queryKey } = serializeTimeRangeForQuery(activeRange, savedRanges);
   const selectedProjects = normalizeSelection(projects);
   const selectedProviders = normalizeSelection(providerFilter);
 
   return useQuery<FileChange[]>({
-    queryKey: ['code-changes-detail', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources],
+    queryKey: ['code-changes-detail', selectedProjects, queryKey, selectedProviders, customProviders, enabledSources, sourceInstances],
     queryFn: () => invoke<FileChange[]>('get_code_changes_detail', {
       project: selectedProjects,
       timeFilter,
@@ -144,6 +164,7 @@ export function useCodeChangesDetail(projects: string[], activeRange: ActiveTime
       providerFilter: selectedProviders,
       customProviders: customProviders.length > 0 ? customProviders : null,
       enabledSources,
+      sourceInstances,
     }),
     placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
@@ -152,6 +173,7 @@ export function useCodeChangesDetail(projects: string[], activeRange: ActiveTime
 
 export function useAccountUsage() {
   const enabledSources = useSettingsStore((s) => s.enabledSources);
+  const sourceInstances = useSettingsStore((s) => s.sourceInstances);
   const [streamingProviders, setStreamingProviders] = useState<ProviderUsage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const fetchIdRef = useRef(0);
@@ -168,12 +190,12 @@ export function useAccountUsage() {
   }, []);
 
   const query = useQuery<AccountUsageResult>({
-    queryKey: ['account-usage', enabledSources],
+    queryKey: ['account-usage', enabledSources, sourceInstances],
     queryFn: async () => {
       const id = ++fetchIdRef.current;
       setStreamingProviders([]);
       setIsStreaming(true);
-      const result = await invoke<AccountUsageResult>('get_account_usage', { enabledSources });
+      const result = await invoke<AccountUsageResult>('get_account_usage', { enabledSources, sourceInstances });
       if (fetchIdRef.current === id) {
         setIsStreaming(false);
       }

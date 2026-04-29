@@ -21,6 +21,9 @@ vi.mock('../../stores/settingsStore', () => ({
 
 const mockSessions = [
   {
+    instance_id: 'built-in:claude_code',
+    instance_label: 'Default',
+    instance_root_path: '~/.claude',
     session_id: 's1',
     project_name: 'proj',
     timestamp: '2024-01-01T00:00:00Z',

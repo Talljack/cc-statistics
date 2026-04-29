@@ -82,9 +82,22 @@ pub fn read_session_file(session_id: &str) -> Result<String, String> {
     read_session_file_in_dir(&projects_dir, session_id, 4)
 }
 
+pub fn read_session_file_from_root(root: &Path, session_id: &str) -> Result<String, String> {
+    let projects_dir = root.join("projects");
+    read_session_file_in_dir(&projects_dir, session_id, 4)
+}
+
 pub(crate) fn read_openclaw_session_file(session_id: &str) -> Result<String, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     let sessions_dir = home.join(".openclaw").join("agents").join("main").join("sessions");
+    read_session_file_in_dir(&sessions_dir, session_id, 1)
+}
+
+pub fn read_openclaw_session_file_from_root(
+    root: &Path,
+    session_id: &str,
+) -> Result<String, String> {
+    let sessions_dir = root.join("agents").join("main").join("sessions");
     read_session_file_in_dir(&sessions_dir, session_id, 1)
 }
 
@@ -222,7 +235,14 @@ fn stringify_payload(value: &Value) -> Option<String> {
 
 pub(crate) fn read_codex_session_file(session_id: &str) -> Result<Vec<SessionMessage>, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let sessions_dir = home.join(".codex").join("sessions");
+    read_codex_session_file_from_root(&home.join(".codex"), session_id)
+}
+
+pub(crate) fn read_codex_session_file_from_root(
+    root: &Path,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, String> {
+    let sessions_dir = root.join("sessions");
 
     if !sessions_dir.exists() {
         return Err(format!("Codex sessions directory not found: {}", sessions_dir.display()));
@@ -410,7 +430,14 @@ fn codex_content_block_to_message(
 
 pub(crate) fn read_gemini_session_file(session_id: &str) -> Result<Vec<SessionMessage>, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let tmp_dir = home.join(".gemini").join("tmp");
+    read_gemini_session_file_from_root(&home.join(".gemini"), session_id)
+}
+
+pub fn read_gemini_session_file_from_root(
+    root: &Path,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, String> {
+    let tmp_dir = root.join("tmp");
 
     if !tmp_dir.exists() {
         return Err(format!("Gemini tmp directory not found: {}", tmp_dir.display()));
@@ -561,7 +588,19 @@ fn parse_gemini_session_json(root: &Value) -> Result<Vec<SessionMessage>, String
 
 pub(crate) fn read_opencode_session_file(session_id: &str) -> Result<Vec<SessionMessage>, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let db_path = home.join(".local").join("share").join("opencode").join("opencode.db");
+    read_opencode_session_file_from_root(&home.join(".local").join("share").join("opencode"), session_id)
+}
+
+pub(crate) fn read_hermes_session_file(session_id: &str) -> Result<Vec<SessionMessage>, String> {
+    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+    read_hermes_session_file_from_root(&home.join(".hermes"), session_id)
+}
+
+pub fn read_opencode_session_file_from_root(
+    root: &Path,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, String> {
+    let db_path = root.join("opencode.db");
 
     if !db_path.exists() {
         return Err(format!("Opencode database not found: {}", db_path.display()));
@@ -661,6 +700,99 @@ pub(crate) fn read_opencode_session_file(session_id: &str) -> Result<Vec<Session
                 }
             }
             _ => {}
+        }
+    }
+
+    Ok(messages)
+}
+
+pub fn read_hermes_session_file_from_root(
+    root: &Path,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, String> {
+    let db_path = root.join("state.db");
+
+    if !db_path.exists() {
+        return Err(format!("Hermes database not found: {}", db_path.display()));
+    }
+
+    let conn = Connection::open_with_flags(
+        &db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| format!("Failed to open hermes database: {}", e))?;
+
+    let mut stmt = conn
+        .prepare("SELECT data, time_created FROM message WHERE session_id = ?1 ORDER BY time_created ASC")
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let rows = stmt
+        .query_map([session_id], |row| {
+            let data: String = row.get(0)?;
+            let time_created: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
+            Ok((data, time_created))
+        })
+        .map_err(|e| format!("Failed to query messages: {}", e))?;
+
+    let mut messages = Vec::new();
+
+    for row in rows {
+        let (data_str, time_created) = match row {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let value: Value = match serde_json::from_str(&data_str) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let Some(role) = value.get("role").and_then(Value::as_str).map(str::to_string) else {
+            continue;
+        };
+
+        let timestamp = if time_created > 0 {
+            DateTime::from_timestamp_millis(time_created)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        if let Some(content) = value.get("content") {
+            match content {
+                Value::String(text) => {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        messages.push(SessionMessage {
+                            role: role.clone(),
+                            content: text.to_string(),
+                            timestamp: timestamp.clone(),
+                            tool_name: None,
+                        });
+                    }
+                }
+                Value::Array(items) => {
+                    for item in items {
+                        if let Some(text) = item.get("text").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()) {
+                            messages.push(SessionMessage {
+                                role: role.clone(),
+                                content: text.to_string(),
+                                timestamp: timestamp.clone(),
+                                tool_name: None,
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else if let Some(text) = value.get("text").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()) {
+            messages.push(SessionMessage {
+                role,
+                content: text.to_string(),
+                timestamp,
+                tool_name: None,
+            });
         }
     }
 

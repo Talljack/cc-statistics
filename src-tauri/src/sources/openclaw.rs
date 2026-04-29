@@ -12,21 +12,17 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Return the base sessions directory: ~/.openclaw/agents/main/sessions
 fn sessions_dir() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    let dir = home
-        .join(".openclaw")
-        .join("agents")
-        .join("main")
-        .join("sessions");
-    if dir.is_dir() {
-        Some(dir)
-    } else {
-        None
-    }
+    sessions_dir_from_root(&home.join(".openclaw"))
+}
+
+fn sessions_dir_from_root(root: &Path) -> Option<PathBuf> {
+    let dir = root.join("agents").join("main").join("sessions");
+    if dir.is_dir() { Some(dir) } else { None }
 }
 
 /// Discover all projects from Openclaw session files.
@@ -36,7 +32,18 @@ pub fn discover_projects() -> Vec<(String, String)> {
         Some(d) => d,
         None => return Vec::new(),
     };
+    discover_projects_in_dir(&dir)
+}
 
+pub fn discover_projects_from_root(root: &Path) -> Vec<(String, String)> {
+    let dir = match sessions_dir_from_root(root) {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+    discover_projects_in_dir(&dir)
+}
+
+fn discover_projects_in_dir(dir: &Path) -> Vec<(String, String)> {
     let entries = match fs::read_dir(&dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -69,7 +76,26 @@ pub fn collect_normalized_sessions(
         Some(dir) => dir,
         None => return Vec::new(),
     };
+    collect_normalized_sessions_in_dir(&dir, project, query_range)
+}
 
+pub fn collect_normalized_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let dir = match sessions_dir_from_root(root) {
+        Some(dir) => dir,
+        None => return Vec::new(),
+    };
+    collect_normalized_sessions_in_dir(&dir, project, query_range)
+}
+
+fn collect_normalized_sessions_in_dir(
+    dir: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(_) => return Vec::new(),
@@ -335,6 +361,9 @@ pub fn collect_instructions(
                     instructions.push(InstructionInfo {
                         timestamp,
                         project_name: project_name.clone(),
+                        instance_id: "built-in:openclaw".to_string(),
+                        instance_label: "Default".to_string(),
+                        instance_root_path: "~/.openclaw".to_string(),
                         session_id: session_id.clone(),
                         source: "openclaw".to_string(),
                         content: truncated,
@@ -474,6 +503,9 @@ pub fn collect_sessions(
         }
 
         sessions.push(SessionInfo {
+            instance_id: "built-in:openclaw".to_string(),
+            instance_label: "Default".to_string(),
+            instance_root_path: "~/.openclaw".to_string(),
             session_id: session.session_id.unwrap_or_else(|| "unknown".to_string()),
             project_name,
             timestamp: session.first_timestamp.unwrap_or_default(),
@@ -668,6 +700,9 @@ fn parse_normalized_openclaw_session(path: &PathBuf) -> Option<NormalizedSession
 
     Some(NormalizedSession {
         source: "openclaw".to_string(),
+        instance_id: "built-in:openclaw".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.openclaw".to_string(),
         session_id: source_session_id,
         project_name,
         git_branch: None,

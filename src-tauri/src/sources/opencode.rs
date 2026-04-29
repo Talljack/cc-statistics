@@ -17,7 +17,11 @@ const MAX_DIFF_TEXT_BYTES: usize = 50 * 1024;
 /// Return the path to the opencode SQLite database.
 fn db_path() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    let path = home.join(".local/share/opencode/opencode.db");
+    db_path_from_root(&home.join(".local").join("share").join("opencode"))
+}
+
+fn db_path_from_root(root: &Path) -> Option<PathBuf> {
+    let path = root.join("opencode.db");
     if path.exists() {
         Some(path)
     } else {
@@ -28,8 +32,17 @@ fn db_path() -> Option<PathBuf> {
 /// Open the database in read-only mode. Returns None on any error.
 fn open_db() -> Option<Connection> {
     let path = db_path()?;
+    open_db_at_path(&path)
+}
+
+fn open_db_from_root(root: &Path) -> Option<Connection> {
+    let path = db_path_from_root(root)?;
+    open_db_at_path(&path)
+}
+
+fn open_db_at_path(path: &Path) -> Option<Connection> {
     Connection::open_with_flags(
-        &path,
+        path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .ok()
@@ -71,7 +84,18 @@ pub fn discover_projects() -> Vec<(String, String)> {
         Some(c) => c,
         None => return Vec::new(),
     };
+    discover_projects_from_connection(&conn)
+}
 
+pub fn discover_projects_from_root(root: &Path) -> Vec<(String, String)> {
+    let conn = match open_db_from_root(root) {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+    discover_projects_from_connection(&conn)
+}
+
+fn discover_projects_from_connection(conn: &Connection) -> Vec<(String, String)> {
     let mut stmt = match conn.prepare(
         "SELECT p.id, p.name, p.worktree \
          FROM project p \
@@ -113,7 +137,26 @@ pub fn collect_normalized_sessions(
         Some(conn) => conn,
         None => return Vec::new(),
     };
+    collect_normalized_sessions_with_connection(&conn, project, query_range)
+}
 
+pub fn collect_normalized_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let conn = match open_db_from_root(root) {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+    collect_normalized_sessions_with_connection(&conn, project, query_range)
+}
+
+fn collect_normalized_sessions_with_connection(
+    conn: &Connection,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
     let project_ids = match project {
         Some(names) => resolve_project_ids(&conn, names),
         None => Vec::new(),
@@ -230,6 +273,9 @@ pub fn collect_instructions(
             instructions.push(InstructionInfo {
                 timestamp,
                 project_name: sess.project_name.clone(),
+                instance_id: "built-in:opencode".to_string(),
+                instance_label: "Default".to_string(),
+                instance_root_path: "~/.local/share/opencode".to_string(),
                 session_id: sess.id.clone(),
                 source: "opencode".to_string(),
                 content: truncated,
@@ -341,6 +387,9 @@ pub fn collect_sessions(
             .unwrap_or_default();
 
         results.push(SessionInfo {
+            instance_id: "built-in:opencode".to_string(),
+            instance_label: "Default".to_string(),
+            instance_root_path: "~/.local/share/opencode".to_string(),
             session_id: sess.id.clone(),
             project_name: sess.project_name.clone(),
             timestamp,
@@ -664,6 +713,9 @@ fn build_normalized_session(
 
     Some(NormalizedSession {
         source: "opencode".to_string(),
+        instance_id: "built-in:opencode".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.local/share/opencode".to_string(),
         session_id: sess.id.clone(),
         project_name: sess.project_name.clone(),
         git_branch: None,

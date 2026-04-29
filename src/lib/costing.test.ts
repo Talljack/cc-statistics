@@ -44,6 +44,9 @@ function session(
   );
 
   return {
+    instance_id: `built-in:${source}`,
+    instance_label: 'Default',
+    instance_root_path: source === 'opencode' ? '~/.local/share/opencode' : source === 'openclaw' ? '~/.openclaw' : source === 'gemini' ? '~/.gemini' : source === 'codex' ? '~/.codex' : '~/.claude',
     session_id: id,
     project_name: 'cc-statistics',
     timestamp: '2026-03-10T09:00:00+08:00',

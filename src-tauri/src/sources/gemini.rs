@@ -8,7 +8,7 @@ use crate::time_ranges::record_matches_query_range;
 use chrono::{DateTime, Duration, Local, TimeZone};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 // ---------------------------------------------------------------------------
@@ -18,10 +18,17 @@ use walkdir::WalkDir;
 /// Discover all Gemini CLI projects.
 /// Returns (project_display_name, project_path) pairs.
 pub fn discover_projects() -> Vec<(String, String)> {
+    let Some(root) = gemini_home_dir() else {
+        return Vec::new();
+    };
+    discover_projects_from_root(&root)
+}
+
+pub fn discover_projects_from_root(root: &Path) -> Vec<(String, String)> {
     let mut seen: HashMap<String, String> = HashMap::new();
 
     // Scan ~/.gemini/tmp/{hash}/chats/ for session files
-    if let Some(tmp_dir) = gemini_tmp_dir() {
+    if let Some(tmp_dir) = gemini_tmp_dir_from_root(root) {
         for entry in fs::read_dir(&tmp_dir).into_iter().flatten().flatten() {
             let hash_dir = entry.path();
             if !hash_dir.is_dir() {
@@ -42,7 +49,7 @@ pub fn discover_projects() -> Vec<(String, String)> {
     }
 
     // Also check ~/.gemini/history/ for project mapping
-    if let Some(history_dir) = gemini_history_dir() {
+    if let Some(history_dir) = gemini_history_dir_from_root(root) {
         for entry in fs::read_dir(&history_dir).into_iter().flatten().flatten() {
             let dir = entry.path();
             if !dir.is_dir() {
@@ -145,26 +152,40 @@ pub fn collect_normalized_sessions(
     project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
-    let Some(home) = dirs::home_dir() else {
+    let Some(root) = gemini_home_dir() else {
         return Vec::new();
     };
-
-    collect_normalized_sessions_from_home(&home, project, query_range)
+    collect_normalized_sessions_from_root(&root, project, query_range)
 }
 
 pub fn collect_normalized_sessions_from_home(
-    home: &std::path::Path,
+    home: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    collect_normalized_sessions_from_root(&home.join(".gemini"), project, query_range)
+}
+
+pub fn collect_normalized_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let tmp_dir = root.join("tmp");
+    collect_normalized_sessions_in_tmp(&tmp_dir, project, query_range)
+}
+
+fn collect_normalized_sessions_in_tmp(
+    tmp_dir: &Path,
     project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
     let mut sessions = Vec::new();
-
-    let tmp_dir = home.join(".gemini").join("tmp");
     if !tmp_dir.is_dir() {
         return sessions;
     }
 
-    for entry in WalkDir::new(&tmp_dir)
+    for entry in WalkDir::new(tmp_dir)
         .into_iter()
         .filter_map(|entry| entry.ok())
     {
@@ -290,6 +311,9 @@ pub fn collect_instructions(
             instructions.push(InstructionInfo {
                 timestamp,
                 project_name: project_name.clone(),
+                instance_id: "built-in:gemini".to_string(),
+                instance_label: "Default".to_string(),
+                instance_root_path: "~/.gemini".to_string(),
                 session_id: session_id.clone(),
                 source: "gemini".to_string(),
                 content: truncated,
@@ -309,7 +333,12 @@ fn gemini_home_dir() -> Option<PathBuf> {
 }
 
 fn gemini_tmp_dir() -> Option<PathBuf> {
-    let dir = gemini_home_dir()?.join("tmp");
+    let root = gemini_home_dir()?;
+    gemini_tmp_dir_from_root(&root)
+}
+
+fn gemini_tmp_dir_from_root(root: &Path) -> Option<PathBuf> {
+    let dir = root.join("tmp");
     if dir.is_dir() {
         Some(dir)
     } else {
@@ -317,8 +346,8 @@ fn gemini_tmp_dir() -> Option<PathBuf> {
     }
 }
 
-fn gemini_history_dir() -> Option<PathBuf> {
-    let dir = gemini_home_dir()?.join("history");
+fn gemini_history_dir_from_root(root: &Path) -> Option<PathBuf> {
+    let dir = root.join("history");
     if dir.is_dir() {
         Some(dir)
     } else {
@@ -564,6 +593,9 @@ fn parse_normalized_gemini_session(
 
     let mut session = NormalizedSession {
         source: "gemini".to_string(),
+        instance_id: "built-in:gemini".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.gemini".to_string(),
         session_id: root
             .get("sessionId")
             .and_then(|value| value.as_str())
@@ -824,6 +856,9 @@ fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionIn
         + session.tokens.cache_creation;
 
     SessionInfo {
+        instance_id: "built-in:gemini".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.gemini".to_string(),
         session_id: session.session_id.unwrap_or_else(|| "unknown".to_string()),
         project_name: project_name.to_string(),
         timestamp: session.first_timestamp.unwrap_or_default(),

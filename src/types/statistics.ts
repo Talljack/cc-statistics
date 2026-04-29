@@ -47,6 +47,9 @@ export interface Statistics {
 }
 
 export interface SessionInfo {
+  instance_id: string;
+  instance_label: string;
+  instance_root_path: string;
   session_id: string;
   project_name: string;
   timestamp: string;
@@ -75,6 +78,9 @@ export interface SessionMessage {
 export interface InstructionInfo {
   timestamp: string;
   project_name: string;
+  instance_id: string;
+  instance_label: string;
+  instance_root_path: string;
   session_id: string;
   source: string;
   content: string;
@@ -142,4 +148,5 @@ export interface SourceConfig {
   gemini: boolean;
   opencode: boolean;
   openclaw: boolean;
+  hermes: boolean;
 }

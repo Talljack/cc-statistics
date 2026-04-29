@@ -98,9 +98,9 @@ export function Sessions() {
                 <tbody>
                   {sortedSessions.map((session) => (
                     <tr
-                      key={`${session.source}:${session.session_id}`}
+                      key={`${session.source}:${session.instance_id}:${session.session_id}`}
                       className="border-b border-[var(--color-border-base)] hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
-                      onClick={() => navigate(`/session/${session.session_id}?source=${encodeURIComponent(session.source)}&project=${encodeURIComponent(session.project_name)}&model=${encodeURIComponent(session.model)}`)}
+                      onClick={() => navigate(`/session/${session.session_id}?source=${encodeURIComponent(session.source)}&instanceId=${encodeURIComponent(session.instance_id)}&instanceRootPath=${encodeURIComponent(session.instance_root_path)}&project=${encodeURIComponent(session.project_name)}&model=${encodeURIComponent(session.model)}`)}
                     >
                       <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)]">
                         {formatTimestamp(session.timestamp)}
@@ -109,7 +109,7 @@ export function Sessions() {
                         <div className="flex items-center gap-2">
                           <span className="text-[#3b82f6]">{session.project_name}</span>
                           <span className="rounded bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-tertiary)]">
-                            {session.source}
+                            {session.instance_label || session.source}
                           </span>
                         </div>
                       </td>

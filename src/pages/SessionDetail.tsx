@@ -12,12 +12,19 @@ export function SessionDetail() {
   const navigate = useNavigate();
 
   const source = searchParams.get('source') || 'claude_code';
+  const instanceId = searchParams.get('instanceId') || '';
+  const instanceRootPath = searchParams.get('instanceRootPath') || '';
   const project = searchParams.get('project') || '';
   const model = searchParams.get('model') || '';
 
-  const { data: messages, isLoading, error } = useSessionMessages(id || null, source);
+  const { data: messages, isLoading, error } = useSessionMessages(
+    id || null,
+    source,
+    instanceId || null,
+    instanceRootPath || null,
+  );
 
-  const unsupportedSource = !['claude_code', 'openclaw'].includes(source);
+  const unsupportedSource = !['claude_code', 'openclaw', 'gemini', 'opencode', 'hermes'].includes(source);
   const noConversation = !isLoading && !error && !unsupportedSource && (!messages || messages.length === 0);
 
   return (
@@ -42,6 +49,7 @@ export function SessionDetail() {
                 {project && <span>{project}</span>}
                 {model && <span className="ml-2">· {model}</span>}
                 {source && <span className="ml-2">· {source}</span>}
+                {instanceId && <span className="ml-2">· {instanceId}</span>}
               </div>
             </div>
           </div>

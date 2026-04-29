@@ -1,0 +1,678 @@
+use crate::commands::{
+    model_matches_provider_filters, model_to_provider, project_matches_filters, CustomProviderDef,
+};
+use crate::models::*;
+use crate::normalized::{InstructionRecord, NormalizedRecord, NormalizedSession, TokenRecord};
+use crate::parser::{format_duration, ProjectStats, SessionStats};
+use crate::time_ranges::record_matches_query_range;
+use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone, Utc};
+use rusqlite::{Connection, OpenFlags};
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+
+fn db_path() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    db_path_from_root(&home.join(".hermes"))
+}
+
+fn db_path_from_root(root: &Path) -> Option<PathBuf> {
+    let path = root.join("state.db");
+    if path.exists() { Some(path) } else { None }
+}
+
+fn open_db() -> Option<Connection> {
+    let path = db_path()?;
+    open_db_at_path(&path)
+}
+
+fn open_db_from_root(root: &Path) -> Option<Connection> {
+    let path = db_path_from_root(root)?;
+    open_db_at_path(&path)
+}
+
+fn open_db_at_path(path: &Path) -> Option<Connection> {
+    Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()
+}
+
+fn time_filter_to_ms(time_filter: &TimeFilter) -> i64 {
+    let now = Local::now();
+    match time_filter {
+        TimeFilter::Today => {
+            let start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+            Local.from_local_datetime(&start).unwrap().timestamp_millis()
+        }
+        TimeFilter::Week => (now - Duration::days(7)).timestamp_millis(),
+        TimeFilter::Month => (now - Duration::days(30)).timestamp_millis(),
+        TimeFilter::Days(d) => (now - Duration::days(*d as i64)).timestamp_millis(),
+        TimeFilter::All => 0,
+    }
+}
+
+fn project_display_name(name: &str, worktree: &str) -> String {
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    PathBuf::from(worktree)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+#[derive(Clone)]
+struct SessionRow {
+    id: String,
+    project_name: String,
+    time_created: i64,
+    time_updated: i64,
+}
+
+pub fn discover_projects() -> Vec<(String, String)> {
+    let conn = match open_db() {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+    discover_projects_from_connection(&conn)
+}
+
+pub fn discover_projects_from_root(root: &Path) -> Vec<(String, String)> {
+    let conn = match open_db_from_root(root) {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+    discover_projects_from_connection(&conn)
+}
+
+fn discover_projects_from_connection(conn: &Connection) -> Vec<(String, String)> {
+    let mut stmt = match conn.prepare(
+        "SELECT p.id, COALESCE(p.name, ''), COALESCE(p.worktree, '') \
+         FROM project p \
+         WHERE EXISTS (SELECT 1 FROM session s WHERE s.project_id = p.id)",
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => return Vec::new(),
+    };
+
+    let rows = match stmt.query_map([], |row| {
+        let _id: String = row.get(0)?;
+        let name: String = row.get(1)?;
+        let worktree: String = row.get(2)?;
+        Ok((name, worktree))
+    }) {
+        Ok(rows) => rows,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut results = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for row in rows.flatten() {
+        let display = project_display_name(&row.0, &row.1);
+        if seen.insert(display.clone()) {
+            results.push((display, row.1));
+        }
+    }
+    results.sort_by(|a, b| a.0.cmp(&b.0));
+    results
+}
+
+pub fn collect_normalized_sessions(
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let conn = match open_db() {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+    collect_normalized_sessions_with_connection(&conn, project, query_range)
+}
+
+pub fn collect_normalized_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let conn = match open_db_from_root(root) {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+    collect_normalized_sessions_with_connection(&conn, project, query_range)
+}
+
+fn collect_normalized_sessions_with_connection(
+    conn: &Connection,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let project_ids = match project {
+        Some(names) => resolve_project_ids(conn, names),
+        None => Vec::new(),
+    };
+    let sessions = query_sessions(conn, &project_ids, 0);
+    let mut normalized = Vec::new();
+
+    for session in sessions {
+        if let Some(value) = build_normalized_session(conn, &session, query_range) {
+            if !value.records.is_empty() {
+                normalized.push(value);
+            }
+        }
+    }
+
+    normalized.sort_by(|a, b| {
+        let a_ts = a.records.first().map(|r| r.timestamp().to_rfc3339()).unwrap_or_default();
+        let b_ts = b.records.first().map(|r| r.timestamp().to_rfc3339()).unwrap_or_default();
+        b_ts.cmp(&a_ts)
+    });
+
+    normalized
+}
+
+pub fn collect_instructions(
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    _query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<InstructionInfo> {
+    let conn = match open_db() {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+    let cutoff_ms = time_filter_to_ms(time_filter);
+    let project_ids = match project {
+        Some(names) => resolve_project_ids(&conn, names),
+        None => Vec::new(),
+    };
+    let sessions = query_sessions(&conn, &project_ids, cutoff_ms);
+    let mut instructions = Vec::new();
+
+    for session in &sessions {
+        let stats = build_session_stats(&conn, session, cutoff_ms);
+        if !stats
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
+        }
+
+        let mut stmt = match conn.prepare(
+            "SELECT data, time_created FROM message WHERE session_id = ?1 ORDER BY time_created ASC",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => continue,
+        };
+
+        let rows = match stmt.query_map([&session.id], |row| {
+            let data: String = row.get(0)?;
+            let time_created: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
+            Ok((data, time_created))
+        }) {
+            Ok(rows) => rows,
+            Err(_) => continue,
+        };
+
+        for row in rows.flatten() {
+            let (data_str, time_created) = row;
+            let value: Value = match serde_json::from_str(&data_str) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            if value.get("role").and_then(|v| v.as_str()) != Some("user") {
+                continue;
+            }
+            let Some(content) = user_message_content(&value) else {
+                continue;
+            };
+            if content.trim().is_empty() {
+                continue;
+            }
+
+            let timestamp = DateTime::from_timestamp_millis(time_created)
+                .map(|dt| dt.with_timezone(&Local).to_rfc3339())
+                .unwrap_or_default();
+
+            instructions.push(InstructionInfo {
+                timestamp,
+                project_name: session.project_name.clone(),
+                instance_id: "built-in:hermes".to_string(),
+                instance_label: "Default".to_string(),
+                instance_root_path: "~/.hermes".to_string(),
+                session_id: session.id.clone(),
+                source: "hermes".to_string(),
+                content: content.chars().take(200).collect(),
+            });
+        }
+    }
+
+    instructions
+}
+
+pub fn collect_stats(
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> ProjectStats {
+    let conn = match open_db() {
+        Some(conn) => conn,
+        None => return ProjectStats::default(),
+    };
+    let cutoff_ms = time_filter_to_ms(time_filter);
+    let project_ids = match project {
+        Some(names) => resolve_project_ids(&conn, names),
+        None => Vec::new(),
+    };
+    let sessions = query_sessions(&conn, &project_ids, cutoff_ms);
+    let mut stats = ProjectStats::default();
+    for session in &sessions {
+        let session_stats = build_session_stats(&conn, session, cutoff_ms);
+        if !session_stats
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
+        }
+        if session_stats.has_activity {
+            stats.merge_session(session_stats);
+        }
+    }
+    stats
+}
+
+pub fn collect_sessions(
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<SessionInfo> {
+    let conn = match open_db() {
+        Some(conn) => conn,
+        None => return Vec::new(),
+    };
+    let cutoff_ms = time_filter_to_ms(time_filter);
+    let project_ids = match project {
+        Some(names) => resolve_project_ids(&conn, names),
+        None => Vec::new(),
+    };
+    let sessions = query_sessions(&conn, &project_ids, cutoff_ms);
+    let mut results = Vec::new();
+    for session in &sessions {
+        let session_stats = build_session_stats(&conn, session, cutoff_ms);
+        if !session_stats.has_activity {
+            continue;
+        }
+        if !session_stats
+            .tokens
+            .by_model
+            .keys()
+            .any(|m| model_matches_provider_filters(m, provider_filter.as_deref(), custom_providers))
+            && provider_filter.is_some()
+        {
+            continue;
+        }
+
+        let total_tokens = session_stats.tokens.input
+            + session_stats.tokens.output
+            + session_stats.tokens.cache_read
+            + session_stats.tokens.cache_creation;
+        let timestamp = DateTime::from_timestamp_millis(session.time_created)
+            .map(|dt| dt.with_timezone(&Local).to_rfc3339())
+            .unwrap_or_default();
+
+        results.push(SessionInfo {
+            instance_id: "built-in:hermes".to_string(),
+            instance_label: "Default".to_string(),
+            instance_root_path: "~/.hermes".to_string(),
+            session_id: session.id.clone(),
+            project_name: session.project_name.clone(),
+            timestamp,
+            duration_ms: session_stats.duration_ms,
+            duration_formatted: format_duration(session_stats.duration_ms),
+            total_tokens,
+            instructions: session_stats.instructions,
+            model: session_stats.primary_model.unwrap_or_else(|| "unknown".to_string()),
+            git_branch: String::new(),
+            cost_usd: session_stats.cost_usd,
+            source: "hermes".to_string(),
+            input: session_stats.tokens.input,
+            output: session_stats.tokens.output,
+            cache_read: session_stats.tokens.cache_read,
+            cache_creation: session_stats.tokens.cache_creation,
+            tokens_by_model: session_stats.tokens.by_model.clone(),
+        });
+    }
+
+    results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    results
+}
+
+fn resolve_project_ids(conn: &Connection, names: &[String]) -> Vec<String> {
+    let mut stmt = match conn.prepare("SELECT id, COALESCE(name, ''), COALESCE(worktree, '') FROM project") {
+        Ok(stmt) => stmt,
+        Err(_) => return Vec::new(),
+    };
+
+    let rows = match stmt.query_map([], |row| {
+        let id: String = row.get(0)?;
+        let name: String = row.get(1)?;
+        let worktree: String = row.get(2)?;
+        Ok((id, name, worktree))
+    }) {
+        Ok(rows) => rows,
+        Err(_) => return Vec::new(),
+    };
+
+    rows.flatten()
+        .filter(|(_, name, worktree)| {
+            let display = project_display_name(name, worktree);
+            project_matches_filters(Some(names), &display)
+        })
+        .map(|(id, _, _)| id)
+        .collect()
+}
+
+fn query_sessions(conn: &Connection, project_ids: &[String], cutoff_ms: i64) -> Vec<SessionRow> {
+    let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if project_ids.is_empty() {
+        if cutoff_ms > 0 {
+            (
+                "SELECT s.id, s.time_created, s.time_updated, COALESCE(p.name, ''), COALESCE(p.worktree, '') \
+                 FROM session s LEFT JOIN project p ON p.id = s.project_id WHERE s.time_created >= ?1"
+                    .to_string(),
+                vec![Box::new(cutoff_ms)],
+            )
+        } else {
+            (
+                "SELECT s.id, s.time_created, s.time_updated, COALESCE(p.name, ''), COALESCE(p.worktree, '') \
+                 FROM session s LEFT JOIN project p ON p.id = s.project_id"
+                    .to_string(),
+                vec![],
+            )
+        }
+    } else {
+        let placeholders: Vec<String> = (0..project_ids.len()).map(|i| format!("?{}", i + 1)).collect();
+        let in_clause = placeholders.join(", ");
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = project_ids
+            .iter()
+            .map(|id| Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        if cutoff_ms > 0 {
+            let next_idx = project_ids.len() + 1;
+            let sql = format!(
+                "SELECT s.id, s.time_created, s.time_updated, COALESCE(p.name, ''), COALESCE(p.worktree, '') \
+                 FROM session s LEFT JOIN project p ON p.id = s.project_id WHERE s.project_id IN ({}) AND s.time_created >= ?{}",
+                in_clause, next_idx
+            );
+            params.push(Box::new(cutoff_ms));
+            (sql, params)
+        } else {
+            (
+                format!(
+                    "SELECT s.id, s.time_created, s.time_updated, COALESCE(p.name, ''), COALESCE(p.worktree, '') \
+                     FROM session s LEFT JOIN project p ON p.id = s.project_id WHERE s.project_id IN ({})",
+                    in_clause
+                ),
+                params,
+            )
+        }
+    };
+
+    let mut stmt = match conn.prepare(&sql) {
+        Ok(stmt) => stmt,
+        Err(_) => return Vec::new(),
+    };
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    let rows = match stmt.query_map(param_refs.as_slice(), |row| {
+        let id: String = row.get(0)?;
+        let time_created: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
+        let time_updated: i64 = row.get::<_, Option<i64>>(2)?.unwrap_or(0);
+        let name: String = row.get(3)?;
+        let worktree: String = row.get(4)?;
+        Ok(SessionRow {
+            id,
+            project_name: project_display_name(&name, &worktree),
+            time_created,
+            time_updated,
+        })
+    }) {
+        Ok(rows) => rows,
+        Err(_) => return Vec::new(),
+    };
+
+    rows.flatten().collect()
+}
+
+fn build_normalized_session(
+    conn: &Connection,
+    session: &SessionRow,
+    query_range: &QueryTimeRange,
+) -> Option<NormalizedSession> {
+    let mut records = Vec::new();
+    let mut primary_model: Option<String> = None;
+
+    let mut stmt = conn
+        .prepare("SELECT time_created, data FROM message WHERE session_id = ?1 ORDER BY time_created ASC")
+        .ok()?;
+    let rows = stmt
+        .query_map([&session.id], |row| {
+            let time_created: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
+            let data: String = row.get(1)?;
+            Ok((time_created, data))
+        })
+        .ok()?;
+
+    for row in rows.flatten() {
+        let (time_created, data_str) = row;
+        let value: Value = match serde_json::from_str(&data_str) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let timestamp = fixed_offset_timestamp_ms(message_timestamp_ms(&value, time_created).unwrap_or(time_created))?;
+        let role = value.get("role").and_then(|v| v.as_str()).unwrap_or("");
+        match role {
+            "user" => {
+                if let Some(content) = user_message_content(&value) {
+                    if !content.trim().is_empty() {
+                        let record = NormalizedRecord::Instruction(InstructionRecord { timestamp, content });
+                        if record_matches_query_range(query_range, record.timestamp()) {
+                            records.push(record);
+                        }
+                    }
+                }
+            }
+            "assistant" => {
+                let model_id = value.get("modelID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let tokens = value.get("tokens");
+                let input = tokens.and_then(|t| t.get("input")).and_then(|v| v.as_u64()).unwrap_or(0);
+                let output = tokens.and_then(|t| t.get("output")).and_then(|v| v.as_u64()).unwrap_or(0)
+                    + tokens.and_then(|t| t.get("reasoning")).and_then(|v| v.as_u64()).unwrap_or(0);
+                let cache_read = tokens
+                    .and_then(|t| t.get("cache"))
+                    .and_then(|c| c.get("read"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cache_creation = tokens
+                    .and_then(|t| t.get("cache"))
+                    .and_then(|c| c.get("write"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cost = value.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let model_name = if model_id.is_empty() { "unknown".to_string() } else { model_id.clone() };
+                if primary_model.is_none() && model_name != "unknown" {
+                    primary_model = Some(model_name.clone());
+                }
+                let record = NormalizedRecord::Token(TokenRecord {
+                    timestamp,
+                    model: model_name.clone(),
+                    input,
+                    output,
+                    cache_read,
+                    cache_creation,
+                    cost_usd: if cost > 0.0 {
+                        cost
+                    } else if model_name != "unknown" {
+                        crate::parser::calculate_cost_for_source("hermes", &model_name, input, output, cache_read, cache_creation)
+                    } else {
+                        0.0
+                    },
+                });
+                if record_matches_query_range(query_range, record.timestamp()) {
+                    records.push(record);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if records.is_empty() {
+        return None;
+    }
+
+    let provider = primary_model
+        .as_deref()
+        .and_then(|model| model_to_provider(model, &[]));
+
+    Some(NormalizedSession {
+        source: "hermes".to_string(),
+        instance_id: "built-in:hermes".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.hermes".to_string(),
+        session_id: session.id.clone(),
+        project_name: session.project_name.clone(),
+        git_branch: None,
+        primary_model,
+        provider,
+        records,
+    })
+}
+
+fn build_session_stats(conn: &Connection, session: &SessionRow, _cutoff_ms: i64) -> SessionStats {
+    let mut stats = SessionStats {
+        session_id: Some(session.id.clone()),
+        source: "hermes".to_string(),
+        ..Default::default()
+    };
+
+    if session.time_updated > session.time_created && session.time_created > 0 {
+        stats.duration_ms = (session.time_updated - session.time_created) as u64;
+    }
+    if session.time_created > 0 {
+        if let Some(dt) = DateTime::from_timestamp_millis(session.time_created) {
+            stats.first_timestamp = Some(dt.with_timezone(&Local).to_rfc3339());
+        }
+    }
+
+    let mut stmt = match conn.prepare("SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created ASC") {
+        Ok(stmt) => stmt,
+        Err(_) => return stats,
+    };
+    let rows = match stmt.query_map([&session.id], |row| {
+        let data: String = row.get(0)?;
+        Ok(data)
+    }) {
+        Ok(rows) => rows,
+        Err(_) => return stats,
+    };
+
+    for data_str in rows.flatten() {
+        let value: Value = match serde_json::from_str(&data_str) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        match value.get("role").and_then(|v| v.as_str()).unwrap_or("") {
+            "user" => {
+                stats.instructions += 1;
+                stats.has_activity = true;
+            }
+            "assistant" => {
+                parse_assistant_message(&value, &mut stats);
+                stats.has_activity = true;
+            }
+            _ => {}
+        }
+    }
+
+    stats
+}
+
+fn parse_assistant_message(value: &Value, stats: &mut SessionStats) {
+    let model_id = value.get("modelID").and_then(|v| v.as_str()).unwrap_or("");
+    let tokens = value.get("tokens");
+    let input = tokens.and_then(|t| t.get("input")).and_then(|v| v.as_u64()).unwrap_or(0);
+    let output = tokens.and_then(|t| t.get("output")).and_then(|v| v.as_u64()).unwrap_or(0)
+        + tokens.and_then(|t| t.get("reasoning")).and_then(|v| v.as_u64()).unwrap_or(0);
+    let cache_read = tokens
+        .and_then(|t| t.get("cache"))
+        .and_then(|c| c.get("read"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let cache_creation = tokens
+        .and_then(|t| t.get("cache"))
+        .and_then(|c| c.get("write"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    stats.tokens.input += input;
+    stats.tokens.output += output;
+    stats.tokens.cache_read += cache_read;
+    stats.tokens.cache_creation += cache_creation;
+
+    if !model_id.is_empty() {
+        let model_tokens = stats.tokens.by_model.entry(model_id.to_string()).or_default();
+        model_tokens.input += input;
+        model_tokens.output += output;
+        model_tokens.cache_read += cache_read;
+        model_tokens.cache_creation += cache_creation;
+        let cost = value.get("cost").and_then(|v| v.as_f64()).unwrap_or_else(|| {
+            crate::parser::calculate_cost_for_source("hermes", model_id, input, output, cache_read, cache_creation)
+        });
+        model_tokens.cost_usd += cost;
+        stats.cost_usd += cost;
+        if stats.primary_model.is_none() {
+            stats.primary_model = Some(model_id.to_string());
+        }
+    }
+}
+
+fn user_message_content(value: &Value) -> Option<String> {
+    if let Some(content) = value.get("content") {
+        match content {
+            Value::String(text) => return Some(text.clone()),
+            Value::Array(items) => {
+                let joined = items
+                    .iter()
+                    .filter_map(|item| item.get("text").and_then(|v| v.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !joined.is_empty() {
+                    return Some(joined);
+                }
+            }
+            _ => {}
+        }
+    }
+    value.get("text").and_then(|v| v.as_str()).map(|text| text.to_string())
+}
+
+fn fixed_offset_timestamp_ms(ms: i64) -> Option<DateTime<FixedOffset>> {
+    DateTime::<Utc>::from_timestamp_millis(ms)
+        .map(|dt| dt.with_timezone(&FixedOffset::east_opt(0).unwrap()))
+}
+
+fn message_timestamp_ms(value: &Value, fallback: i64) -> Option<i64> {
+    if fallback > 0 {
+        return Some(fallback);
+    }
+    value.pointer("/time/created").and_then(|v| v.as_i64())
+        .or_else(|| value.pointer("/time/completed").and_then(|v| v.as_i64()))
+}

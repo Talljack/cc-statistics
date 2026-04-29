@@ -24,10 +24,17 @@ use walkdir::WalkDir;
 /// Discover all Codex CLI projects.
 /// Returns (project_display_name, project_path) pairs derived from session data.
 pub fn discover_projects() -> Vec<(String, String)> {
+    let Some(root) = codex_root_dir() else {
+        return Vec::new();
+    };
+    discover_projects_from_root(&root)
+}
+
+pub fn discover_projects_from_root(root: &Path) -> Vec<(String, String)> {
     let mut seen: HashMap<String, String> = HashMap::new();
 
     // 1. Scan JSONL session files
-    if let Some(sessions_dir) = codex_sessions_dir() {
+    if let Some(sessions_dir) = codex_sessions_dir_from_root(root) {
         for entry in WalkDir::new(&sessions_dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -43,7 +50,7 @@ pub fn discover_projects() -> Vec<(String, String)> {
     }
 
     // 2. Scan SQLite fallback
-    if let Some(db_path) = codex_sqlite_path() {
+    if let Some(db_path) = codex_sqlite_path_from_root(root) {
         if let Ok(rows) = query_sqlite_projects(&db_path) {
             for (name, cwd) in rows {
                 seen.entry(name).or_insert(cwd);
@@ -61,10 +68,23 @@ pub fn collect_stats(
     provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
+    let Some(root) = codex_root_dir() else {
+        return ProjectStats::default();
+    };
+    collect_stats_from_root(&root, project, time_filter, provider_filter, custom_providers)
+}
+
+pub fn collect_stats_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> ProjectStats {
     let mut combined = ProjectStats::default();
 
     // JSONL sessions
-    if let Some(sessions_dir) = codex_sessions_dir() {
+    if let Some(sessions_dir) = codex_sessions_dir_from_root(root) {
         for entry in WalkDir::new(&sessions_dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -102,7 +122,7 @@ pub fn collect_stats(
     }
 
     // SQLite fallback
-    if let Some(db_path) = codex_sqlite_path() {
+    if let Some(db_path) = codex_sqlite_path_from_root(root) {
         if let Ok(rows) = query_sqlite_sessions(&db_path, project, time_filter) {
             for session in rows {
                 if !matches_provider(provider_filter, &session, custom_providers) {
@@ -123,10 +143,23 @@ pub fn collect_sessions(
     provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
+    let Some(root) = codex_root_dir() else {
+        return Vec::new();
+    };
+    collect_sessions_from_root(&root, project, time_filter, provider_filter, custom_providers)
+}
+
+pub fn collect_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<SessionInfo> {
     let mut sessions: Vec<SessionInfo> = Vec::new();
 
     // JSONL sessions
-    if let Some(sessions_dir) = codex_sessions_dir() {
+    if let Some(sessions_dir) = codex_sessions_dir_from_root(root) {
         for entry in WalkDir::new(&sessions_dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -166,7 +199,7 @@ pub fn collect_sessions(
     }
 
     // SQLite fallback
-    if let Some(db_path) = codex_sqlite_path() {
+    if let Some(db_path) = codex_sqlite_path_from_root(root) {
         if let Ok(rows) = query_sqlite_sessions(&db_path, project, time_filter) {
             for session in rows {
                 if !matches_provider(provider_filter, &session, custom_providers) {
@@ -187,11 +220,11 @@ pub fn collect_normalized_sessions(
     project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
-    let Some(home) = dirs::home_dir() else {
+    let Some(root) = codex_root_dir() else {
         return Vec::new();
     };
 
-    collect_normalized_sessions_from_home(&home, project, query_range)
+    collect_normalized_sessions_from_root(&root, project, query_range)
 }
 
 pub fn collect_normalized_sessions_from_home(
@@ -199,7 +232,15 @@ pub fn collect_normalized_sessions_from_home(
     project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
-    let sessions_dir = home.join(".codex").join("sessions");
+    collect_normalized_sessions_from_root(&home.join(".codex"), project, query_range)
+}
+
+pub fn collect_normalized_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let sessions_dir = root.join("sessions");
     if !sessions_dir.is_dir() {
         return Vec::new();
     }
@@ -461,6 +502,9 @@ fn parse_normalized_codex_session(
 
     Some(NormalizedSession {
         source: "codex".to_string(),
+        instance_id: "built-in:codex".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.codex".to_string(),
         session_id: session_id.unwrap_or_else(|| "unknown".to_string()),
         project_name,
         git_branch,
@@ -932,12 +976,12 @@ fn file_extension(file_path: &str) -> String {
 // Path helpers
 // ---------------------------------------------------------------------------
 
-fn codex_home_dir() -> Option<PathBuf> {
+fn codex_root_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".codex"))
 }
 
-fn codex_sessions_dir() -> Option<PathBuf> {
-    let dir = codex_home_dir()?.join("sessions");
+fn codex_sessions_dir_from_root(root: &Path) -> Option<PathBuf> {
+    let dir = root.join("sessions");
     if dir.is_dir() {
         Some(dir)
     } else {
@@ -946,7 +990,12 @@ fn codex_sessions_dir() -> Option<PathBuf> {
 }
 
 fn codex_sqlite_path() -> Option<PathBuf> {
-    let path = codex_home_dir()?.join("state_5.sqlite");
+    let root = codex_root_dir()?;
+    codex_sqlite_path_from_root(&root)
+}
+
+fn codex_sqlite_path_from_root(root: &Path) -> Option<PathBuf> {
+    let path = root.join("state_5.sqlite");
     if path.is_file() {
         Some(path)
     } else {
@@ -1277,6 +1326,9 @@ fn session_stats_to_info(session: SessionStats, project_name: &str) -> SessionIn
         + session.tokens.cache_creation;
 
     SessionInfo {
+        instance_id: "built-in:codex".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.codex".to_string(),
         session_id: session.session_id.unwrap_or_else(|| "unknown".to_string()),
         project_name: project_name.to_string(),
         timestamp: session.first_timestamp.unwrap_or_default(),
@@ -1488,9 +1540,30 @@ pub fn collect_instructions(
     provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<InstructionInfo> {
+    let Some(root) = codex_root_dir() else {
+        return Vec::new();
+    };
+    collect_instructions_from_root(
+        root.as_path(),
+        project,
+        time_filter,
+        _query_range,
+        provider_filter,
+        custom_providers,
+    )
+}
+
+pub fn collect_instructions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    _query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<InstructionInfo> {
     let mut instructions: Vec<InstructionInfo> = Vec::new();
 
-    if let Some(sessions_dir) = codex_sessions_dir() {
+    if let Some(sessions_dir) = codex_sessions_dir_from_root(root) {
         for entry in WalkDir::new(&sessions_dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -1598,6 +1671,9 @@ pub fn collect_instructions(
                         instructions.push(InstructionInfo {
                             timestamp,
                             project_name,
+                            instance_id: "built-in:codex".to_string(),
+                            instance_label: "Default".to_string(),
+                            instance_root_path: "~/.codex".to_string(),
                             session_id: session_id.clone(),
                             source: "codex".to_string(),
                             content: truncated,
