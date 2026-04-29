@@ -4,6 +4,9 @@ use chrono::{DateTime, FixedOffset, Local};
 #[derive(Debug, Clone)]
 pub struct NormalizedSession {
     pub source: String,
+    pub instance_id: String,
+    pub instance_label: String,
+    pub instance_root_path: String,
     pub session_id: String,
     pub project_name: String,
     pub git_branch: Option<String>,
@@ -14,7 +17,7 @@ pub struct NormalizedSession {
 
 impl NormalizedSession {
     pub fn stable_id(&self) -> String {
-        format!("{}:{}", self.source, self.session_id)
+        format!("{}:{}:{}", self.source, self.instance_id, self.session_id)
     }
 }
 

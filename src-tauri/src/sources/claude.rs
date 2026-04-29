@@ -9,11 +9,10 @@ use crate::time_ranges::filter_by_query_range;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-fn get_projects_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let projects_dir = home.join(".claude").join("projects");
+fn get_projects_dir_from_root(root: &Path) -> Result<PathBuf, String> {
+    let projects_dir = root.join("projects");
     if !projects_dir.exists() {
         return Err("Claude projects directory not found".to_string());
     }
@@ -101,8 +100,8 @@ fn has_any_activity(project_dir: &PathBuf) -> bool {
     false
 }
 
-fn build_project_name_map() -> Result<HashMap<String, Vec<PathBuf>>, String> {
-    let projects_dir = get_projects_dir()?;
+fn build_project_name_map_from_root(root: &Path) -> Result<HashMap<String, Vec<PathBuf>>, String> {
+    let projects_dir = get_projects_dir_from_root(root)?;
     let mut map: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for entry in
@@ -124,7 +123,15 @@ fn build_project_name_map() -> Result<HashMap<String, Vec<PathBuf>>, String> {
 }
 
 pub fn discover_projects() -> Vec<(String, String)> {
-    let name_map = match build_project_name_map() {
+    let root = match dirs::home_dir() {
+        Some(home) => home.join(".claude"),
+        None => return vec![],
+    };
+    discover_projects_from_root(&root)
+}
+
+pub fn discover_projects_from_root(root: &Path) -> Vec<(String, String)> {
+    let name_map = match build_project_name_map_from_root(root) {
         Ok(m) => m,
         Err(_) => return vec![],
     };
@@ -148,7 +155,22 @@ pub fn collect_stats(
     provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> ProjectStats {
-    let name_map = match build_project_name_map() {
+    let root = match dirs::home_dir() {
+        Some(home) => home.join(".claude"),
+        None => return ProjectStats::default(),
+    };
+    collect_stats_from_root(root.as_path(), project, time_filter, query_range, provider_filter, custom_providers)
+}
+
+pub fn collect_stats_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> ProjectStats {
+    let name_map = match build_project_name_map_from_root(root) {
         Ok(m) => m,
         Err(_) => return ProjectStats::default(),
     };
@@ -232,7 +254,22 @@ pub fn collect_sessions(
     provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<SessionInfo> {
-    let name_map = match build_project_name_map() {
+    let root = match dirs::home_dir() {
+        Some(home) => home.join(".claude"),
+        None => return vec![],
+    };
+    collect_sessions_from_root(root.as_path(), project, time_filter, query_range, provider_filter, custom_providers)
+}
+
+pub fn collect_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<SessionInfo> {
+    let name_map = match build_project_name_map_from_root(root) {
         Ok(m) => m,
         Err(_) => return vec![],
     };
@@ -286,6 +323,9 @@ pub fn collect_sessions(
                     + session_stats.tokens.cache_creation;
 
                 sessions.push(SessionInfo {
+                    instance_id: "built-in:claude_code".to_string(),
+                    instance_label: "Default".to_string(),
+                    instance_root_path: "~/.claude".to_string(),
                     session_id: session_stats
                         .session_id
                         .unwrap_or_else(|| "unknown".to_string()),
@@ -318,7 +358,19 @@ pub fn collect_normalized_sessions(
     project: Option<&[String]>,
     query_range: &QueryTimeRange,
 ) -> Vec<NormalizedSession> {
-    let name_map = match build_project_name_map() {
+    let root = match dirs::home_dir() {
+        Some(home) => home.join(".claude"),
+        None => return Vec::new(),
+    };
+    collect_normalized_sessions_from_root(root.as_path(), project, query_range)
+}
+
+pub fn collect_normalized_sessions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    query_range: &QueryTimeRange,
+) -> Vec<NormalizedSession> {
+    let name_map = match build_project_name_map_from_root(root) {
         Ok(map) => map,
         Err(_) => return Vec::new(),
     };
@@ -369,7 +421,22 @@ pub fn collect_instructions(
     provider_filter: &Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
 ) -> Vec<InstructionInfo> {
-    let name_map = match build_project_name_map() {
+    let root = match dirs::home_dir() {
+        Some(home) => home.join(".claude"),
+        None => return vec![],
+    };
+    collect_instructions_from_root(root.as_path(), project, time_filter, query_range, provider_filter, custom_providers)
+}
+
+pub fn collect_instructions_from_root(
+    root: &Path,
+    project: Option<&[String]>,
+    time_filter: &TimeFilter,
+    query_range: &Option<QueryTimeRange>,
+    provider_filter: &Option<Vec<String>>,
+    custom_providers: &[CustomProviderDef],
+) -> Vec<InstructionInfo> {
+    let name_map = match build_project_name_map_from_root(root) {
         Ok(m) => m,
         Err(_) => return vec![],
     };
@@ -432,6 +499,9 @@ pub fn collect_instructions(
                     instructions.push(InstructionInfo {
                         timestamp,
                         project_name: project_name.clone(),
+                        instance_id: "built-in:claude_code".to_string(),
+                        instance_label: "Default".to_string(),
+                        instance_root_path: "~/.claude".to_string(),
                         session_id: session_id.clone(),
                         source: "claude_code".to_string(),
                         content,

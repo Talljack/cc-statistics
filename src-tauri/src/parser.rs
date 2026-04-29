@@ -95,6 +95,9 @@ pub fn parse_normalized_session_file(
 
     let mut session = NormalizedSession {
         source: "claude_code".to_string(),
+        instance_id: "built-in:claude_code".to_string(),
+        instance_label: "Default".to_string(),
+        instance_root_path: "~/.claude".to_string(),
         session_id: path
             .file_stem()
             .and_then(|stem| stem.to_str())

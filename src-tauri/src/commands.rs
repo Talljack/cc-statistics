@@ -3,16 +3,17 @@ use crate::export::{format_csv, format_json, format_markdown, format_xlsx, Expor
 use crate::models::*;
 use crate::pricing_providers;
 use crate::session_reader::{
-    parse_session_messages, read_codex_session_file, read_gemini_session_file,
-    read_openclaw_session_file, read_opencode_session_file, read_session_file, SessionMessage,
+    parse_session_messages, read_codex_session_file, read_codex_session_file_from_root,
+    read_gemini_session_file, read_gemini_session_file_from_root, read_openclaw_session_file,
+    read_openclaw_session_file_from_root, read_opencode_session_file,
+    read_opencode_session_file_from_root, read_session_file, read_session_file_from_root,
+    read_hermes_session_file, read_hermes_session_file_from_root, SessionMessage,
 };
 use crate::sources;
 use crate::time_ranges;
 use chrono::{DateTime, Duration, Local, TimeZone};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -383,79 +384,6 @@ pub(crate) fn parse_time_filter(s: &str) -> TimeFilter {
     }
 }
 
-fn get_claude_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let claude_dir = home.join(".claude");
-    if !claude_dir.exists() {
-        return Err(".claude directory not found".to_string());
-    }
-    Ok(claude_dir)
-}
-
-fn get_projects_dir() -> Result<PathBuf, String> {
-    let claude_dir = get_claude_dir()?;
-    let projects_dir = claude_dir.join("projects");
-    if !projects_dir.exists() {
-        return Err("projects directory not found".to_string());
-    }
-    Ok(projects_dir)
-}
-
-fn find_project_display_name(project_dir: &PathBuf) -> String {
-    let internal_name = project_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("unknown");
-
-    let entries = match fs::read_dir(project_dir) {
-        Ok(entries) => entries,
-        Err(_) => return internal_name.trim_start_matches('-').to_string(),
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-            continue;
-        }
-
-        let file = match fs::File::open(&path) {
-            Ok(file) => file,
-            Err(_) => continue,
-        };
-
-        let reader = BufReader::new(file);
-        for line in reader.lines().take(20).flatten() {
-            let value: serde_json::Value = match serde_json::from_str(&line) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-
-            let cwd = match value.get("cwd").and_then(|cwd| cwd.as_str()) {
-                Some(cwd) => PathBuf::from(cwd),
-                None => continue,
-            };
-
-            let root = cwd
-                .ancestors()
-                .find(|ancestor| {
-                    ancestor.join(".git").exists()
-                        || ancestor.join("package.json").exists()
-                        || ancestor.join("Cargo.toml").exists()
-                        || ancestor.join("pnpm-lock.yaml").exists()
-                })
-                .unwrap_or(cwd.as_path());
-
-            if let Some(name) = root.file_name().and_then(|name| name.to_str()) {
-                if !name.is_empty() {
-                    return name.to_string();
-                }
-            }
-        }
-    }
-
-    internal_name.trim_start_matches('-').to_string()
-}
-
 pub(crate) fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> bool {
     let metadata = match fs::metadata(file_path) {
         Ok(m) => m,
@@ -492,94 +420,17 @@ pub(crate) fn filter_by_time(time_filter: &TimeFilter, file_path: &PathBuf) -> b
     }
 }
 
-fn has_any_activity(project_dir: &PathBuf) -> bool {
-    let entries = match fs::read_dir(project_dir) {
-        Ok(entries) => entries,
-        Err(_) => return false,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-            continue;
-        }
-        if let Ok(meta) = fs::metadata(&path) {
-            if meta.len() > 100 {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn build_project_name_map() -> Result<HashMap<String, Vec<PathBuf>>, String> {
-    let projects_dir = get_projects_dir()?;
-    let mut map: HashMap<String, Vec<PathBuf>> = HashMap::new();
-
-    for entry in
-        fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects dir: {}", e))?
-    {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let display_name = find_project_display_name(&path);
-            if display_name.starts_with('.') {
-                continue;
-            }
-            map.entry(display_name).or_default().push(path);
-        }
-    }
-
-    Ok(map)
-}
-
 #[tauri::command]
 pub async fn get_projects(
     enabled_sources: Option<SourceConfig>,
+    source_instances: Option<Vec<SourceInstanceConfig>>,
 ) -> Result<Vec<ProjectInfo>, String> {
     tokio::task::spawn_blocking(move || {
-        let config = enabled_sources.unwrap_or_default();
-        let name_map = build_project_name_map()?;
-        let mut projects_map: HashMap<String, ProjectInfo> = HashMap::new();
-
-        // Claude Code projects
-        if config.claude_code {
-            for (name, dirs) in &name_map {
-                let active = dirs.iter().any(|dir| has_any_activity(dir));
-                if !active {
-                    continue;
-                }
-                projects_map
-                    .entry(name.clone())
-                    .or_insert_with(|| ProjectInfo {
-                        name: name.clone(),
-                        path: name.clone(),
-                    });
-            }
-        }
-
-        // Other sources
-        let other_sources: Vec<(bool, fn() -> Vec<(String, String)>)> = vec![
-            (config.codex, sources::codex::discover_projects),
-            (config.gemini, sources::gemini::discover_projects),
-            (config.opencode, sources::opencode::discover_projects),
-            (config.openclaw, sources::openclaw::discover_projects),
-        ];
-
-        for (enabled, discover_fn) in other_sources {
-            if enabled {
-                for (name, path) in discover_fn() {
-                    projects_map
-                        .entry(name.clone())
-                        .or_insert_with(|| ProjectInfo { name, path });
-                }
-            }
-        }
-
-        let mut projects: Vec<ProjectInfo> = projects_map.into_values().collect();
-        projects.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(projects)
+        let query = SourceQueryConfig {
+            enabled_sources,
+            source_instances,
+        };
+        Ok(sources::collect_all_projects_from_query(Some(&query)))
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -593,17 +444,21 @@ pub async fn get_statistics(
     provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
+    source_instances: Option<Vec<SourceInstanceConfig>>,
 ) -> Result<Statistics, String> {
     tokio::task::spawn_blocking(move || {
         let cps = custom_providers.unwrap_or_default();
-        let config = enabled_sources.unwrap_or_default();
+        let query = SourceQueryConfig {
+            enabled_sources,
+            source_instances,
+        };
         get_statistics_internal(
             project,
             time_filter,
             time_range,
             provider_filter,
             &cps,
-            &config,
+            Some(&query),
         )
     })
     .await
@@ -616,7 +471,7 @@ pub fn get_statistics_internal(
     time_range: Option<QueryTimeRange>,
     provider_filter: Option<Vec<String>>,
     custom_providers: &[CustomProviderDef],
-    config: &SourceConfig,
+    query: Option<&SourceQueryConfig>,
 ) -> Result<Statistics, String> {
     let filter = match time_range {
         Some(ref qr) => time_ranges::query_time_range_to_filter(qr),
@@ -625,8 +480,11 @@ pub fn get_statistics_internal(
     let project = normalize_filter_values(project);
     let provider_filter = normalize_filter_values(provider_filter);
     let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
-    let sessions =
-        sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, config);
+    let sessions = sources::collect_all_normalized_sessions_from_query(
+        project.as_deref(),
+        &effective_range,
+        query,
+    );
 
     Ok(aggregation::aggregate_statistics(
         &sessions,
@@ -644,6 +502,7 @@ pub async fn get_sessions(
     provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
+    source_instances: Option<Vec<SourceInstanceConfig>>,
 ) -> Result<Vec<SessionInfo>, String> {
     tokio::task::spawn_blocking(move || {
         let filter = match time_range {
@@ -651,12 +510,18 @@ pub async fn get_sessions(
             None => parse_time_filter(time_filter.as_str()),
         };
         let cps = custom_providers.unwrap_or_default();
-        let config = enabled_sources.unwrap_or_default();
+        let query = SourceQueryConfig {
+            enabled_sources,
+            source_instances,
+        };
         let project = normalize_filter_values(project);
         let provider_filter = normalize_filter_values(provider_filter);
         let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
-        let sessions =
-            sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
+        let sessions = sources::collect_all_normalized_sessions_from_query(
+            project.as_deref(),
+            &effective_range,
+            Some(&query),
+        );
 
         Ok(aggregation::aggregate_sessions(
             &sessions,
@@ -677,6 +542,7 @@ pub async fn get_instructions(
     provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
+    source_instances: Option<Vec<SourceInstanceConfig>>,
 ) -> Result<Vec<InstructionInfo>, String> {
     tokio::task::spawn_blocking(move || {
         let filter = match time_range {
@@ -684,12 +550,18 @@ pub async fn get_instructions(
             None => parse_time_filter(time_filter.as_str()),
         };
         let cps = custom_providers.unwrap_or_default();
-        let config = enabled_sources.unwrap_or_default();
+        let query = SourceQueryConfig {
+            enabled_sources,
+            source_instances,
+        };
         let project = normalize_filter_values(project);
         let provider_filter = normalize_filter_values(provider_filter);
         let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
-        let sessions =
-            sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
+        let sessions = sources::collect_all_normalized_sessions_from_query(
+            project.as_deref(),
+            &effective_range,
+            Some(&query),
+        );
 
         Ok(aggregation::aggregate_instructions(
             &sessions,
@@ -717,6 +589,8 @@ pub fn export_report(
             session_id: s.session_id,
             model: s.model,
             source: s.source,
+            instance_label: s.instance_label,
+            instance_root_path: s.instance_root_path,
             input_tokens: s.input,
             output_tokens: s.output,
             cache_read_tokens: s.cache_read,
@@ -752,6 +626,8 @@ pub fn export_report_xlsx(
             session_id: s.session_id,
             model: s.model,
             source: s.source,
+            instance_label: s.instance_label,
+            instance_root_path: s.instance_root_path,
             input_tokens: s.input,
             output_tokens: s.output,
             cache_read_tokens: s.cache_read,
@@ -773,20 +649,77 @@ pub fn export_report_xlsx(
 pub async fn get_session_messages(
     session_id: String,
     source: String,
+    instance_id: Option<String>,
+    instance_root_path: Option<String>,
 ) -> Result<Vec<SessionMessage>, String> {
     tokio::task::spawn_blocking(move || {
+        let resolved_root = instance_root_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+
+        let resolved_instance = if resolved_root.is_none() {
+            instance_id.as_ref().and_then(|target_id| {
+            sources::resolve_source_instances(None)
+                .into_iter()
+                .find(|instance| instance.id == *target_id)
+            })
+        } else {
+            None
+        };
+
         match source.as_str() {
             "claude_code" => {
-                let jsonl = read_session_file(&session_id)?;
+                let jsonl = if let Some(root) = resolved_root.as_ref() {
+                    read_session_file_from_root(root, &session_id)?
+                } else if let Some(instance) = resolved_instance.as_ref() {
+                    read_session_file_from_root(&instance.root_path, &session_id)?
+                } else {
+                    read_session_file(&session_id)?
+                };
                 Ok(parse_session_messages(&jsonl))
             }
             "openclaw" => {
-                let jsonl = read_openclaw_session_file(&session_id)?;
+                let jsonl = if let Some(root) = resolved_root.as_ref() {
+                    read_openclaw_session_file_from_root(root, &session_id)?
+                } else {
+                    read_openclaw_session_file(&session_id)?
+                };
                 Ok(parse_session_messages(&jsonl))
             }
-            "codex" => read_codex_session_file(&session_id),
-            "gemini" => read_gemini_session_file(&session_id),
-            "opencode" => read_opencode_session_file(&session_id),
+            "codex" => {
+                if let Some(root) = resolved_root.as_ref() {
+                    read_codex_session_file_from_root(root, &session_id)
+                } else if let Some(instance) = resolved_instance.as_ref() {
+                    read_codex_session_file_from_root(&instance.root_path, &session_id)
+                } else {
+                    read_codex_session_file(&session_id)
+                }
+            }
+            "gemini" => {
+                if let Some(root) = resolved_root.as_ref() {
+                    read_gemini_session_file_from_root(root, &session_id)
+                } else {
+                    read_gemini_session_file(&session_id)
+                }
+            }
+            "opencode" => {
+                if let Some(root) = resolved_root.as_ref() {
+                    read_opencode_session_file_from_root(root, &session_id)
+                } else {
+                    read_opencode_session_file(&session_id)
+                }
+            }
+            "hermes" => {
+                if let Some(root) = resolved_root.as_ref() {
+                    read_hermes_session_file_from_root(root, &session_id)
+                } else if let Some(instance) = resolved_instance.as_ref() {
+                    read_hermes_session_file_from_root(&instance.root_path, &session_id)
+                } else {
+                    read_hermes_session_file(&session_id)
+                }
+            }
             _ => Ok(Vec::new()),
         }
     })
@@ -803,14 +736,18 @@ pub fn update_tray_stats(app: tauri::AppHandle, stats: Option<TrayDisplayStats>)
 pub async fn get_available_providers(
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
+    source_instances: Option<Vec<SourceInstanceConfig>>,
 ) -> Result<Vec<String>, String> {
     tokio::task::spawn_blocking(move || {
         let cps = custom_providers.unwrap_or_default();
-        let config = enabled_sources.unwrap_or_default();
         let all_range = QueryTimeRange::BuiltIn {
             key: BuiltInTimeRangeKey::All,
         };
-        let sessions = sources::collect_all_normalized_sessions(None, &all_range, &config);
+        let query = SourceQueryConfig {
+            enabled_sources,
+            source_instances,
+        };
+        let sessions = sources::collect_all_normalized_sessions_from_query(None, &all_range, Some(&query));
         Ok(aggregation::aggregate_available_providers(&sessions, &cps))
     })
     .await
@@ -825,6 +762,7 @@ pub async fn get_code_changes_detail(
     provider_filter: Option<Vec<String>>,
     custom_providers: Option<Vec<CustomProviderDef>>,
     enabled_sources: Option<SourceConfig>,
+    source_instances: Option<Vec<SourceInstanceConfig>>,
 ) -> Result<Vec<FileChange>, String> {
     tokio::task::spawn_blocking(move || {
         let filter = match time_range {
@@ -832,12 +770,18 @@ pub async fn get_code_changes_detail(
             None => parse_time_filter(time_filter.as_str()),
         };
         let cps = custom_providers.unwrap_or_default();
-        let config = enabled_sources.unwrap_or_default();
+        let query = SourceQueryConfig {
+            enabled_sources,
+            source_instances,
+        };
         let project = normalize_filter_values(project);
         let provider_filter = normalize_filter_values(provider_filter);
         let effective_range = time_ranges::effective_query_range(&filter, time_range.as_ref());
-        let sessions =
-            sources::collect_all_normalized_sessions(project.as_deref(), &effective_range, &config);
+        let sessions = sources::collect_all_normalized_sessions_from_query(
+            project.as_deref(),
+            &effective_range,
+            Some(&query),
+        );
 
         Ok(aggregation::aggregate_code_changes_detail(
             &sessions,
@@ -886,6 +830,7 @@ pub fn get_preset_models() -> Vec<String> {
 pub async fn get_account_usage(
     app: tauri::AppHandle,
     _enabled_sources: Option<SourceConfig>,
+    _source_instances: Option<Vec<SourceInstanceConfig>>,
 ) -> Result<AccountUsageResult, String> {
     let providers = crate::account_providers::fetch_all_streaming(&app).await;
     Ok(AccountUsageResult { providers })

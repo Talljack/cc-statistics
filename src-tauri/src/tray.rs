@@ -82,7 +82,7 @@ pub fn update_tray(app: &AppHandle, override_stats: Option<TrayDisplayStats>) {
                 None,
                 None,
                 &[],
-                &Default::default(),
+                None,
             ) {
                 Ok(stats) => stats,
                 Err(_) => return,

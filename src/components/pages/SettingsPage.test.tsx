@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { SettingsPage } from './SettingsPage';
 import { usePricingStore } from '../../stores/pricingStore';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { buildDefaultSourceInstances, useSettingsStore } from '../../stores/settingsStore';
 import type { PricingCatalogResult } from '../../types/pricing';
 
 const invokeMock = vi.fn();
@@ -130,7 +130,9 @@ beforeEach(() => {
       gemini: true,
       opencode: true,
       openclaw: true,
+      hermes: true,
     },
+    sourceInstances: buildDefaultSourceInstances(),
   });
 
   usePricingStore.setState({

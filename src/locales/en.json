@@ -119,6 +119,10 @@
   "settings.dataSource.desc": "Enable or disable CLI data sources for statistics",
   "settings.dataSource.scanPath": "Scan Path",
   "settings.dataSource.defaultOnly": "Currently only the default path is supported. Custom paths will be available in a future version.",
+  "settings.dataSource.defaultBadge": "Default",
+  "settings.dataSource.instanceLabel": "Instance label",
+  "settings.dataSource.customPathPlaceholder": "Custom root path, e.g. ~/.codex-one",
+  "settings.dataSource.addPath": "Add Path",
   "settings.dataSource.detected": "Detected",
   "settings.dataSource.notDetected": "Not detected",
   "settings.dataSource.claudeCode": "Claude Code",
@@ -126,6 +130,7 @@
   "settings.dataSource.gemini": "Gemini CLI",
   "settings.dataSource.opencode": "Opencode",
   "settings.dataSource.openclaw": "Openclaw",
+  "settings.dataSource.hermes": "Hermes",
   "sessions.source": "Source",
 
   "settings.customProviders.title": "Custom Providers",

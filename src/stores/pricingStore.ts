@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
 import { FALLBACK_PRICING as SHARED_FALLBACK_PRICING, resolveModelPricing } from '../lib/modelPricing';
 import type { ModelPriceEntry as CatalogModelPriceEntry, PricingCatalogResult, PricingProviderCatalog } from '../types/pricing';
@@ -85,6 +85,20 @@ async function fetchCatalog(forceRefresh: boolean): Promise<PricingCatalogResult
   return invoke<PricingCatalogResult>('get_pricing_catalog', { forceRefresh: false });
 }
 
+function getPricingStorage() {
+  if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
+    return window.localStorage;
+  }
+  if (typeof localStorage !== 'undefined' && localStorage && typeof localStorage.setItem === 'function') {
+    return localStorage;
+  }
+  return {
+    getItem: () => null,
+    setItem: () => undefined,
+    removeItem: () => undefined,
+  };
+}
+
 export const usePricingStore = create<PricingStore>()(
   persist(
     (set, get) => ({
@@ -158,6 +172,7 @@ export const usePricingStore = create<PricingStore>()(
     }),
     {
       name: 'cc-statistics-pricing-cache',
+      storage: createJSONStorage(getPricingStorage),
       partialize: (state) => ({
         catalog: state.catalog,
         providers: state.providers,

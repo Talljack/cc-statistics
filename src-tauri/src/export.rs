@@ -8,6 +8,8 @@ pub struct ExportRow {
     pub session_id: String,
     pub model: String,
     pub source: String,
+    pub instance_label: String,
+    pub instance_root_path: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
@@ -28,17 +30,19 @@ fn csv_escape(value: &str) -> String {
 }
 
 pub fn format_csv(rows: &[ExportRow]) -> String {
-    let header = "date,project,session_id,model,source,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,cost_usd,duration_ms,instructions,git_branch";
+    let header = "date,project,session_id,model,source,instance_label,instance_root_path,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,cost_usd,duration_ms,instructions,git_branch";
 
     let mut lines = vec![header.to_string()];
     for row in rows {
         lines.push(format!(
-            "{},{},{},{},{},{},{},{},{},{},{:.6},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{},{},{}",
             csv_escape(&row.date),
             csv_escape(&row.project),
             csv_escape(&row.session_id),
             csv_escape(&row.model),
             csv_escape(&row.source),
+            csv_escape(&row.instance_label),
+            csv_escape(&row.instance_root_path),
             row.input_tokens,
             row.output_tokens,
             row.cache_read_tokens,
@@ -86,17 +90,19 @@ pub fn format_markdown(rows: &[ExportRow], title: &str) -> String {
 
     // Table
     out.push_str("## Sessions\n\n");
-    out.push_str("| Date | Project | Session ID | Model | Source | Input Tokens | Output Tokens | Cache Read | Cache Creation | Total Tokens | Cost (USD) | Duration (ms) | Instructions | Git Branch |\n");
-    out.push_str("|------|---------|-----------|-------|--------|-------------|--------------|-----------|---------------|-------------|-----------|--------------|-------------|------------|\n");
+    out.push_str("| Date | Project | Session ID | Model | Source | Instance | Instance Root | Input Tokens | Output Tokens | Cache Read | Cache Creation | Total Tokens | Cost (USD) | Duration (ms) | Instructions | Git Branch |\n");
+    out.push_str("|------|---------|-----------|-------|--------|----------|---------------|-------------|--------------|-----------|---------------|-------------|-----------|--------------|-------------|------------|\n");
 
     for row in rows {
         out.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {:.6} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {:.6} | {} | {} | {} |\n",
             row.date,
             row.project,
             row.session_id,
             row.model,
             row.source,
+            row.instance_label,
+            row.instance_root_path,
             row.input_tokens,
             row.output_tokens,
             row.cache_read_tokens,
@@ -175,7 +181,7 @@ pub fn format_xlsx(rows: &[ExportRow], title: &str) -> Result<Vec<u8>, XlsxError
 
     // Data table headers
     let headers = [
-        "Date", "Project", "Session ID", "Model", "Source",
+        "Date", "Project", "Session ID", "Model", "Source", "Instance", "Instance Root",
         "Input Tokens", "Output Tokens", "Cache Read", "Cache Creation",
         "Total Tokens", "Cost (USD)", "Duration (ms)", "Instructions", "Git Branch"
     ];
@@ -192,15 +198,17 @@ pub fn format_xlsx(rows: &[ExportRow], title: &str) -> Result<Vec<u8>, XlsxError
         worksheet.write(row_idx, 2, &data_row.session_id)?;
         worksheet.write(row_idx, 3, &data_row.model)?;
         worksheet.write(row_idx, 4, &data_row.source)?;
-        worksheet.write_with_format(row_idx, 5, data_row.input_tokens as f64, &number_format)?;
-        worksheet.write_with_format(row_idx, 6, data_row.output_tokens as f64, &number_format)?;
-        worksheet.write_with_format(row_idx, 7, data_row.cache_read_tokens as f64, &number_format)?;
-        worksheet.write_with_format(row_idx, 8, data_row.cache_creation_tokens as f64, &number_format)?;
-        worksheet.write_with_format(row_idx, 9, data_row.total_tokens as f64, &number_format)?;
-        worksheet.write_with_format(row_idx, 10, data_row.cost_usd, &cost_format)?;
-        worksheet.write_with_format(row_idx, 11, data_row.duration_ms as f64, &number_format)?;
-        worksheet.write_with_format(row_idx, 12, data_row.instructions as f64, &number_format)?;
-        worksheet.write(row_idx, 13, &data_row.git_branch)?;
+        worksheet.write(row_idx, 5, &data_row.instance_label)?;
+        worksheet.write(row_idx, 6, &data_row.instance_root_path)?;
+        worksheet.write_with_format(row_idx, 7, data_row.input_tokens as f64, &number_format)?;
+        worksheet.write_with_format(row_idx, 8, data_row.output_tokens as f64, &number_format)?;
+        worksheet.write_with_format(row_idx, 9, data_row.cache_read_tokens as f64, &number_format)?;
+        worksheet.write_with_format(row_idx, 10, data_row.cache_creation_tokens as f64, &number_format)?;
+        worksheet.write_with_format(row_idx, 11, data_row.total_tokens as f64, &number_format)?;
+        worksheet.write_with_format(row_idx, 12, data_row.cost_usd, &cost_format)?;
+        worksheet.write_with_format(row_idx, 13, data_row.duration_ms as f64, &number_format)?;
+        worksheet.write_with_format(row_idx, 14, data_row.instructions as f64, &number_format)?;
+        worksheet.write(row_idx, 15, &data_row.git_branch)?;
         row_idx += 1;
     }
 
@@ -210,15 +218,17 @@ pub fn format_xlsx(rows: &[ExportRow], title: &str) -> Result<Vec<u8>, XlsxError
     worksheet.set_column_width(2, 25)?;  // Session ID
     worksheet.set_column_width(3, 20)?;  // Model
     worksheet.set_column_width(4, 15)?;  // Source
-    worksheet.set_column_width(5, 14)?;  // Input Tokens
-    worksheet.set_column_width(6, 14)?;  // Output Tokens
-    worksheet.set_column_width(7, 12)?;  // Cache Read
-    worksheet.set_column_width(8, 15)?;  // Cache Creation
-    worksheet.set_column_width(9, 14)?;  // Total Tokens
-    worksheet.set_column_width(10, 12)?; // Cost
-    worksheet.set_column_width(11, 14)?; // Duration
-    worksheet.set_column_width(12, 12)?; // Instructions
-    worksheet.set_column_width(13, 15)?; // Git Branch
+    worksheet.set_column_width(5, 18)?;  // Instance
+    worksheet.set_column_width(6, 28)?;  // Instance Root
+    worksheet.set_column_width(7, 14)?;  // Input Tokens
+    worksheet.set_column_width(8, 14)?;  // Output Tokens
+    worksheet.set_column_width(9, 12)?;  // Cache Read
+    worksheet.set_column_width(10, 15)?; // Cache Creation
+    worksheet.set_column_width(11, 14)?; // Total Tokens
+    worksheet.set_column_width(12, 12)?; // Cost
+    worksheet.set_column_width(13, 14)?; // Duration
+    worksheet.set_column_width(14, 12)?; // Instructions
+    worksheet.set_column_width(15, 15)?; // Git Branch
 
     workbook.save_to_buffer()
 }
@@ -235,6 +245,8 @@ mod tests {
             session_id: "session-abc123".to_string(),
             model: "claude-sonnet-4-5".to_string(),
             source: "claude_code".to_string(),
+            instance_label: "Default".to_string(),
+            instance_root_path: "~/.claude".to_string(),
             input_tokens: 1000,
             output_tokens: 500,
             cache_read_tokens: 200,
@@ -254,6 +266,8 @@ mod tests {
             session_id: "session-xyz".to_string(),
             model: "claude,opus".to_string(),
             source: "claude_code".to_string(),
+            instance_label: "Work,Profile".to_string(),
+            instance_root_path: "~/sync/linux/.claude-work".to_string(),
             input_tokens: 10,
             output_tokens: 5,
             cache_read_tokens: 0,
@@ -271,7 +285,7 @@ mod tests {
         let result = format_csv(&[]);
         assert_eq!(
             result,
-            "date,project,session_id,model,source,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,cost_usd,duration_ms,instructions,git_branch"
+            "date,project,session_id,model,source,instance_label,instance_root_path,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,cost_usd,duration_ms,instructions,git_branch"
         );
     }
 
@@ -283,6 +297,8 @@ mod tests {
         assert!(lines[0].starts_with("date,project,"));
         assert!(lines[1].contains("2026-03-29"));
         assert!(lines[1].contains("cc-statistics"));
+        assert!(lines[1].contains("Default"));
+        assert!(lines[1].contains("~/.claude"));
         assert!(lines[1].contains("1800"));
         assert!(lines[1].contains("0.025000"));
     }
@@ -295,6 +311,7 @@ mod tests {
         // Fields with commas should be quoted
         assert!(lines[1].contains("\"my,project\""));
         assert!(lines[1].contains("\"claude,opus\""));
+        assert!(lines[1].contains("\"Work,Profile\""));
     }
 
     #[test]
@@ -321,6 +338,8 @@ mod tests {
         assert!(result.ends_with(']'));
         assert!(result.contains("\"date\": \"2026-03-29\""));
         assert!(result.contains("\"project\": \"cc-statistics\""));
+        assert!(result.contains("\"instance_label\": \"Default\""));
+        assert!(result.contains("\"instance_root_path\": \"~/.claude\""));
         assert!(result.contains("\"total_tokens\": 1800"));
         assert!(result.contains("\"cost_usd\": 0.025"));
     }
@@ -352,6 +371,8 @@ mod tests {
         // Table row
         assert!(result.contains("| 2026-03-29 |"));
         assert!(result.contains("| cc-statistics |"));
+        assert!(result.contains("| Default |"));
+        assert!(result.contains("| ~/.claude |"));
         assert!(result.contains("| main |"));
     }
 

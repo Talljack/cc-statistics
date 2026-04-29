@@ -119,6 +119,10 @@
   "settings.dataSource.desc": "CLIデータソースの有効/無効を切り替え",
   "settings.dataSource.scanPath": "スキャンパス",
   "settings.dataSource.defaultOnly": "現在はデフォルトパスのみサポートしています。",
+  "settings.dataSource.defaultBadge": "デフォルト",
+  "settings.dataSource.instanceLabel": "インスタンス名",
+  "settings.dataSource.customPathPlaceholder": "カスタムルートパス 例: ~/.codex-one",
+  "settings.dataSource.addPath": "パスを追加",
   "settings.dataSource.detected": "検出済み",
   "settings.dataSource.notDetected": "未検出",
   "settings.dataSource.claudeCode": "Claude Code",
@@ -126,6 +130,7 @@
   "settings.dataSource.gemini": "Gemini CLI",
   "settings.dataSource.opencode": "Opencode",
   "settings.dataSource.openclaw": "Openclaw",
+  "settings.dataSource.hermes": "Hermes",
   "sessions.source": "ソース",
 
   "settings.customProviders.title": "カスタムプロバイダー",
